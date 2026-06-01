@@ -78,8 +78,31 @@ python3 -m pytest -q
 - Python 3.11+ (3.13 실행). 의존성: `pydantic` v2, `pyyaml`, `aiosqlite`,
   `pytest`, `pytest-asyncio` 만.
 - 단일 프로세스 asyncio. 테스트는 네트워크를 호출하지 않는다.
-- LLM 기본 = 결정론적 `FakeLLM`. 환경변수 `LIOT_LLM_BACKEND` 설정 시 실제
-  백엔드 스텁(Phase1 미연결), 미설정 시 FakeLLM.
+- LLM 기본 = 결정론적 `FakeLLM`. 환경변수 `LIOT_LLM_BACKEND=ollama` 설정 시
+  실제 ollama(gemma 계열) 백엔드 사용, 미설정 시 FakeLLM.
 - Home Assistant 브리지(`ha_bridge`)는 스켈레톤 스텁(연결 안 함).
 - 모든 외부 송신은 `core/egress_gate.emit_external` 단일 통로를 통과한다.
   ntfy 페이로드에는 디바이스명·방이름·rationale 가 절대 포함되지 않는다.
+  **LLM 송신도** `OllamaBackend` 가 `emit_external(LLM, …)` 를 통과시켜
+  raw entity_id·이름이 가명 토큰으로 치환된 뒤 모델로 나간다(SE-D3).
+
+---
+
+## Gate2 실연결 (ollama · gemma via `ssh home`)
+
+로컬 우선 원칙에 맞춰 외부 API 대신 홈 서버의 로컬 모델을 쓴다. ollama 가
+`127.0.0.1` 에만 바인딩돼 있어도 기존 SSH 별칭으로 호출하므로 포트 노출이
+필요 없다.
+
+```bash
+make smoke      # 설치 모델 자동 감지(gemma*) 후 실제 판정. home 오프라인이면 degraded 시연.
+make demo-live  # 전체 앱을 실제 모델에 붙여 데모(= LIOT_LLM_BACKEND=ollama python -m liot.demo)
+```
+
+환경변수: `LIOT_OLLAMA_MODEL`(예 `gemma3:4b`), `LIOT_OLLAMA_TRANSPORT`(`ssh`|`http`),
+`LIOT_OLLAMA_SSH_HOST`(기본 `home`), `LIOT_OLLAMA_HTTP_URL`, `LIOT_OLLAMA_TIMEOUT`.
+
+**fail-closed 보장**: 모델 도달 불가·타임아웃·비-JSON·PII 차단(EgressViolation)은
+모두 `LLMUnavailable` 로 강등되어 degraded fail-safe 로 떨어진다. 안전 임계
+카테고리(가스/누수/잠금 등)는 LLM 상태와 무관하게 **EMBER 를 유지**한다
+(불변식 6, Safety-Never-Silent). `tests/test_ollama_backend.py` 가 이를 검증.

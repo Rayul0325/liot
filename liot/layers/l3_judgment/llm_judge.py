@@ -135,6 +135,11 @@ def build_llm_backend() -> LLMBackend:
     backend = os.environ.get("LIOT_LLM_BACKEND", "").strip()
     if not backend or backend.lower() in ("fake", "fakellm", "none"):
         return FakeLLM()
+    if backend.lower() in ("ollama", "gemma", "home", "local"):
+        # 지연 임포트(ollama_backend 가 본 모듈을 import 하므로 순환 회피).
+        from .ollama_backend import build_ollama_backend
+
+        return build_ollama_backend()
     return _LiteLLMStub(backend)
 
 

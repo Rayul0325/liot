@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv venv --python 3.13
+
+      - name: Install (editable + dev)
+        run: uv pip install -e ".[dev]"
+
+      - name: Lint (syntax)
+        run: uv run python -m compileall -q liot tests scripts
+
+      - name: Test (pytest, incl. 6 invariants)
+        run: uv run python -m pytest -q
+
+      - name: Invariant gate — executor MUST be absent (Phase1 proposal-only)
+        run: |
+          uv run python - <<'PY'
+          from liot.core.invariants import assert_executor_absent
+          assert_executor_absent()
+          print("OK: no concrete Executor (Phase1 proposal-only invariant holds)")
+          PY
+
+      - name: Secret scan (no plaintext keys committed)
+        run: |
+          if git grep -nE 'sk-ant-[A-Za-z0-9_-]{8}' -- . ; then
+            echo "::error::potential Anthropic key committed"; exit 1
+          fi
+          echo "OK: no obvious secrets"
