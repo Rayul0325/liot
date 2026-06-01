@@ -1,0 +1,79 @@
+# LIOT 디바이스 카탈로그 / 위험도 매핑.
+#
+# 위험도 단위 = (capability, action, 파라미터 방향).
+# 같은 capability 라도 action 방향에 따라 위험도가 비대칭이다.
+#   - lock:   lock=breath(잠그기는 비교적 안전) / unlock=ember(열기는 위험)
+#   - climate set_temperature: raise=breath(올리기) / lower=dusk(내리기)
+#
+# 미지정 action 은 default-deny 로 ember(불씨, 최고 위험)로 간주한다.
+# (risk_for 가 카탈로그에 없는 (capability, action) 을 만나면 EMBER 반환)
+
+version: 1
+
+# 명시된 디바이스 인스턴스(데모/카탈로그용). 위험도 판단 자체는
+# capabilities 의 (capability, action) 매핑으로 결정되며, 이 목록은
+# entity_id -> capability/category 매핑 참조용이다.
+devices:
+  - entity_id: lock.front_door
+    capability: lock
+    category: lock
+  - entity_id: climate.living_room
+    capability: climate
+    category: high_temp
+  - entity_id: switch.gas_valve
+    capability: valve
+    category: gas
+  - entity_id: light.living_room
+    capability: light
+    category: ambient
+  - entity_id: cover.garage
+    capability: cover
+    category: door
+
+# (capability, action) -> 위험도.
+#   * tier: 기본 위험도(파라미터 방향 무관).
+#   * directional: 파라미터 방향에 따른 비대칭 위험도.
+#       각 항목은 {param, increase|decrease|on|off|<value>: tier} 형태.
+#       방향은 risk_for 가 params 로부터 추론한다.
+capabilities:
+  lock:
+    # 잠그기는 비교적 안전(숨결), 열기는 위험(불씨).
+    lock:
+      tier: breath
+    unlock:
+      tier: ember
+
+  climate:
+    # 온도 올리기(raise)=숨결, 내리기(lower)=땅거미 (비대칭).
+    set_temperature:
+      tier: breath          # 방향 추론 실패 시 기본값(보수적으로 raise 취급)
+      directional:
+        param: temperature
+        increase: breath    # 올리기
+        decrease: dusk       # 내리기
+
+  light:
+    turn_on:
+      tier: ambient
+    turn_off:
+      tier: ambient
+    set_brightness:
+      tier: ambient
+
+  cover:
+    # 문/커버 닫기=숨결, 열기=땅거미.
+    open:
+      tier: dusk
+    close:
+      tier: breath
+
+  valve:
+    # 밸브(가스/수도) 닫기=숨결, 열기=불씨.
+    close:
+      tier: breath
+    open:
+      tier: ember
+
+  notify:
+    send:
+      tier: ambient

@@ -1,0 +1,70 @@
+# LIOT Gate1 규칙셋 — 비상/안전 임계.
+#
+# 데이터 주도 가드레일: match(enum 키)에 들어맞으면 set_floor 로 위험도
+# 하한(floor)만 끌어올린다. set_floor 는 escalate_only(max) 로만 적용되며,
+# demote/to_tier(강등)은 로더가 거부한다(불변식 5).
+#
+# 안전 임계 카테고리(gas/smoke/door/leak/high_temp/lock/water_main/oven)는
+# 코어가 100% EMBER floor 를 보장하지만, 여기서도 명시해 의도를 문서화한다
+# (Safety-Never-Silent, 불변식 6).
+version: "1.0.0"
+name: emergency
+description: >-
+  생명·재산에 직결되는 안전 임계 신호는 LLM 가용성과 무관하게 즉시 불씨(EMBER)
+  하한을 받는다.
+rules:
+  - id: gas-leak-ember
+    description: 가스 누출 감지는 무조건 불씨.
+    match:
+      action_category: gas
+    set_floor: ember
+
+  - id: smoke-ember
+    description: 연기 감지는 무조건 불씨.
+    match:
+      action_category: smoke
+    set_floor: ember
+
+  - id: leak-ember
+    description: 누수 감지는 무조건 불씨.
+    match:
+      action_category: leak
+    set_floor: ember
+
+  - id: water-main-ember
+    description: 상수도 본관 이상은 무조건 불씨.
+    match:
+      action_category: water_main
+    set_floor: ember
+
+  - id: high-temp-ember
+    description: 고온 경보는 무조건 불씨.
+    match:
+      action_category: high_temp
+    set_floor: ember
+
+  - id: oven-ember
+    description: 오븐 관련 이상은 무조건 불씨.
+    match:
+      action_category: oven
+    set_floor: ember
+
+  - id: door-ember
+    description: 출입문(현관) 이상 개방은 무조건 불씨.
+    match:
+      action_category: door
+    set_floor: ember
+
+  - id: lock-ember
+    description: 잠금장치 이상은 무조건 불씨.
+    match:
+      action_category: lock
+    set_floor: ember
+
+  - id: vacant-door-open
+    description: 재실자가 없는데 출입문이 열린 신호는 차단 후 불씨.
+    match:
+      action_category: door
+      occupancy: vacant
+    set_floor: ember
+    verdict: block

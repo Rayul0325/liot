@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+
+# Virtual envs
+.venv/
+venv/
+env/
+.python-version
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.cache/
+
+# SQLite (runtime artefacts)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local secrets / env
+.env
+.env.*

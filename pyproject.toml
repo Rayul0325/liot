@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "liot"
+version = "0.1.0"
+description = "LIOT — 능동형 스마트홈 AI. 4-Layer 위험도 파이프라인(Phase1, 제안-만)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "LIOT" }]
+dependencies = [
+    "pydantic>=2",
+    "pyyaml",
+    "aiosqlite",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[project.scripts]
+liot-demo = "liot.demo:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["liot*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q"

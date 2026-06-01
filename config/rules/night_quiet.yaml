@@ -1,0 +1,37 @@
+# LIOT Gate1 규칙셋 — 야간 정숙(night quiet).
+#
+# 야간(night) 시간대에는 소음/조명 변화가 사용자 수면을 깨울 수 있으므로
+# 위험도 하한을 끌어올려 더 강한 확인을 요구한다. 강등은 불가(set_floor 만).
+version: "1.0.0"
+name: night_quiet
+description: >-
+  심야 시간대의 비안전 액션은 수면 방해 위험이 있어 하한을 끌어올린다.
+rules:
+  - id: night-noise-dusk
+    description: 야간 소음 유발 액션은 땅거미 하한.
+    match:
+      action_category: noise
+      time_bucket: night
+    set_floor: dusk
+
+  - id: night-light-breath
+    description: 야간 조명 변경은 숨결 하한.
+    match:
+      action_category: light
+      time_bucket: night
+    set_floor: breath
+
+  - id: night-media-dusk
+    description: 야간 미디어/볼륨 변경은 땅거미 하한.
+    match:
+      action_category: media
+      time_bucket: night
+    set_floor: dusk
+
+  - id: night-vacant-light-breath
+    description: 재실자 없는 야간 조명 변경은 숨결 하한.
+    match:
+      action_category: light
+      time_bucket: night
+      occupancy: vacant
+    set_floor: breath
