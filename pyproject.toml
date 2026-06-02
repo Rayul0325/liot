@@ -20,6 +20,11 @@ dependencies = [
 dev = [
     "pytest",
     "pytest-asyncio",
+    "websockets>=12",
+]
+# Home Assistant WebSocket 연동(실연동 시에만 필요). 단위 테스트는 미설치여도 동작.
+ha = [
+    "websockets>=12",
 ]
 
 [project.scripts]

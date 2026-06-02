@@ -106,3 +106,35 @@ make demo-live  # 전체 앱을 실제 모델에 붙여 데모(= LIOT_LLM_BACKEN
 모두 `LLMUnavailable` 로 강등되어 degraded fail-safe 로 떨어진다. 안전 임계
 카테고리(가스/누수/잠금 등)는 LLM 상태와 무관하게 **EMBER 를 유지**한다
 (불변식 6, Safety-Never-Silent). `tests/test_ollama_backend.py` 가 이를 검증.
+
+---
+
+## Home Assistant 실연동 (L1)
+
+`HABridge` 가 HA WebSocket API(`auth_required → auth → auth_ok →
+subscribe_events(state_changed)`)에 붙어 상태 변화를 `SensorReading` 으로
+스트리밍한다. `HAConnection` Protocol 로 실제 연결(`WebsocketsHAConnection`,
+extra `[ha]`)과 테스트용 `FakeHAConnection` 을 교체한다.
+
+**핵심: 안전 카테고리는 domain 이 아니라 `device_class` 에 있다.**
+`binary_sensor.kitchen_gas` 는 domain 이 'binary_sensor' 라 도메인 추론만으로는
+안전이 아니다. `HABridge.entity_categories()` 가 `(domain, device_class)` →
+LIOT 카테고리 맵을 만들어 `LiotApp(categories=...)` 로 주입하면 가스/연기/누수가
+정확히 안전 카테고리로 분류된다.
+
+```bash
+# 실제 HA에 연결(장기 액세스 토큰 필요)
+LIOT_HA_URL=ws://<host>:8123/api/websocket LIOT_HA_TOKEN=*** \
+  .venv/bin/python scripts/ha_bridge_live.py
+```
+
+검증: `tests/test_ha_bridge.py` (단위 + 로컬 mock HA 서버에 진짜 websockets
+왕복 + 가스 이벤트 → EMBER 제안 end-to-end).
+
+> ⚠️ **알려진 이슈 (다음 우선)** — 읽기 전용 센서가 ember 로 과승격된다.
+> 현재 파이프라인은 모든 `SensorReading` 을 후보 *행동*으로 매핑하고, Gate1 의
+> deny-by-default(미지정 카테고리=ember)가 temperature/humidity/motion 같은
+> 양성 센서까지 EMBER 로 올린다. 실제 HA 집은 이런 센서가 수십 개라 알림 피로로
+> North Star(Proposal-Accept Rate)가 붕괴한다. **수정 방향: 센서=맥락(L2 갱신,
+> 무발화) vs 액추에이터=행동(제안) 분리.** 안전 센서(gas/smoke/leak/door)만
+> 센서임에도 제안을 유발해야 한다.
