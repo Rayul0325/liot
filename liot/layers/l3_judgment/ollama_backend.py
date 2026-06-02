@@ -239,7 +239,7 @@ def build_ollama_backend(alias: AliasMap | None = None) -> OllamaBackend:
     LIOT_OLLAMA_HTTP_URL: http base(기본 http://127.0.0.1:11434).
     LIOT_OLLAMA_TIMEOUT : 초(기본 30).
     """
-    model = os.environ.get("LIOT_OLLAMA_MODEL", "gemma3:4b").strip()
+    model = os.environ.get("LIOT_OLLAMA_MODEL", "gemma4:31b").strip()
     kind = os.environ.get("LIOT_OLLAMA_TRANSPORT", "ssh").strip().lower()
     timeout = float(os.environ.get("LIOT_OLLAMA_TIMEOUT", "30") or "30")
     transport: OllamaTransport

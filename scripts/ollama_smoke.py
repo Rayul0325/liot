@@ -29,12 +29,23 @@ HOST = os.environ.get("LIOT_OLLAMA_SSH_HOST", "home")
 
 
 def detect_model() -> str | None:
+    """ollama HTTP API(/api/tags)로 설치 모델을 조회해 gemma 태그를 고른다.
+
+    home 의 비대화형 셸 PATH 에 ollama CLI 가 없을 수 있으므로 CLI 대신
+    SSH 세션 안에서 curl 로 서버 API 를 직접 조회한다(서버만 떠 있으면 OK).
+    선호 순위: gemma4* > gemma* > 첫 모델.
+    """
     forced = os.environ.get("LIOT_OLLAMA_MODEL")
     if forced:
         return forced
+    import json as _json
+
     try:
         proc = subprocess.run(
-            ["ssh", "-o", "ConnectTimeout=8", "-o", "BatchMode=yes", HOST, "ollama list"],
+            [
+                "ssh", "-o", "ConnectTimeout=8", "-o", "BatchMode=yes", HOST,
+                "curl -s --max-time 5 http://127.0.0.1:11434/api/tags",
+            ],
             capture_output=True,
             timeout=20,
         )
@@ -44,14 +55,21 @@ def detect_model() -> str | None:
     if proc.returncode != 0:
         print(f"[detect] rc={proc.returncode}: {proc.stderr.decode('utf-8','replace')[:200]}")
         return None
-    lines = proc.stdout.decode("utf-8", "replace").splitlines()
-    for line in lines[1:]:  # 헤더 제외
-        tag = line.split()[0] if line.split() else ""
-        if "gemma" in tag.lower():
-            print(f"[detect] gemma 모델 감지: {tag}")
-            return tag
-    print(f"[detect] gemma 태그를 못 찾음. 설치 목록:\n{proc.stdout.decode('utf-8','replace')}")
-    return lines[1].split()[0] if len(lines) > 1 and lines[1].split() else None
+    try:
+        tags = [m["name"] for m in _json.loads(proc.stdout.decode("utf-8", "replace")).get("models", [])]
+    except (ValueError, TypeError, KeyError):
+        print("[detect] /api/tags 파싱 실패(ollama 서버 미가동?)")
+        return None
+    if not tags:
+        print("[detect] 설치된 모델 없음")
+        return None
+    for pref in ("gemma4", "gemma"):
+        for t in tags:
+            if pref in t.lower():
+                print(f"[detect] 모델 감지: {t}  (전체: {tags})")
+                return t
+    print(f"[detect] gemma 없음 → 첫 모델 {tags[0]} (전체: {tags})")
+    return tags[0]
 
 
 def _ctx() -> ContextSnapshot:
@@ -70,7 +88,7 @@ def _ctx() -> ContextSnapshot:
 def main() -> int:
     model = detect_model()
     if model is None:
-        model = os.environ.get("LIOT_OLLAMA_MODEL", "gemma3:4b")
+        model = os.environ.get("LIOT_OLLAMA_MODEL", "gemma4:31b")
         print(f"[smoke] 모델 감지 실패 → 기본 '{model}' 로 시도(오프라인이면 degraded 시연).")
     backend = OllamaBackend(model, SSHOllamaTransport(HOST), timeout_s=float(os.environ.get("LIOT_OLLAMA_TIMEOUT", "30")))
     judge = LLMJudge(backend=backend)
