@@ -131,10 +131,20 @@ LIOT_HA_URL=ws://<host>:8123/api/websocket LIOT_HA_TOKEN=*** \
 검증: `tests/test_ha_bridge.py` (단위 + 로컬 mock HA 서버에 진짜 websockets
 왕복 + 가스 이벤트 → EMBER 제안 end-to-end).
 
-> ⚠️ **알려진 이슈 (다음 우선)** — 읽기 전용 센서가 ember 로 과승격된다.
-> 현재 파이프라인은 모든 `SensorReading` 을 후보 *행동*으로 매핑하고, Gate1 의
-> deny-by-default(미지정 카테고리=ember)가 temperature/humidity/motion 같은
-> 양성 센서까지 EMBER 로 올린다. 실제 HA 집은 이런 센서가 수십 개라 알림 피로로
-> North Star(Proposal-Accept Rate)가 붕괴한다. **수정 방향: 센서=맥락(L2 갱신,
-> 무발화) vs 액추에이터=행동(제안) 분리.** 안전 센서(gas/smoke/leak/door)만
-> 센서임에도 제안을 유발해야 한다.
+### 센서/액추에이터 분리 (관찰 vs 제안)
+
+읽기전용 센서가 모두 ember 로 과승격되던 알림 피로 문제를 해소했다. 제안은
+다음 둘 중 하나일 때만 생성된다:
+
+  - **명시적 action** 이 주어졌을 때(프로액티브 생성기/요청), 또는
+  - **안전 임계 카테고리**(gas/smoke/leak/door/lock/...)일 때(자동 알림).
+
+그 외 모든 관찰(temperature/humidity/motion 등 양성 센서, 액추에이터 상태변화)은
+**맥락만 갱신하고 침묵**한다. 따라서 실제 HA 집의 수십 개 센서가 끊임없이 변해도
+ember 폭주가 없고, 가스/누수/잠금 같은 안전 이벤트와 프로액티브 제안만 사용자에게
+도달한다. `tests/test_disposition.py` 가 검증(양성 센서 20건 스트림 → 제안 0건,
+가스 → ember 1건).
+
+> 향후(Phase2): 프로액티브 생성기가 맥락(L2)을 읽고 적절한 액추에이터 행동을
+> 명시적 action 으로 제안 → 능동성 강화. 현재 Phase1 은 안전 자동 알림 +
+> 외부에서 주어진 명시적 제안만 다룬다.

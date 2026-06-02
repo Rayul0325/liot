@@ -183,10 +183,21 @@ class LiotApp:
         reading: SensorReading = stash["reading"]
 
         category = self._category_of(reading.entity_id)
+
+        # ── 센서/액추에이터 분리(알림 피로 방지) ──────────────────────────
+        # 관찰(observation)은 맥락만 갱신하고 제안을 만들지 않는다. 제안은
+        # (a) 명시적 action 이 주어졌거나(프로액티브 생성기/요청), 또는
+        # (b) 안전 임계 카테고리(가스/연기/누수/문/잠금 ...)일 때만 생성한다.
+        # 그 외 읽기전용 센서(온도/습도/움직임)·액추에이터 상태변화는 침묵.
+        # → 실제 HA의 수십 개 양성 센서가 모두 ember 로 과승격되던 문제 해소.
+        explicit_action = stash.get("action_name")
+        is_safety = category in SAFETY_CRITICAL_CATEGORIES
+        if explicit_action is None and not is_safety:
+            stash["proposal"] = None  # 관찰 → 맥락만, 제안 없음
+            return
+
         capability = self._capability_of(reading.entity_id, category)
-        action_name = stash.get("action_name") or self._default_action(
-            category, reading
-        )
+        action_name = explicit_action or self._default_action(category, reading)
         params: dict[str, Any] = dict(stash.get("params") or {})
 
         candidate = CandidateAction(
