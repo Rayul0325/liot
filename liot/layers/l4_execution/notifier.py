@@ -43,6 +43,7 @@ __all__ = [
     "Notifier",
     "gate_pipeline",
     "sign_deeplink",
+    "sign_feedback",
 ]
 
 GateDecision = Literal["IMMEDIATE", "DIGEST", "SUPPRESS"]
@@ -104,13 +105,18 @@ def gate_pipeline(
     """
     tier = RiskTier.from_str(proposal.risk_tier)
     key = dedup_key(proposal)
-    perishable = bool(proposal.perishable)
+    # 시의성(perishable) **또는 안전 임계(EMBER)** 는 throttle 게이트
+    # (dedup/quiet/ambient/budget)를 우회한다. 안전 알림이 중복/예산/야간으로
+    # 묶이거나 삼켜지면 Safety-Never-Silent(불변식 6)의 정신이 전달 단계에서
+    # 깨진다 → EMBER 는 언제나 즉시 발화(단, charter/mute/recently_rejected
+    # 같은 *명시적 사용자 옵트아웃* 은 여전히 존중).
+    bypass = bool(proposal.perishable) or tier == RiskTier.EMBER
 
-    # 1) charter: 전면 OFF 면 무조건 침묵. perishable 도 우회 못 함.
+    # 1) charter: 전면 OFF 면 무조건 침묵. 우회 못 함.
     if not ctx.charter_enabled:
         return "SUPPRESS"
 
-    # 2) mute: 카테고리/엔티티 음소거. perishable 보다 우선(우회 불가).
+    # 2) mute: 카테고리/엔티티 음소거. 우회 불가.
     if (
         proposal.action.category in ctx.muted_categories
         or proposal.action.entity_id in ctx.muted_entities
@@ -121,45 +127,50 @@ def gate_pipeline(
     if key in ctx.recently_rejected_keys:
         return "SUPPRESS"
 
-    # --- 여기부터는 perishable(시의성)이면 우회해 IMMEDIATE 로 승격 가능 ---
+    # --- 여기부터는 bypass(시의성 또는 EMBER)면 IMMEDIATE 로 승격 ---
 
     # 4) dedup(2시간): 최근 동일 발화가 있으면 묶기/침묵.
     if key in ctx.recent_notified_keys:
-        if perishable:
-            return "IMMEDIATE"
-        return "SUPPRESS"
+        return "IMMEDIATE" if bypass else "SUPPRESS"
 
     # 5) quiet_hours: 야간에는 EMBER(불씨)만 통과. 그 외는 침묵.
     if ctx.quiet_hours and tier < RiskTier.EMBER:
-        if perishable:
-            return "IMMEDIATE"
-        return "SUPPRESS"
+        return "IMMEDIATE" if bypass else "SUPPRESS"
 
     # 6) ambient(잔잔): 즉시 알리지 않고 묶음(DIGEST).
     if tier == RiskTier.AMBIENT:
-        if perishable:
-            return "IMMEDIATE"
-        return "DIGEST"
+        return "IMMEDIATE" if bypass else "DIGEST"
 
-    # 7) budget: 시간당 예산 초과면 묶음(DIGEST).
+    # 7) budget: 시간당 예산 초과면 묶음(DIGEST). EMBER 는 우회(안전은 throttle 없음).
     if budget.exhausted():
-        if perishable:
-            return "IMMEDIATE"
-        return "DIGEST"
+        return "IMMEDIATE" if bypass else "DIGEST"
 
     return "IMMEDIATE"
 
 
 def sign_deeplink(secret: bytes, proposal_id: str, risk_tier: RiskTier) -> str:
-    """제안 딥링크를 HMAC-SHA256 으로 서명한다(위조 방지).
+    """제안 '열기' 딥링크를 HMAC-SHA256 으로 서명한다(위조 방지).
 
     형식: ``liot://p/<proposal_id>?t=<tier>&sig=<hmac_hex>``.
-    서명 대상은 ``<proposal_id>:<tier_int>`` 의 정규 문자열.
+    서명 대상은 ``<proposal_id>:<tier_int>`` 의 정규 문자열. 이 딥링크는
+    '앱에서 열기'(상태 변경 없음)용이며, 상태를 바꾸는 피드백 액션은
+    action 까지 묶은 별도 서명(sign_feedback)을 쓴다.
     """
     tier_int = int(RiskTier.from_str(risk_tier))
     message = f"{proposal_id}:{tier_int}".encode("utf-8")
     sig = hmac.new(secret, message, hashlib.sha256).hexdigest()
     return f"liot://p/{proposal_id}?t={tier_int}&sig={sig}"
+
+
+def sign_feedback(secret: bytes, proposal_id: str, risk_tier: RiskTier, action: str) -> str:
+    """피드백 액션 서명. 서명 대상 = ``<proposal_id>:<tier_int>:<action>``.
+
+    action 을 서명에 묶으므로, 한 버튼의 서명으로 다른 액션(수락↔거절)을
+    수행할 수 없다 — 도청자가 사용자의 선택을 뒤집지 못한다.
+    """
+    tier_int = int(RiskTier.from_str(risk_tier))
+    message = f"{proposal_id}:{tier_int}:{(action or '').strip().lower()}".encode("utf-8")
+    return hmac.new(secret, message, hashlib.sha256).hexdigest()
 
 
 class Notifier:

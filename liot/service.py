@@ -143,18 +143,23 @@ class LiotService:
         if decision != "IMMEDIATE" or sanitized is None:
             return DispatchResult(proposal, decision, sent=False)
 
-        # IMMEDIATE: 정제분을 기록하고, transport 가 있으면 실제 송신(fail-closed).
-        await self.proposals.record_notification(sanitized, now=self.clock.now_utc())
-        self._recent_notified[dedup_key(proposal)] = now_dt
-
         if self.transport is None:
-            return DispatchResult(proposal, decision, sent=False)  # sanitize-only 모드
+            # sanitize-only 모드: 실제 배달은 없다. dedup 을 오염시키지 않는다
+            # (그래야 transport 가 붙은 뒤 같은 류가 억제되지 않는다).
+            await self.proposals.record_notification(sanitized, now=self.clock.now_utc())
+            return DispatchResult(proposal, decision, sent=False)
+
+        # 실제 송신을 *먼저* 시도. 성공해야만 알림 기록 + dedup 갱신한다.
+        # 실패 시 dedup 을 오염시키지 않아야 같은 류(특히 안전 EMBER)가 2시간
+        # 동안 SUPPRESS 되지 않는다(재시도 가능 + Safety-Never-Silent 정신 보존).
         try:
             self.transport.send(self.topic, sanitized)
-            return DispatchResult(proposal, decision, sent=True)
         except NtfyError as exc:
             # 송신 실패는 치명적이지 않다 — 제안은 pending 으로 남아 재시도 가능.
             return DispatchResult(proposal, decision, sent=False, error=str(exc))
+        await self.proposals.record_notification(sanitized, now=self.clock.now_utc())
+        self._recent_notified[dedup_key(proposal)] = now_dt
+        return DispatchResult(proposal, decision, sent=True)
 
     # ------------------------------------------------------------------
     # 진입점들

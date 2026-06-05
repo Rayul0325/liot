@@ -22,7 +22,12 @@ if TYPE_CHECKING:  # pragma: no cover
 
     from .proposal_service import ProposalService
 
-__all__ = ["FeedbackAuthError", "FeedbackGateway", "verify_deeplink_sig"]
+__all__ = [
+    "FeedbackAuthError",
+    "FeedbackGateway",
+    "verify_deeplink_sig",
+    "verify_feedback_sig",
+]
 
 
 class FeedbackAuthError(Exception):
@@ -30,15 +35,32 @@ class FeedbackAuthError(Exception):
 
 
 def verify_deeplink_sig(secret: bytes, proposal_id: str, tier: str | int, sig: str) -> bool:
-    """sign_deeplink 와 동일 규약으로 HMAC-SHA256 서명을 검증한다.
+    """sign_deeplink('열기' 딥링크) 서명 검증. 대상 = f"{pid}:{tier_int}".
 
-    서명 대상 = f"{proposal_id}:{tier_int}". 상수 시간 비교(compare_digest).
+    상태를 바꾸지 않는 '열기'용. 상태 전이 피드백은 verify_feedback_sig 사용.
     """
     try:
         tier_int = int(tier)
     except (TypeError, ValueError):
         return False
     message = f"{proposal_id}:{tier_int}".encode("utf-8")
+    expected = hmac.new(secret, message, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, str(sig))
+
+
+def verify_feedback_sig(
+    secret: bytes, proposal_id: str, tier: str | int, action: str, sig: str
+) -> bool:
+    """sign_feedback 규약 검증. 대상 = f"{pid}:{tier_int}:{action}".
+
+    action 을 서명에 묶으므로 한 버튼 서명으로 다른 액션을 수행할 수 없다.
+    상수 시간 비교(compare_digest).
+    """
+    try:
+        tier_int = int(tier)
+    except (TypeError, ValueError):
+        return False
+    message = f"{proposal_id}:{tier_int}:{(action or '').strip().lower()}".encode("utf-8")
     expected = hmac.new(secret, message, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, str(sig))
 
@@ -70,15 +92,21 @@ class FeedbackGateway:
         *,
         latency_ms: int | None = None,
     ) -> "Proposal | None":
-        """서명 검증 후 피드백을 적용한다. 서명 불일치면 FeedbackAuthError.
+        """서명(action-bound) 검증 후 피드백을 적용한다.
 
-        알 수 없는 action 은 FeedbackAuthError(시스템 내부 매핑 밖 입력 거부).
+        - action 이 시스템 매핑 밖이면 FeedbackAuthError.
+        - 서명이 (proposal_id, tier, action) 에 대해 유효하지 않으면 FeedbackAuthError.
+          (action 까지 묶으므로 한 서명으로 다른 액션 수행 불가 — 선택 뒤집기 방어.)
+        존재하지 않거나 타 홈 proposal 은 apply_feedback 이 None 을 반환하며
+        feedback/audit 행을 남기지 않는다(테이블 오염 방지).
         """
-        if not verify_deeplink_sig(self._secret, proposal_id, tier, sig):
-            raise FeedbackAuthError(f"invalid signature for proposal {proposal_id!r}")
         key = (action or "").strip().lower()
         if key not in self._ACTION_ALIASES:
             raise FeedbackAuthError(f"unknown feedback action: {action!r}")
+        if not verify_feedback_sig(self._secret, proposal_id, tier, key, sig):
+            raise FeedbackAuthError(
+                f"invalid signature for proposal {proposal_id!r} action {key!r}"
+            )
         user_action = self._ACTION_ALIASES[key]
         feedback = FeedbackEvent(
             proposal_id=proposal_id,

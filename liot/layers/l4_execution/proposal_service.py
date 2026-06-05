@@ -301,6 +301,12 @@ class ProposalService:
             raise InvariantError(f"unknown feedback user_action: {feedback.user_action!r}")
         new_state = FEEDBACK_STATE_MAP[action_key]
 
+        # 존재·스코프 먼저 확인(home_id 정확 일치). 유령/타 홈 id 면 feedback·
+        # audit 행을 남기지 않고 None 반환(테이블 오염 방지).
+        existing = await self.get(feedback.proposal_id)
+        if existing is None:
+            return None
+
         # 피드백 기록(append).
         await self._repo.insert(
             self._db,

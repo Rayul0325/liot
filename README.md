@@ -147,8 +147,8 @@ LIOT_HA_URL=ws://<host>:8123/api/websocket LIOT_HA_TOKEN=*** \
 읽기전용 센서가 모두 ember 로 과승격되던 알림 피로 문제를 해소했다. 제안은
 다음 둘 중 하나일 때만 생성된다:
 
-  - **명시적 action** 이 주어졌을 때(프로액티브 생성기/요청), 또는
-  - **안전 임계 카테고리**(gas/smoke/leak/door/lock/...)일 때(자동 알림).
+- **명시적 action** 이 주어졌을 때(프로액티브 생성기/요청), 또는
+- **안전 임계 카테고리**(gas/smoke/leak/door/lock/...)일 때(자동 알림).
 
 그 외 모든 관찰(temperature/humidity/motion 등 양성 센서, 액추에이터 상태변화)은
 **맥락만 갱신하고 침묵**한다. 따라서 실제 HA 집의 수십 개 센서가 끊임없이 변해도
@@ -170,25 +170,25 @@ ember 폭주가 없고, 가스/누수/잠금 같은 안전 이벤트와 프로�
 proposal = await app.tick()   # 결정 없음/쿨다운/예산/검증실패 → None(침묵)
 ```
 
-  - **Tier A 결정론 규칙**(`config/proactive/*.yaml`): 닫힌 비교자
-    (`eq/ne/lt/le/gt/ge`)의 상태 술어 + enum 매치(`time_bucket`/`occupancy`).
-    스크립트/표현식 불가. 로더가 `PROACTIVE_ALLOWED` 밖 선언을 거부한다.
-  - **LLM 의 역할 = 거부권**: 능동 후보를 *발의*하는 LLM 은 없다. 기존
-    Gate2 가 후보를 판정하고, breath 위로 승격하면 그 제안은 침묵한다
-    (불변식 7) — 인젝션된 LLM 의 최악 결과는 침묵이다.
-  - **알림 피로 게이팅(생성 시)**: (타깃, 액션)별 쿨다운 60분 + 시간대당
-    1건 + 하루 3건(`limits:`, 데이터 주도). L4 notifier 의 표출 억제와
-    별개·더 보수적 — 수용률(Proposal-Accept-Rate ≥ 60%)이 North Star.
-  - **재현성(불변식 4)**: 능동 결정 자체가 스냅샷의 `trigger` 가 되어
-    `snapshot_hash` 가 판단된 후보를 고정한다. 출처는
-    `params["__origin__"] = proactive:rule:<id>@<ruleset_hash 8자리>` 로
-    영속된다(explicit:external / safety:auto 와 함께 3경로 전부 출처 보유).
-  - **신선도**: 능동 제안은 `expires_at`(규칙별 ttl)을 갖는다. `perishable`
-    은 False — L4 에서 perishable 은 예산 *우회* 의미라 컴포트에 쓰면
-    역효과(잔소리)다.
-  - **egress 경화**: LLM payload 에는 방향성 스칼라 params 만 투영되고
-    (`__origin__`/타깃 식별자 불출), LLM 목적지 한정으로 entity_id 형태
-    문자열이 남으면 송신 자체를 거부한다(fail-closed).
+- **Tier A 결정론 규칙**(`config/proactive/*.yaml`): 닫힌 비교자
+  (`eq/ne/lt/le/gt/ge`)의 상태 술어 + enum 매치(`time_bucket`/`occupancy`).
+  스크립트/표현식 불가. 로더가 `PROACTIVE_ALLOWED` 밖 선언을 거부한다.
+- **LLM 의 역할 = 거부권**: 능동 후보를 *발의*하는 LLM 은 없다. 기존
+  Gate2 가 후보를 판정하고, breath 위로 승격하면 그 제안은 침묵한다
+  (불변식 7) — 인젝션된 LLM 의 최악 결과는 침묵이다.
+- **알림 피로 게이팅(생성 시)**: (타깃, 액션)별 쿨다운 60분 + 시간대당
+  1건 + 하루 3건(`limits:`, 데이터 주도). L4 notifier 의 표출 억제와
+  별개·더 보수적 — 수용률(Proposal-Accept-Rate ≥ 60%)이 North Star.
+- **재현성(불변식 4)**: 능동 결정 자체가 스냅샷의 `trigger` 가 되어
+  `snapshot_hash` 가 판단된 후보를 고정한다. 출처는
+  `params["__origin__"] = proactive:rule:<id>@<ruleset_hash 8자리>` 로
+  영속된다(explicit:external / safety:auto 와 함께 3경로 전부 출처 보유).
+- **신선도**: 능동 제안은 `expires_at`(규칙별 ttl)을 갖는다. `perishable`
+  은 False — L4 에서 perishable 은 예산 _우회_ 의미라 컴포트에 쓰면
+  역효과(잔소리)다.
+- **egress 경화**: LLM payload 에는 방향성 스칼라 params 만 투영되고
+  (`__origin__`/타깃 식별자 불출), LLM 목적지 한정으로 entity_id 형태
+  문자열이 남으면 송신 자체를 거부한다(fail-closed).
 
 검증: `tests/test_proactive.py` (로더 deny-by-default / 발의·침묵 결정론 /
 LLM 폭주 → 침묵 + 안전 경로 무손상 / egress 불출 / occupancy fact 부활).
@@ -200,13 +200,13 @@ LLM 폭주 → 침묵 + 안전 경로 무손상 / egress 불출 / occupancy fact
 `LiotApp`(두뇌, 네트워크 없음)을 둘러싸 실제 세계에 잇는 "몸통"이
 `liot/service.py`(`LiotService`)다. 부수효과를 한곳에 모은다:
 
-  - **영속**: 모든 Proposal 을 SQLite 에 저장(재시작에도 상태 보존).
-  - **알림 실송신**: `Notifier.gate_pipeline` 발화 결정 → IMMEDIATE 면 정제
-    payload 를 `NtfyTransport` 로 실제 ntfy POST. transport 는 `emit_external(NTFY)`
-    를 통과한 *정제분만* 받는다(미정제 송신 경로 원천 차단).
-  - **만료/틱**: 주기적 `expire_due()` + `app.tick()`(능동 제안).
-  - **피드백**: 서명 검증 HTTP 수신구(`/feedback?p=&t=&sig=&a=`) → 수락/거절
-    → 상태 전이 → `accept_rate()`(North Star 측정, 출처별).
+- **영속**: 모든 Proposal 을 SQLite 에 저장(재시작에도 상태 보존).
+- **알림 실송신**: `Notifier.gate_pipeline` 발화 결정 → IMMEDIATE 면 정제
+  payload 를 `NtfyTransport` 로 실제 ntfy POST. transport 는 `emit_external(NTFY)`
+  를 통과한 _정제분만_ 받는다(미정제 송신 경로 원천 차단).
+- **만료/틱**: 주기적 `expire_due()` + `app.tick()`(능동 제안).
+- **피드백**: 서명 검증 HTTP 수신구(`/feedback?p=&t=&sig=&a=`) → 수락/거절
+  → 상태 전이 → `accept_rate()`(North Star 측정, 출처별).
 
 ```bash
 # 상시 데몬. 실 URL/토큰은 환경변수로 주입(코드에 시크릿 없음).
@@ -217,12 +217,12 @@ LIOT_NOTIFY_SECRET=*** LIOT_LLM_BACKEND=ollama \
   liot-serve
 ```
 
-  - HA URL 미설정 시 센서 스트림 없이 **능동 틱만** 구동. ntfy URL 미설정 시
-    발화 결정·정제까지만(sanitize-only, 실송신 없음).
-  - **실행 없음(불변식 3) 유지**: 데몬이 하는 외부 I/O 는 *알림 송신* 뿐,
-    액추에이터 호출이 아니다. HA 로는 읽기(stream)만.
-  - **fail-closed**: ntfy 송신 실패는 파이프라인을 죽이지 않고 '미전송'으로
-    남긴다(제안은 pending → 다음에 재시도/다이제스트).
+- HA URL 미설정 시 센서 스트림 없이 **능동 틱만** 구동. ntfy URL 미설정 시
+  발화 결정·정제까지만(sanitize-only, 실송신 없음).
+- **실행 없음(불변식 3) 유지**: 데몬이 하는 외부 I/O 는 _알림 송신_ 뿐,
+  액추에이터 호출이 아니다. HA 로는 읽기(stream)만.
+- **fail-closed**: ntfy 송신 실패는 파이프라인을 죽이지 않고 '미전송'으로
+  남긴다(제안은 pending → 다음에 재시도/다이제스트).
 
 검증: `tests/test_service.py` (영속·발화·실 HTTP POST 왕복·fail-closed·
 recently-rejected 억제·서명 검증/위조 거부·피드백 HTTP 왕복·수용률·데몬 루프).

@@ -28,7 +28,12 @@ from liot.layers.l4_execution.feedback_gateway import (
     FeedbackGateway,
     verify_deeplink_sig,
 )
-from liot.layers.l4_execution.notifier import Notifier, sign_deeplink
+from liot.layers.l4_execution.notifier import (
+    NotificationBudget,
+    Notifier,
+    sign_deeplink,
+    sign_feedback,
+)
 from liot.layers.l4_execution.ntfy_transport import FakeNtfyTransport
 from liot.core.risk import RiskTier
 from liot.service import LiotService
@@ -143,6 +148,43 @@ async def test_transport_failure_is_fail_closed(tmp_path) -> None:
         await db.close()
 
 
+async def test_failed_send_does_not_poison_dedup(tmp_path) -> None:
+    # 안전 EMBER 송신이 실패해도 dedup 을 오염시키지 않아, 다음 동일 류가
+    # 2시간 SUPPRESS 되지 않는다(Safety-Never-Silent 전달 보존).
+    transport = FakeNtfyTransport(fail=True)
+    svc, db = await _make_service(tmp_path, transport=transport)
+    try:
+        p1 = await _propose(svc, "binary_sensor.kitchen_gas", "on")
+        r1 = await svc.dispatch(p1)
+        assert r1.sent is False  # 송신 실패
+        assert svc._recent_notified == {}  # dedup 오염 없음
+        # transport 복구 후 같은 류 → 여전히 IMMEDIATE + 송신 성공(억제 안 됨).
+        transport.fail = False
+        p2 = await _propose(svc, "binary_sensor.kitchen_gas", "on")
+        r2 = await svc.dispatch(p2)
+        assert r2.decision == "IMMEDIATE" and r2.sent is True
+    finally:
+        await db.close()
+
+
+async def test_ember_bypasses_budget_and_dedup(tmp_path) -> None:
+    # 안전 EMBER 는 시간당 예산·중복 게이트를 우회한다(throttle 로 안전이 묶이면 안 됨).
+    transport = FakeNtfyTransport()
+    svc, db = await _make_service(tmp_path, transport=transport)
+    try:
+        # max_per_hour=0 → _roll_budget 리셋 후에도 exhausted()=True(0>=0).
+        svc._budget = NotificationBudget(max_per_hour=0)
+        p = await _propose(svc, "binary_sensor.kitchen_gas", "on")
+        res = await svc.dispatch(p)
+        assert res.decision == "IMMEDIATE" and res.sent is True  # 예산 무시
+        # 같은 류 재차(dedup 셋에 이미 있음) — EMBER 라 여전히 IMMEDIATE.
+        p2 = await _propose(svc, "binary_sensor.kitchen_gas", "on")
+        res2 = await svc.dispatch(p2)
+        assert res2.decision == "IMMEDIATE"  # dedup 도 우회
+    finally:
+        await db.close()
+
+
 # ==========================================================================
 # 4) recently_rejected (DB 영속 학습)
 # ==========================================================================
@@ -213,17 +255,47 @@ async def test_feedback_gateway_applies_and_rejects_forgery(tmp_path) -> None:
         res = await svc.handle_reading(_reading("binary_sensor.kitchen_gas", "on"))
         pid = res.proposal.proposal_id
         tier = int(res.proposal.risk_tier)
-        good = sign_deeplink(SECRET, pid, res.proposal.risk_tier).split("sig=", 1)[1]
+        accept_sig = sign_feedback(SECRET, pid, res.proposal.risk_tier, "accept")
         # 위조 서명 → 거부, 상태 불변.
         with pytest.raises(FeedbackAuthError):
             await svc.feedback.verify_and_apply(pid, tier, "deadbeef", "accept")
         assert (await svc.proposals.get(pid)).state == "pending"
-        # 정상 서명 → accepted 전이.
-        updated = await svc.feedback.verify_and_apply(pid, tier, good, "accept")
+        # action 까지 묶인 정상 서명 → accepted 전이.
+        updated = await svc.feedback.verify_and_apply(pid, tier, accept_sig, "accept")
         assert updated is not None and updated.state == "accepted"
         # 알 수 없는 action → 거부.
         with pytest.raises(FeedbackAuthError):
-            await svc.feedback.verify_and_apply(pid, tier, good, "launch_missiles")
+            await svc.feedback.verify_and_apply(pid, tier, accept_sig, "launch_missiles")
+    finally:
+        await db.close()
+
+
+async def test_action_bound_sig_prevents_choice_flip(tmp_path) -> None:
+    # accept 용 서명으로 dismiss 를 수행할 수 없다(도청자의 선택 뒤집기 방어).
+    transport = FakeNtfyTransport()
+    svc, db = await _make_service(tmp_path, transport=transport)
+    try:
+        res = await svc.handle_reading(_reading("binary_sensor.kitchen_gas", "on"))
+        pid, tier = res.proposal.proposal_id, int(res.proposal.risk_tier)
+        accept_sig = sign_feedback(SECRET, pid, res.proposal.risk_tier, "accept")
+        with pytest.raises(FeedbackAuthError):
+            await svc.feedback.verify_and_apply(pid, tier, accept_sig, "dismiss")
+        assert (await svc.proposals.get(pid)).state == "pending"  # 불변
+    finally:
+        await db.close()
+
+
+async def test_apply_feedback_no_pollution_for_ghost_or_cross_home(tmp_path) -> None:
+    # 유령 id / 타 홈 id 는 feedback·audit 행을 남기지 않는다(존재 확인 우선).
+    svc, db = await _make_service(tmp_path, transport=FakeNtfyTransport())
+    try:
+        ghost = await svc.proposals.apply_feedback(
+            FeedbackEvent(proposal_id="p-ghost", trace_id="t", user_action="accepted")
+        )
+        assert ghost is None
+        cur = await db.execute("SELECT COUNT(*) FROM feedback")
+        assert (await cur.fetchone())[0] == 0  # 오염 없음
+        await cur.close()
     finally:
         await db.close()
 
@@ -237,7 +309,7 @@ async def test_feedback_http_roundtrip(tmp_path) -> None:
         res = await svc.handle_reading(_reading("binary_sensor.kitchen_gas", "on"))
         pid = res.proposal.proposal_id
         tier = int(res.proposal.risk_tier)
-        good = sign_deeplink(SECRET, pid, res.proposal.risk_tier).split("sig=", 1)[1]
+        good = sign_feedback(SECRET, pid, res.proposal.risk_tier, "accept")
 
         async def _get(path: str) -> str:
             reader, writer = await asyncio.open_connection("127.0.0.1", port)
@@ -315,7 +387,9 @@ def test_http_ntfy_transport_real_post() -> None:
     t.start()
     try:
         transport = HTTPNtfyTransport(
-            f"http://127.0.0.1:{port}", feedback_base_url="http://127.0.0.1:9/cb"
+            f"http://127.0.0.1:{port}",
+            feedback_base_url="http://127.0.0.1:9/cb",
+            signing_secret=SECRET,
         )
         sanitized = {
             "channel": "ntfy", "proposal_id": "p-1", "risk_tier": 3,
@@ -327,8 +401,10 @@ def test_http_ntfy_transport_real_post() -> None:
         assert captured["path"] == "/liot"
         assert captured["headers"]["Priority"] == "5"  # ember
         assert captured["headers"]["Click"] == "liot://p/p-1?t=3&sig=abc123"
-        # 액션 버튼이 서명 3요소를 그대로 싣는다(위조 불가).
-        assert "p=p-1&t=3&sig=abc123&a=accept" in captured["headers"]["Actions"]
+        # 액션 버튼은 action-bound 서명을 싣는다(accept 서명으로 dismiss 못 함).
+        expected_accept = sign_feedback(SECRET, "p-1", 3, "accept")
+        assert f"sig={expected_accept}&a=accept" in captured["headers"]["Actions"]
+        assert "a=dismiss" in captured["headers"]["Actions"]
         # 본문엔 위험도 라벨/글리프만(디바이스/방 부재).
         assert "불씨" in captured["body"]
         for leaked in ("p-1 device", "room", "rationale"):

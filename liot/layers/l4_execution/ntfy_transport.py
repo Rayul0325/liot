@@ -78,6 +78,7 @@ class HTTPNtfyTransport:
         feedback_base_url: str | None = None,
         timeout_s: float = 10.0,
         token: str | None = None,
+        signing_secret: bytes | str | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.feedback_base_url = (
@@ -85,6 +86,13 @@ class HTTPNtfyTransport:
         )
         self.timeout_s = timeout_s
         self.token = token  # ntfy 인증 토큰(보호된 토픽용). 헤더에만 쓰고 로그 금지.
+        # 액션 버튼 서명용 비밀키. 있어야 수락/거절 버튼을 만든다(action-bound 서명).
+        # 없으면 버튼 없이 '열기' 딥링크만(상태 변경 불가 → 안전한 기본값).
+        self._secret = (
+            signing_secret.encode("utf-8")
+            if isinstance(signing_secret, str)
+            else signing_secret
+        )
 
     def _headers(self, sanitized: dict[str, Any]) -> dict[str, str]:
         tier = int(sanitized.get("risk_tier", 1))
@@ -99,13 +107,23 @@ class HTTPNtfyTransport:
         deeplink = str(sanitized.get("signed_deeplink", ""))
         if deeplink:
             headers["Click"] = deeplink
-        # 피드백 http 액션(수락/거절). 서명 3요소를 그대로 실어 위조 차단.
-        parsed = _parse_deeplink(deeplink) if self.feedback_base_url else None
+        # 피드백 http 액션(수락/거절). 각 액션마다 action-bound 서명을 새로
+        # 계산해 싣는다 → 한 버튼 서명으로 다른 액션을 못 한다(선택 뒤집기 방어).
+        # 서명 비밀키가 없으면 버튼을 만들지 않는다(상태 변경 불가, 안전한 기본값).
+        parsed = _parse_deeplink(deeplink) if (self.feedback_base_url and self._secret) else None
         if parsed:
-            pid, t, sig = parsed
+            import hashlib
+            import hmac
+
+            pid, t, _ = parsed
             base = self.feedback_base_url
-            accept = f"{base}/feedback?p={pid}&t={t}&sig={sig}&a=accept"
-            dismiss = f"{base}/feedback?p={pid}&t={t}&sig={sig}&a=dismiss"
+
+            def _sig(action: str) -> str:
+                msg = f"{pid}:{t}:{action}".encode("utf-8")
+                return hmac.new(self._secret, msg, hashlib.sha256).hexdigest()
+
+            accept = f"{base}/feedback?p={pid}&t={t}&sig={_sig('accept')}&a=accept"
+            dismiss = f"{base}/feedback?p={pid}&t={t}&sig={_sig('dismiss')}&a=dismiss"
             headers["Actions"] = (
                 f"http, Accept, {accept}, method=GET; "
                 f"http, Dismiss, {dismiss}, method=GET"
@@ -125,10 +143,16 @@ class HTTPNtfyTransport:
         import urllib.error
         import urllib.request
 
-        url = f"{self.base_url}/{topic}"
-        req = urllib.request.Request(
-            url, data=self._body(sanitized), headers=self._headers(sanitized), method="POST"
-        )
+        # URL/헤더/본문 구성 자체의 오류(예: 비-ASCII topic → UnicodeEncodeError)도
+        # NtfyError 로 감싼다. 그래야 LiotService.dispatch 의 fail-closed 핸들러가
+        # 잡고, 스트림/틱 루프가 죽지 않는다(미전송으로 기록).
+        try:
+            url = f"{self.base_url}/{topic}"
+            req = urllib.request.Request(
+                url, data=self._body(sanitized), headers=self._headers(sanitized), method="POST"
+            )
+        except (UnicodeError, ValueError, TypeError) as exc:
+            raise NtfyError(f"ntfy request build failed: {exc}") from exc
         try:
             with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:  # noqa: S310
                 code = getattr(resp, "status", 200)
@@ -136,7 +160,7 @@ class HTTPNtfyTransport:
                     raise NtfyError(f"ntfy returned status {code}")
         except urllib.error.HTTPError as exc:
             raise NtfyError(f"ntfy http error {exc.code}") from exc
-        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        except (urllib.error.URLError, OSError, TimeoutError, UnicodeError) as exc:
             raise NtfyError(f"ntfy transport failed: {exc}") from exc
 
 
@@ -176,4 +200,6 @@ def build_ntfy_transport() -> NtfyTransport | None:
         feedback_base_url=os.environ.get("LIOT_NTFY_FEEDBACK_URL", "").strip() or None,
         timeout_s=float(os.environ.get("LIOT_NTFY_TIMEOUT", "10") or "10"),
         token=os.environ.get("LIOT_NTFY_TOKEN", "").strip() or None,
+        # 액션 버튼 서명용 비밀키(딥링크 서명과 동일해야 게이트웨이가 검증).
+        signing_secret=os.environ.get("LIOT_NOTIFY_SECRET", "").strip() or None,
     )
