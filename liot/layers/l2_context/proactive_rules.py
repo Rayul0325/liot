@@ -373,9 +373,16 @@ def load_proactive_rulesets(rules_dir: str | Path | None = None) -> ProactiveRul
     sub = [load_proactive_ruleset(f) for f in ordered]
     all_rules: tuple[ProactiveRule, ...] = tuple(r for rs in sub for r in rs.rules)
     version = "+".join(f"{rs.name}:{rs.ruleset_version}" for rs in sub) or "empty:0.0.0"
-    limits = next(
-        (rs.limits for rs in sub if rs.limits != ProactiveLimits()), ProactiveLimits()
-    )
+    # tighter-wins 병합: 파일을 추가해도 알림 throttle 은 절대 느슨해질 수
+    # 없다(deny-by-default 정신). 쿨다운은 큰 값이, 예산은 작은 값이 보수적.
+    if sub:
+        limits = ProactiveLimits(
+            cooldown_minutes=max(rs.limits.cooldown_minutes for rs in sub),
+            max_per_bucket=min(rs.limits.max_per_bucket for rs in sub),
+            max_per_day=min(rs.limits.max_per_day for rs in sub),
+        )
+    else:
+        limits = ProactiveLimits()
     return ProactiveRuleSet(
         name="__merged__",
         ruleset_version=version,

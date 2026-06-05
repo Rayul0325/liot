@@ -94,7 +94,15 @@ def validate_proactive_candidate(
       2) category ∉ SAFETY_CRITICAL_CATEGORIES — 컴포트 생성기는 안전
          액추에이터(가스밸브/잠금/오븐/고온계...)를 건드릴 자격이 없다.
          안전 이벤트는 안전 경로(Safety-Never-Silent)가 소유한다.
-      3) catalog.risk_for(...) <= BREATH — 카탈로그가 단일 위험 원천.
+      3) capability 가 카탈로그의 실제 capability 와 일치 — owner 가
+         ``categories`` 오버라이드로 가스밸브를 'light' 라 거짓 분류해도,
+         capability 는 물리적 사실(밸브는 밸브)이라 거짓말이 안 통한다.
+         규칙이 엔티티의 정체(catalog capability)와 다른 capability 를
+         자칭하면 거부('capability_mismatch'). 카탈로그가 모르는 엔티티는
+         제약 없음(양성 도메인 추정만 — V2 정상 경로 보존). 카테고리는
+         owner 가 정당히 재분류할 수 있어도(고온계→climate), capability 는
+         재분류 대상이 아니라는 비대칭이 안전 우회를 외과적으로 막는다.
+      4) catalog.risk_for(...) <= BREATH — 카탈로그가 단일 위험 원천.
          미지 (capability, action) 은 catalog 가 EMBER(default-deny) 를
          반환하므로 자동 거부된다. climate 내리기(dusk) 등 방향 비대칭도
          여기서 걸린다.
@@ -104,6 +112,9 @@ def validate_proactive_candidate(
     if (candidate.category or "").strip().lower() in SAFETY_CRITICAL_CATEGORIES:
         return "safety_target"
     if catalog is not None:
+        true_cap = catalog.capability_for(candidate.entity_id)
+        if true_cap is not None and true_cap != candidate.capability:
+            return "capability_mismatch"
         tier = catalog.risk_for(candidate.capability, candidate.action, candidate.params)
         if tier > PROACTIVE_TIER_CEILING:
             return "tier_ceiling"

@@ -269,6 +269,68 @@ def test_validator_and_boundary_assert() -> None:
         assert_proactive_candidate(bad, load_device_catalog())
 
 
+def test_capability_mismatch_refused_for_mislabeled_safety_entity(tmp_path) -> None:
+    # V5 방어심층: owner 가 가스밸브를 'light' 로 거짓 분류 + (light,turn_off)
+    # 규칙으로 가리켜도, 카탈로그 capability('valve')와 불일치라 거부된다.
+    text = """
+rules:
+  - id: lie
+    match: {time_bucket: day}
+    propose: {target: switch.gas_valve, capability: light, action: turn_off}
+"""
+    gen = _generator(tmp_path, text=text, categories={"switch.gas_valve": "light"})
+    d = gen.propose({"sensor.living_temperature": 21.0})
+    assert d.candidate is None
+    assert d.suppressed_by == "capability_mismatch"
+
+
+def test_capability_match_allows_legitimate_climate_override(tmp_path) -> None:
+    # 정당한 카테고리 오버라이드(고온계→climate)는 capability 가 일치하므로
+    # 보존된다 — capability 검사가 정당한 재분류를 깨지 않음(거짓양성 0).
+    text = """
+rules:
+  - id: warm
+    match: {time_bucket: evening}
+    state: [{entity: sensor.living_temperature, op: lt, value: 18}]
+    propose:
+      target: climate.living_room
+      capability: climate
+      action: set_temperature
+      params: {temperature: 2}
+"""
+    gen = _generator(
+        tmp_path,
+        text=text,
+        clock=Clock(fixed="2026-06-02T18:00:00+00:00"),  # evening
+        categories={"climate.living_room": "climate"},
+    )
+    d = gen.propose({"sensor.living_temperature": 15.0})
+    assert d.candidate is not None
+    assert d.candidate.entity_id == "climate.living_room"
+
+
+def test_conservative_limits_merge_tighter_wins(tmp_path) -> None:
+    from liot.layers.l2_context.proactive_rules import load_proactive_rulesets
+
+    # comfort: 60/1/3 (보수). loose 파일 추가해도 throttle 은 안 느슨해진다.
+    (tmp_path / "comfort.yaml").write_text(
+        "limits: {cooldown_minutes: 60, max_per_bucket: 1, max_per_day: 3}\n"
+        "rules: [{id: a, match: {occupancy: vacant}, "
+        "propose: {target: light.x, capability: light, action: turn_off}}]\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "aaa_loose.yaml").write_text(
+        "limits: {cooldown_minutes: 0, max_per_bucket: 99, max_per_day: 99}\n"
+        "rules: [{id: b, match: {occupancy: vacant}, "
+        "propose: {target: light.y, capability: light, action: turn_off}}]\n",
+        encoding="utf-8",
+    )
+    rs = load_proactive_rulesets(tmp_path)
+    assert rs.limits.cooldown_minutes == 60  # max(0,60)
+    assert rs.limits.max_per_bucket == 1  # min(99,1)
+    assert rs.limits.max_per_day == 3  # min(99,3)
+
+
 def test_origin_param_never_changes_catalog_risk() -> None:
     cat = load_device_catalog()
     base = cat.risk_for("cover", "open", {})
