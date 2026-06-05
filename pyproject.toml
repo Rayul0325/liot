@@ -29,6 +29,7 @@ ha = [
 
 [project.scripts]
 liot-demo = "liot.demo:main"
+liot-serve = "liot.serve:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

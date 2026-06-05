@@ -12,12 +12,14 @@ Phase1 불변식: 실행 코드 없음. 이 서비스는 제안을 만들고 그
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from liot.core.clock import Clock
 from liot.core.contracts import CandidateAction, FeedbackEvent, Judgment, Proposal
 from liot.core.invariants import InvariantError
 from liot.core.scoped_repo import DEFAULT_HOME_ID, ScopedRepo
+from .notifier import dedup_key
 
 if TYPE_CHECKING:  # pragma: no cover
     import aiosqlite
@@ -164,6 +166,99 @@ class ProposalService:
             limit=limit,
         )
         return [self._row_to_proposal(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # 알림 기록 / 발화 컨텍스트 입력
+    # ------------------------------------------------------------------
+    async def record_notification(self, sanitized: dict[str, Any], *, now: str | None = None) -> None:
+        """egress 를 통과한 *정제* 알림 payload 를 notifications 테이블에 기록한다.
+
+        화이트리스트 키만 들어오므로 device/room/rationale 은 구조적으로 없다.
+        """
+        now = now or self._clock.now_utc()
+        await self._repo.insert(
+            self._db,
+            "notifications",
+            {
+                "id": None,
+                "proposal_id": str(sanitized.get("proposal_id", "")),
+                "channel": str(sanitized.get("channel", "")),
+                "risk_tier": int(sanitized.get("risk_tier", 0)),
+                "glyph": str(sanitized.get("glyph", "")),
+                "label": str(sanitized.get("label", "")),
+                "signed_deeplink": str(sanitized.get("signed_deeplink", "")),
+                "topic": str(sanitized.get("topic", "")),
+                "sent_at": now,
+            },
+        )
+        await self._db.commit()
+
+    async def recently_rejected_keys(
+        self, *, now: str | None = None, days: int = 30
+    ) -> frozenset[str]:
+        """최근 N일 내 dismissed 된 제안들의 dedup-key 집합(발화 억제 입력).
+
+        notifier.gate_pipeline 의 recently_rejected_keys 로 그대로 넘긴다.
+        """
+        cutoff = (self._clock.now_dt() - timedelta(days=days)).replace(microsecond=0).isoformat()
+        rows = await self._repo.fetchall(
+            self._db,
+            "proposals",
+            columns="action_json, risk_tier",
+            extra_where="state = ? AND created_at >= ?",
+            extra_params=("dismissed", cutoff),
+        )
+        keys: set[str] = set()
+        for r in rows:
+            d = {k: r[k] for k in r.keys()} if _is_mapping(r) else None
+            if d is None:  # pragma: no cover - row_factory 방어
+                continue
+            try:
+                action = CandidateAction.model_validate_json(d["action_json"])
+            except (ValueError, KeyError):  # pragma: no cover - 방어적
+                continue
+            keys.add(f"{action.capability}:{action.action}:{action.entity_id}:{action.category}")
+        return frozenset(keys)
+
+    # ------------------------------------------------------------------
+    # 수용률(North Star) 메트릭
+    # ------------------------------------------------------------------
+    async def accept_rate(self) -> dict[str, Any]:
+        """Proposal-Accept-Rate 를 출처(origin)별로 집계한다.
+
+        PAR = accepted / (accepted + dismissed + expired) — 종료 상태에 도달한
+        제안만 분모로(아직 pending 은 결과 미정이라 제외). origin 은
+        action.params['__origin__'] 접두사(explicit/safety/proactive)로 버킷팅.
+        """
+        rows = await self._repo.fetchall(
+            self._db, "proposals", columns="action_json, state"
+        )
+        buckets: dict[str, dict[str, int]] = {}
+        for r in rows:
+            d = {k: r[k] for k in r.keys()} if _is_mapping(r) else None
+            if d is None:  # pragma: no cover
+                continue
+            state = d["state"]
+            if state not in ("accepted", "dismissed", "expired"):
+                continue
+            origin = "unknown"
+            try:
+                action = CandidateAction.model_validate_json(d["action_json"])
+                raw = str(action.params.get("__origin__", "unknown"))
+                origin = raw.split(":", 1)[0] if ":" in raw else raw
+            except (ValueError, KeyError):  # pragma: no cover
+                pass
+            b = buckets.setdefault(origin, {"accepted": 0, "dismissed": 0, "expired": 0})
+            b[state] += 1
+        out: dict[str, Any] = {}
+        for origin, b in buckets.items():
+            total = b["accepted"] + b["dismissed"] + b["expired"]
+            out[origin] = {
+                **b,
+                "total": total,
+                "accept_rate": (b["accepted"] / total) if total else None,
+            }
+        return out
 
     # ------------------------------------------------------------------
     # 만료

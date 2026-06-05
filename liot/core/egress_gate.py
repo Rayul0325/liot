@@ -29,6 +29,7 @@ __all__ = [
     "AliasMap",
     "pseudonymize_recursive",
     "emit_external",
+    "PII_SCAN_SKIP_KEYS",
 ]
 
 
@@ -222,9 +223,18 @@ def _generalize_coords(payload: Any) -> Any:
     return payload
 
 
-def _scan_pii(payload: Any) -> list[str]:
+# PII 스캔에서 제외하는 불투명 토큰 키. 이 값들은 HMAC 서명·해시 등
+# *구조적으로 PII 가 불가능한* 토큰이며, 무작위 16진수 서명이 우연히 PII
+# 패턴(예: rrn_kr 의 13자리 숫자열)과 일치해 정당한 알림(특히 안전 EMBER)이
+# 확률적으로 차단되는 것을 막는다. signed_deeplink = proposal_id:tier:hmac 로만
+# 구성되어 사용자 PII 를 담을 수 없다.
+PII_SCAN_SKIP_KEYS: frozenset[str] = frozenset({"signed_deeplink"})
+
+
+def _scan_pii(payload: Any, skip_keys: frozenset[str] = frozenset()) -> list[str]:
     """정제된 payload 의 모든 문자열 값에서 PII 패턴을 검출한다.
 
+    skip_keys 에 해당하는 dict 키의 *값* 은 스캔하지 않는다(불투명 서명 토큰).
     반환: 매치된 패턴 이름들(없으면 빈 리스트).
     """
     hits: list[str] = []
@@ -237,6 +247,8 @@ def _scan_pii(payload: Any) -> list[str]:
         elif isinstance(obj, dict):
             for k, v in obj.items():
                 walk(str(k))
+                if str(k) in skip_keys:
+                    continue  # 불투명 서명 토큰: 값은 스캔 제외(키는 스캔함)
                 walk(v)
         elif isinstance(obj, (list, tuple)):
             for v in obj:
@@ -288,7 +300,7 @@ def emit_external(
     else:  # pragma: no cover - ALLOWLIST 가 이미 막음
         raise EgressViolation(f"unhandled destination: {dest.value}")
 
-    pii_hits = _scan_pii(sanitized)
+    pii_hits = _scan_pii(sanitized, skip_keys=PII_SCAN_SKIP_KEYS)
     if pii_hits:
         raise EgressViolation(
             f"PII detected in egress to {dest.value} (trace={trace_id}): "

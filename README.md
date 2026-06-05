@@ -192,3 +192,37 @@ proposal = await app.tick()   # 결정 없음/쿨다운/예산/검증실패 → 
 
 검증: `tests/test_proactive.py` (로더 deny-by-default / 발의·침묵 결정론 /
 LLM 폭주 → 침묵 + 안전 경로 무손상 / egress 불출 / occupancy fact 부활).
+
+---
+
+## 물리적 연결 레이어 (상시 데몬 · `liot-serve`)
+
+`LiotApp`(두뇌, 네트워크 없음)을 둘러싸 실제 세계에 잇는 "몸통"이
+`liot/service.py`(`LiotService`)다. 부수효과를 한곳에 모은다:
+
+  - **영속**: 모든 Proposal 을 SQLite 에 저장(재시작에도 상태 보존).
+  - **알림 실송신**: `Notifier.gate_pipeline` 발화 결정 → IMMEDIATE 면 정제
+    payload 를 `NtfyTransport` 로 실제 ntfy POST. transport 는 `emit_external(NTFY)`
+    를 통과한 *정제분만* 받는다(미정제 송신 경로 원천 차단).
+  - **만료/틱**: 주기적 `expire_due()` + `app.tick()`(능동 제안).
+  - **피드백**: 서명 검증 HTTP 수신구(`/feedback?p=&t=&sig=&a=`) → 수락/거절
+    → 상태 전이 → `accept_rate()`(North Star 측정, 출처별).
+
+```bash
+# 상시 데몬. 실 URL/토큰은 환경변수로 주입(코드에 시크릿 없음).
+LIOT_HA_URL=ws://<host>:8123/api/websocket LIOT_HA_TOKEN=*** \
+LIOT_NTFY_URL=https://ntfy.sh LIOT_NTFY_TOPIC=my-liot \
+LIOT_NTFY_FEEDBACK_URL=http://<pi>:8099 \
+LIOT_NOTIFY_SECRET=*** LIOT_LLM_BACKEND=ollama \
+  liot-serve
+```
+
+  - HA URL 미설정 시 센서 스트림 없이 **능동 틱만** 구동. ntfy URL 미설정 시
+    발화 결정·정제까지만(sanitize-only, 실송신 없음).
+  - **실행 없음(불변식 3) 유지**: 데몬이 하는 외부 I/O 는 *알림 송신* 뿐,
+    액추에이터 호출이 아니다. HA 로는 읽기(stream)만.
+  - **fail-closed**: ntfy 송신 실패는 파이프라인을 죽이지 않고 '미전송'으로
+    남긴다(제안은 pending → 다음에 재시도/다이제스트).
+
+검증: `tests/test_service.py` (영속·발화·실 HTTP POST 왕복·fail-closed·
+recently-rejected 억제·서명 검증/위조 거부·피드백 HTTP 왕복·수용률·데몬 루프).
