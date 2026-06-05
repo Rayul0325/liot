@@ -164,21 +164,30 @@ class OllamaBackend:
         self.timeout_s = timeout_s
         self.model_id = f"ollama:{model}"
 
-    # 모델로 내보낼 수 있는 params 키 화이트리스트 — 방향/크기 정보만.
+    # 모델로 내보낼 수 있는 params — 위험도 판정에 필요한 방향/크기만.
     # candidate.params 를 통째로 내보내면 출처(__origin__)·타깃 식별자 같은
-    # 비식별-키 아래 값들이 가명화를 비껴 그대로 새기 때문에(키 기반 가명화의
-    # 구조적 한계), 위험도 판정에 실제로 필요한 방향성 스칼라만 투영한다.
-    _SAFE_PARAM_KEYS = ("direction", "delta", "step", "temperature", "brightness")
+    # 비식별-키 아래 값들이 가명화를 비껴 그대로 샌다(키 기반 가명화의 한계).
+    # 더 나아가 *임의 문자열* 값을 투영하면(예 direction='Light.Living_Room')
+    # 식별자가 평문으로 샐 수 있으므로:
+    #   - 수치 키(delta/step/temperature/brightness)는 숫자일 때만 투영.
+    #   - 방향(direction)은 닫힌 어휘일 때만, 정규화해서 투영.
+    # 그 외 문자열은 일절 내보내지 않는다. (egress 의 entity-shaped 백스톱이
+    # 2차 방어선이지만, 여기서 애초에 임의 문자열을 차단하는 것이 1차.)
+    _NUMERIC_PARAM_KEYS = ("delta", "step", "temperature", "brightness")
+    _DIRECTION_VOCAB = frozenset(
+        {"up", "down", "raise", "lower", "open", "close", "increase", "decrease", "on", "off"}
+    )
 
     def _build_payload(
         self, candidate: CandidateAction, ctx: ContextSnapshot | None, gate1_floor: RiskTier
     ) -> dict[str, Any]:
         """모델로 보낼 payload. 식별자 키(device/room/person)는 egress 가 가명화."""
-        safe_params = {
-            k: v
-            for k, v in candidate.params.items()
-            if k in self._SAFE_PARAM_KEYS and isinstance(v, (int, float, bool, str))
-        }
+        safe_params: dict[str, Any] = {}
+        for k, v in candidate.params.items():
+            if k in self._NUMERIC_PARAM_KEYS and isinstance(v, (int, float)) and not isinstance(v, bool):
+                safe_params[k] = v
+            elif k == "direction" and isinstance(v, str) and v.strip().lower() in self._DIRECTION_VOCAB:
+                safe_params[k] = v.strip().lower()
         return {
             "system": _SYSTEM,
             # ctx.nl_summary 는 상류에서 이미 가명 토큰으로 생성됨(1차 보장).

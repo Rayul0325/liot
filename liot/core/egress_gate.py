@@ -77,8 +77,10 @@ PII_PATTERNS: dict[str, re.Pattern[str]] = {
 # 구조적으로 못 막는다. LLM 으로 나가는 payload 의 모든 문자열 값에서
 # 이 형태가 발견되면 송신 자체를 거부한다(fail-closed → LLMUnavailable
 # → degraded. 안전 카테고리는 그래도 EMBER 유지 — 불변식 6).
-# 소문자 시작 강제로 가명 토큰(DEVICE_1/ROOM_A)·소수(22.5)는 걸리지 않는다.
-_ENTITY_SHAPED_RE = re.compile(r"\b[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\b")
+# 대소문자 무시('Light.Living_Room' 같은 우회 차단). 가명 토큰
+# (DEVICE_1/ROOM_A/PERSON_1)은 점이 아니라 밑줄을 쓰므로 여전히 안 걸린다.
+# 양쪽 다 영문자로 시작해야 하므로 소수(22.5)·버전(v2.0)은 매치되지 않는다.
+_ENTITY_SHAPED_RE = re.compile(r"\b[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\b", re.IGNORECASE)
 
 
 def _scan_entity_shaped(payload: Any) -> str | None:

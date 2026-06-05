@@ -104,6 +104,15 @@ class ProposalService:
         await self._persist(proposal)
         return proposal
 
+    async def save(self, proposal: Proposal) -> Proposal:
+        """이미 라우팅된 Proposal 을 그대로 영속화한다(파이프라인 산출물용).
+
+        LiotApp 이 내부에서 Judgment→Proposal 까지 마쳐 반환하므로, 서비스는
+        재라우팅 없이 이 메서드로 저장한다(이중 라우팅 방지).
+        """
+        await self._persist(proposal)
+        return proposal
+
     async def _persist(self, proposal: Proposal) -> None:
         await self._repo.insert(
             self._db,

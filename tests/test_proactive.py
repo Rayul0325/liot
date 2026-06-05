@@ -486,6 +486,57 @@ def test_egress_llm_backstop_rejects_entity_shaped_strings() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "leak", ["Light.Living_Room", "Sensor.Kitchen", "LIGHT.LIVING_ROOM", "Climate.Bedroom"]
+)
+def test_egress_backstop_is_case_insensitive(leak) -> None:
+    # 대문자/혼합 케이스 entity-id 도 비식별 키 아래에서 차단되어야 한다(회귀).
+    with pytest.raises(EgressViolation, match="entity-shaped"):
+        emit_external(Destination.LLM, {"note": f"check {leak}"}, trace_id="t")
+
+
+def test_egress_alias_tokens_survive_case_insensitive_backstop() -> None:
+    # 가명 토큰(밑줄, 점 없음)은 케이스 무시 백스톱에도 안 걸린다.
+    out = emit_external(
+        Destination.LLM,
+        {"summary": "ROOM_A PERSON_1 DEVICE_1 changed", "n": 3},
+        trace_id="t",
+    )
+    assert out["summary"] == "ROOM_A PERSON_1 DEVICE_1 changed"
+
+
+def test_string_params_other_than_direction_vocab_are_dropped() -> None:
+    transport = _CaptureTransport()
+    backend = OllamaBackend("gemma-test", transport)
+    cand = CandidateAction(
+        capability="light", action="set_brightness",
+        params={
+            "direction": "Light.Living_Room",  # 어휘 밖 문자열 → 투영 안 됨
+            "note": "sensor.kitchen",          # 비허용 키 → 투영 안 됨
+            "temperature": 2,                   # 수치 → 투영
+            "brightness": "80",                # 수치 키지만 문자열 → 투영 안 됨
+        },
+        entity_id="light.living_room", category="light",
+    )
+    backend.judge_raw(cand, _ctx(), RiskTier.AMBIENT)
+    prompt = transport.prompts[0]
+    assert "Light.Living_Room" not in prompt and "sensor.kitchen" not in prompt
+    assert "temperature" in prompt  # 수치만 통과
+    # brightness 문자열은 드롭(수치 키지만 문자열이라 거부).
+    assert '"brightness"' not in prompt
+
+
+def test_direction_vocab_value_is_projected_normalized() -> None:
+    transport = _CaptureTransport()
+    backend = OllamaBackend("gemma-test", transport)
+    cand = CandidateAction(
+        capability="cover", action="close", params={"direction": "Close"},
+        entity_id="cover.x", category="curtain",
+    )
+    backend.judge_raw(cand, _ctx(), RiskTier.AMBIENT)
+    assert '"direction": "close"' in transport.prompts[0]  # 정규화되어 통과
+
+
 # ==========================================================================
 # 5) occupancy fact — 죽은 매치 키 부활
 # ==========================================================================
