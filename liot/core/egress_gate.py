@@ -71,6 +71,38 @@ PII_PATTERNS: dict[str, re.Pattern[str]] = {
     "geo_precise": re.compile(r"\b\d{1,3}\.\d{4,}\b"),
 }
 
+# LLM 목적지 한정 백스톱: entity_id 형태('domain.object') 문자열 검출.
+# 키 기반 가명화(_looks_like_identifier)는 'device'/'room' 같은 키 아래의
+# 값만 치환하므로, 새 필드/비식별 키 아래로 raw entity_id 가 새는 것을
+# 구조적으로 못 막는다. LLM 으로 나가는 payload 의 모든 문자열 값에서
+# 이 형태가 발견되면 송신 자체를 거부한다(fail-closed → LLMUnavailable
+# → degraded. 안전 카테고리는 그래도 EMBER 유지 — 불변식 6).
+# 소문자 시작 강제로 가명 토큰(DEVICE_1/ROOM_A)·소수(22.5)는 걸리지 않는다.
+_ENTITY_SHAPED_RE = re.compile(r"\b[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\b")
+
+
+def _scan_entity_shaped(payload: Any) -> str | None:
+    """payload 의 문자열 값에서 entity_id 형태를 찾는다(첫 매치 반환)."""
+
+    def walk(obj: Any) -> str | None:
+        if isinstance(obj, str):
+            m = _ENTITY_SHAPED_RE.search(obj)
+            return m.group(0) if m else None
+        if isinstance(obj, dict):
+            for v in obj.values():
+                hit = walk(v)
+                if hit:
+                    return hit
+            return None
+        if isinstance(obj, (list, tuple)):
+            for v in obj:
+                hit = walk(v)
+                if hit:
+                    return hit
+        return None
+
+    return walk(payload)
+
 
 class AliasMap:
     """실제 식별자 <-> 가명('ROOM_A', 'PERSON_1') 양방향 매핑.
@@ -260,5 +292,14 @@ def emit_external(
             f"PII detected in egress to {dest.value} (trace={trace_id}): "
             f"{', '.join(sorted(set(pii_hits)))}"
         )
+
+    # LLM 한정: 가명화를 비껴간 entity_id 형태 식별자가 남아 있으면 거부.
+    if dest is Destination.LLM:
+        hit = _scan_entity_shaped(sanitized)
+        if hit:
+            raise EgressViolation(
+                f"entity-shaped identifier in egress to LLM (trace={trace_id}): "
+                f"{hit!r} survived pseudonymization"
+            )
 
     return sanitized

@@ -1,0 +1,52 @@
+# LIOT 능동(proactive) 규칙 — 컴포트 시드.
+#
+# 원칙: 소수·고정밀. 능동 제안은 수용률(Proposal-Accept-Rate, 목표 60%+)이
+# 생명이므로, 확실히 도움이 되는 상황만 선언한다. 잔소리는 컴포트가 아니다.
+#
+# deny-by-default: propose.(capability, action) 은 PROACTIVE_ALLOWED 에 있어야
+# 로드된다. lock.unlock / valve.open / cover.open 같은 위험 방향은 여기서
+# 선언 자체가 불가능하다(로더가 거부).
+#
+# limits: 생성 시 게이팅(쿨다운/예산). L4 알림 예산(6/h)과 별개로 훨씬
+# 보수적이다 — 하루 3건, 시간대(time_bucket)당 1건, 같은 (타깃, 액션) 은
+# 60분 쿨다운.
+
+version: "1.0.0"
+name: comfort
+description: >-
+  컴포트 능동 제안 시드 — 자리 비움 조명 끄기, 저녁 한기 난방 올리기.
+
+limits:
+  cooldown_minutes: 60
+  max_per_bucket: 1
+  max_per_day: 3
+
+rules:
+  - id: vacant-light-off
+    description: 자리 비움(재실 센서 전부 비활성) + 거실 조명 켜짐 → 끄기 제안.
+    match:
+      occupancy: vacant
+    state:
+      - { entity: light.living_room, op: eq, value: true }
+    propose:
+      target: light.living_room
+      capability: light
+      action: turn_off
+    ttl_minutes: 15
+
+  - id: evening-chill-heat
+    description: >-
+      저녁 + 거실 기온 18도 미만 → 온도 2도 올리기 제안.
+      (기본 카탈로그에서 climate.living_room 은 high_temp 안전 분류라
+      거부된다 — 집이 categories 로 'climate' 컴포트 분류를 명시한 경우에만
+      발의된다. 분류가 안전이면 능동 생성기는 손대지 않는다.)
+    match:
+      time_bucket: evening
+    state:
+      - { entity: sensor.living_temperature, op: lt, value: 18 }
+    propose:
+      target: climate.living_room
+      capability: climate
+      action: set_temperature
+      params: { temperature: 2 }
+    ttl_minutes: 30

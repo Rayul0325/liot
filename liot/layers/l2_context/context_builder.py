@@ -33,6 +33,8 @@ __all__ = [
     "ContextBuilder",
     "SUMMARY_TEMPLATE",
     "SUMMARY_TEMPLATE_SHA",
+    "OCCUPANCY_CATEGORIES",
+    "derive_occupancy",
     "semantic_delta",
     "should_snapshot",
 ]
@@ -65,6 +67,32 @@ def _category_of(entity_id: str, categories: Mapping[str, str] | None) -> str | 
 
 def _is_safety(category: str | None) -> bool:
     return category is not None and category in SAFETY_CRITICAL_CATEGORIES
+
+
+# 재실(occupancy) 유도에 쓰는 카테고리. motion/presence 류만 본다.
+OCCUPANCY_CATEGORIES: frozenset[str] = frozenset({"motion", "presence", "occupancy"})
+
+
+def derive_occupancy(
+    cur: Mapping[str, Any],
+    categories: Mapping[str, str] | None,
+) -> str:
+    """현재 상태로부터 재실 상태를 결정론적으로 유도한다.
+
+    'occupied'  : motion/presence 류 엔티티 중 하나라도 truthy.
+    'vacant'    : motion/presence 류 엔티티가 있으나 모두 falsy.
+    'unknown'   : motion/presence 류 엔티티가 하나도 없음(추정 금지).
+
+    이 fact 가 structured 에 실려야 Gate1 규칙(occupancy 매치 키)과 능동
+    규칙이 실제로 매칭된다 — 빠지면 occupancy 규칙은 조용한 죽은 코드가 된다.
+    """
+    found = False
+    for eid, val in cur.items():
+        if _category_of(eid, categories) in OCCUPANCY_CATEGORIES:
+            found = True
+            if bool(val):
+                return "occupied"
+    return "vacant" if found else "unknown"
 
 
 def _scalar_delta(old: Any, new: Any) -> float:
@@ -228,6 +256,7 @@ class ContextBuilder:
         structured: dict[str, Any] = {
             "time_bucket": bucket,
             "trust_ok": self._clock.trust_ok,
+            "occupancy": derive_occupancy(cur, self._categories),
             "entities": dict(cur),
             "entity_categories": entity_categories,
             "changed_entities": sorted(changed),

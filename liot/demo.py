@@ -6,6 +6,7 @@ Proposal 의 위험도 단계(tier)·글리프·rationale·필요 확인 강도�
   1. 일상 조명 켜기              → ambient(잔잔 ●)
   2. 야간 thermostat 온도 내리기  → 최소 dusk(땅거미 ?) 이상
   3. 가스 누출 감지(emergency)    → ember(불씨 🛡), Safety-Never-Silent
+  4. 능동 컴포트 틱(Phase2)       → AI 가 먼저 "자리 비움 + 조명 켜짐 → 끄기" 제안
 
 네트워크/HA 연결 없이 결정론적으로 동작한다.
 
@@ -64,6 +65,7 @@ async def run() -> None:
             "light.living_room": "ambient",
             "climate.living_room": "climate",
             "switch.gas_valve": "gas",
+            "binary_sensor.living_motion": "motion",  # 재실(occupancy) 유도용
         },
     )
 
@@ -96,7 +98,23 @@ async def run() -> None:
     )
     _print_proposal("3) 가스 누출 감지 (ember 기대, Safety-Never-Silent)", p3)
 
+    # 4) 능동 컴포트 틱(Phase2) — AI 가 먼저 말을 건다.
+    #    관찰(자리 비움 + 조명 켜짐)은 침묵으로 흡수되고, 주기 틱에서
+    #    능동 규칙(vacant-light-off)이 '조명 끄기'를 발의한다. 후보는
+    #    기존 Gate1+Gate2 를 그대로 통과한다(BREATH 상한, 불변식 7).
+    motion_off = _reading(
+        "binary_sensor.living_motion", "off", ts_utc="2026-06-01T23:33:00Z"
+    )
+    silent = await app.process_reading(motion_off, force_snapshot=True)
+    assert silent is None  # 관찰은 침묵(센서/액추에이터 분리)
+    p4 = await app.tick()
+    _print_proposal("4) 능동 컴포트 틱 (자리 비움 + 조명 켜짐 → 끄기 제안)", p4)
+    if p4 is not None:
+        print(f"  origin               : {p4.action.params.get('__origin__')}")
+        print(f"  expires_at           : {p4.expires_at} (신선도 — 만료 후 미표출)")
+
     print("\n[Phase1] 위 제안들은 결코 자동 실행되지 않는다(제안-만 모델).")
+    print("[Phase2] 능동 제안은 컴포트 전용 + breath 상한(불변식 7) — 초과는 침묵.")
 
 
 def main() -> None:

@@ -164,10 +164,21 @@ class OllamaBackend:
         self.timeout_s = timeout_s
         self.model_id = f"ollama:{model}"
 
+    # 모델로 내보낼 수 있는 params 키 화이트리스트 — 방향/크기 정보만.
+    # candidate.params 를 통째로 내보내면 출처(__origin__)·타깃 식별자 같은
+    # 비식별-키 아래 값들이 가명화를 비껴 그대로 새기 때문에(키 기반 가명화의
+    # 구조적 한계), 위험도 판정에 실제로 필요한 방향성 스칼라만 투영한다.
+    _SAFE_PARAM_KEYS = ("direction", "delta", "step", "temperature", "brightness")
+
     def _build_payload(
         self, candidate: CandidateAction, ctx: ContextSnapshot | None, gate1_floor: RiskTier
     ) -> dict[str, Any]:
         """모델로 보낼 payload. 식별자 키(device/room/person)는 egress 가 가명화."""
+        safe_params = {
+            k: v
+            for k, v in candidate.params.items()
+            if k in self._SAFE_PARAM_KEYS and isinstance(v, (int, float, bool, str))
+        }
         return {
             "system": _SYSTEM,
             # ctx.nl_summary 는 상류에서 이미 가명 토큰으로 생성됨(1차 보장).
@@ -179,7 +190,7 @@ class OllamaBackend:
                 "category": candidate.category,
                 # 'device' 키 → egress 가 토큰으로 치환(raw entity_id 미노출).
                 "device": candidate.entity_id,
-                "params": candidate.params,
+                "params": safe_params,
             },
             "gate1_floor": gate1_floor.name.lower(),
         }

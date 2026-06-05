@@ -19,6 +19,7 @@ Phase1: 실행 코드 없음. L4 는 Proposal 생성에서 멈춘다.
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from typing import Any
 
 from liot.core.clock import Clock
@@ -37,6 +38,12 @@ from liot.core.risk import SAFETY_CRITICAL_CATEGORIES
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l1_sensing.state_cache import StateCache
 from liot.layers.l2_context.context_builder import ContextBuilder
+from liot.layers.l2_context.proactive import (
+    PROACTIVE_TIER_CEILING,
+    ProactiveDecision,
+    ProactiveGenerator,
+    assert_proactive_candidate,
+)
 from liot.layers.l3_judgment.guardrail import Guardrail
 from liot.layers.l3_judgment.llm_judge import LLMBackend, LLMJudge
 from liot.layers.l4_execution.device_catalog import DeviceCatalog, load_device_catalog
@@ -61,6 +68,7 @@ class LiotApp:
         guardrail: Guardrail | None = None,
         llm_backend: LLMBackend | None = None,
         categories: dict[str, str] | None = None,
+        proactive: ProactiveGenerator | None = None,
     ) -> None:
         self.home_id = home_id
         self.clock = clock or Clock()
@@ -81,6 +89,18 @@ class LiotApp:
         self.guardrail = guardrail if guardrail is not None else Guardrail()
         self.judge = LLMJudge(backend=llm_backend)
         self.router = RiskRouter(catalog=self.catalog, clock=self.clock)
+        # 능동 생성기(Phase2). 기본은 config/proactive/*.yaml 의 규칙셋 —
+        # 디렉터리가 없으면 빈 규칙셋(능동 제안 없음, 안전한 기본값).
+        self.proactive = (
+            proactive
+            if proactive is not None
+            else ProactiveGenerator(
+                catalog=self.catalog,
+                categories=self._categories,
+                clock=self.clock,
+                home_id=home_id,
+            )
+        )
 
         # 한 번의 process_reading 동안 단계 산출물을 잇기 위한 trace-stash.
         self._stash: dict[str, dict[str, Any]] = {}
@@ -177,39 +197,67 @@ class LiotApp:
         )
 
     async def _on_l2_to_l3(self, msg: EventMessage) -> None:
-        """L2→L3: Gate1(guardrail) + Gate2(LLM) 으로 Judgment 를 만든다."""
+        """L2→L3: Gate1(guardrail) + Gate2(LLM) 으로 Judgment 를 만든다.
+
+        세 분기(능동/명시/안전)가 각각 정확히 하나의 CandidateAction 을
+        내고, 단일 gate1/judge 흐름이 그 후보를 소비한다.
+        """
         stash = self._stash[msg.trace_id]
         snapshot: ContextSnapshot = stash["snapshot"]
-        reading: SensorReading = stash["reading"]
+        decision: ProactiveDecision | None = stash.get("proactive")
 
-        category = self._category_of(reading.entity_id)
+        if decision is not None and decision.candidate is not None:
+            # ── 능동 분기(tick 진입) ──────────────────────────────────
+            # 후보는 생성기가 이미 검증했지만, 경계에서 재확인한다
+            # (불변식 7 방어 심층: 금지 후보는 InvariantError).
+            candidate = decision.candidate
+            assert_proactive_candidate(candidate, self.catalog)
+        else:
+            reading: SensorReading = stash["reading"]
+            category = self._category_of(reading.entity_id)
 
-        # ── 센서/액추에이터 분리(알림 피로 방지) ──────────────────────────
-        # 관찰(observation)은 맥락만 갱신하고 제안을 만들지 않는다. 제안은
-        # (a) 명시적 action 이 주어졌거나(프로액티브 생성기/요청), 또는
-        # (b) 안전 임계 카테고리(가스/연기/누수/문/잠금 ...)일 때만 생성한다.
-        # 그 외 읽기전용 센서(온도/습도/움직임)·액추에이터 상태변화는 침묵.
-        # → 실제 HA의 수십 개 양성 센서가 모두 ember 로 과승격되던 문제 해소.
-        explicit_action = stash.get("action_name")
-        is_safety = category in SAFETY_CRITICAL_CATEGORIES
-        if explicit_action is None and not is_safety:
-            stash["proposal"] = None  # 관찰 → 맥락만, 제안 없음
-            return
+            # ── 센서/액추에이터 분리(알림 피로 방지) ──────────────────
+            # 관찰(observation)은 맥락만 갱신하고 제안을 만들지 않는다.
+            # 제안은 (a) 명시적 action 이 주어졌거나(요청), 또는 (b) 안전
+            # 임계 카테고리(가스/연기/누수/문/잠금 ...)일 때만 생성한다.
+            # 그 외 읽기전용 센서·액추에이터 상태변화는 침묵.
+            # (능동 제안은 센서 경로가 아니라 tick() 경로로만 들어온다.)
+            explicit_action = stash.get("action_name")
+            is_safety = category in SAFETY_CRITICAL_CATEGORIES
+            if explicit_action is None and not is_safety:
+                stash["proposal"] = None  # 관찰 → 맥락만, 제안 없음
+                return
 
-        capability = self._capability_of(reading.entity_id, category)
-        action_name = explicit_action or self._default_action(category, reading)
-        params: dict[str, Any] = dict(stash.get("params") or {})
+            capability = self._capability_of(reading.entity_id, category)
+            action_name = explicit_action or self._default_action(category, reading)
+            params: dict[str, Any] = dict(stash.get("params") or {})
+            # 출처 통일(수용률 측정의 분모 무결성): 세 경로 모두 __origin__
+            # 을 갖는다. 호출자가 명시한 __origin__ 은 보존한다.
+            params.setdefault(
+                "__origin__",
+                "explicit:external" if explicit_action else "safety:auto",
+            )
 
-        candidate = CandidateAction(
-            capability=capability,
-            action=action_name,
-            params=params,
-            entity_id=reading.entity_id,
-            category=category,
-        )
+            candidate = CandidateAction(
+                capability=capability,
+                action=action_name,
+                params=params,
+                entity_id=reading.entity_id,
+                category=category,
+            )
         stash["candidate"] = candidate
 
         gate1 = self.guardrail.evaluate(candidate, snapshot)
+        # ── 불변식 7: 능동 제안의 BREATH 상한(판단 전 차단) ───────────────
+        # 게이트가 능동 후보를 DUSK 이상으로 보거나 차단하면 그 제안은
+        # '컴포트'가 아니다 → 표출하지 않는다(억제 = 침묵. 위험도 강등이
+        # 아니므로 불변식 5와 무관). 안전 이벤트는 이 분기에 오지 않는다.
+        if decision is not None and (
+            gate1.blocked or gate1.floor_tier > PROACTIVE_TIER_CEILING
+        ):
+            stash["proposal"] = None
+            return
+
         judgment = self.judge.judge(
             candidate,
             snapshot,
@@ -218,6 +266,11 @@ class LiotApp:
             trace_id=msg.trace_id,
             home_id=self.home_id,
         )
+        # 불변식 7 후단: LLM(Gate2)이 BREATH 위로 승격시킨 능동 제안도 억제.
+        # 인젝션된 LLM 의 최악 결과 = 침묵(fail-closed).
+        if decision is not None and judgment.risk_tier > PROACTIVE_TIER_CEILING:
+            stash["proposal"] = None
+            return
         stash["judgment"] = judgment
 
         await self.bus.publish(
@@ -234,10 +287,19 @@ class LiotApp:
         )
 
     async def _on_l3_to_l4(self, msg: EventMessage) -> None:
-        """L3→L4: Judgment 를 Proposal 로 라우팅한다(실행 없음)."""
+        """L3→L4: Judgment 를 Proposal 로 라우팅한다(실행 없음).
+
+        능동 제안은 expires_at(신선도)을 갖는다. perishable 은 False 로
+        둔다 — L4 notifier 에서 perishable=True 는 예산/정숙시간 *우회*
+        의미라서 컴포트에 쓰면 오히려 잔소리가 된다.
+        """
         stash = self._stash[msg.trace_id]
         judgment: Judgment = stash["judgment"]
-        proposal = self.router.route(judgment, created_at=self.clock.now_utc())
+        proposal = self.router.route(
+            judgment,
+            expires_at=stash.get("expires_at"),
+            created_at=self.clock.now_utc(),
+        )
         stash["proposal"] = proposal
 
     # ------------------------------------------------------------------
@@ -255,6 +317,83 @@ class LiotApp:
     # ------------------------------------------------------------------
     # 공개 API
     # ------------------------------------------------------------------
+    async def tick(self) -> Proposal | None:
+        """주기적 컴포트 틱(Phase2 능동성) — "AI 가 먼저 말을 거는" 진입점.
+
+        센서 cadence 와 분리된 주기 호출용이다. should_snapshot 의 양성
+        변화 억제는 그대로 두고(알림 피로 방지선 불변), 틱이 자체적으로
+        맥락을 평가한다:
+
+          1) 생성기(ProactiveGenerator)가 현재 상태에서 결정을 내린다.
+             결정 없음(no_match/쿨다운/예산/검증실패) → None (침묵 =
+             Proactive-Safe-Silent, 안전한 기본값).
+          2) 결정이 있으면 그 결정 자체를 trigger 로 삼아 스냅샷을 빚는다
+             (L2 소관 작업) → snapshot_hash 가 판단된 후보를 고정한다
+             (불변식 4: 같은 스냅샷 = 같은 후보, 재현 가능).
+          3) L2→L3 허용 엣지로 publish — 기존 Gate1+Gate2+Router 를
+             그대로 통과한다. BREATH 상한 초과는 침묵(불변식 7).
+        """
+        cur = self.state_cache.norm_values()
+        decision = self.proactive.propose(cur)
+        if decision.candidate is None:
+            return None
+
+        cand = decision.candidate
+        trace_id = uuid.uuid4().hex
+        expires_at = (
+            (self.clock.now_dt() + timedelta(minutes=decision.ttl_minutes))
+            .replace(microsecond=0)
+            .isoformat()
+        )
+
+        # 결정이 곧 트리거다: 무엇이(규칙 출처) 무엇을(타깃/행동) 발의했는지가
+        # structured 에 박혀 snapshot_hash 로 고정된다.
+        trigger: dict[str, Any] = {
+            "kind": "proactive",
+            "origin": decision.origin,
+            "entity_id": cand.entity_id,
+            "capability": cand.capability,
+            "action": cand.action,
+            "category": cand.category,
+            "time_bucket": self.clock.time_bucket(),
+        }
+        snapshot = self.context_builder.build(
+            cur,
+            trigger,
+            prev=cur or None,  # 틱은 상태 변화가 아니라 기회 평가
+            trace_id=trace_id,
+            alias=AliasMap(),
+        )
+
+        self._stash[trace_id] = {
+            "reading": None,  # 틱은 센서 읽기 없이 진입한다(합성 읽기 금지)
+            "prev_norm": cur or None,
+            "action_name": None,
+            "params": None,
+            "force_snapshot": True,
+            "proactive": decision,
+            "expires_at": expires_at,
+            "snapshot": snapshot,
+            "judgment": None,
+            "proposal": None,
+        }
+        try:
+            await self.bus.publish(
+                EventMessage(
+                    trace_id=trace_id,
+                    home_id=self.home_id,
+                    layer_from=Layer.L2,
+                    layer_to=Layer.L3,
+                    type="context_snapshot",
+                    ref_id=snapshot.snapshot_id,
+                    partition_key=self.home_id,
+                    ts=self.clock.now_utc(),
+                )
+            )
+            return self._stash[trace_id].get("proposal")
+        finally:
+            self._stash.pop(trace_id, None)
+
     async def process_reading(
         self,
         reading: SensorReading,
