@@ -4,6 +4,55 @@
 
   var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+  /* ---------- 테마(라이트/다크) ---------- */
+  (function theme() {
+    var root = document.documentElement;
+    var toggle = document.getElementById("themeToggle");
+    var meta = document.getElementById("themeColorMeta");
+    var mq = window.matchMedia("(prefers-color-scheme: dark)");
+    var META_COLOR = { dark: "#0b0908", light: "#f3eee5" };
+
+    // 현재 '실효' 테마: 수동 오버라이드가 있으면 그것, 없으면 시스템
+    var effective = function () {
+      var attr = root.getAttribute("data-theme");
+      if (attr === "light" || attr === "dark") return attr;
+      return mq.matches ? "dark" : "light";
+    };
+
+    var sync = function () {
+      var eff = effective();
+      if (toggle) {
+        toggle.setAttribute("data-mode", eff);
+        toggle.setAttribute(
+          "aria-label",
+          eff === "dark" ? "밝은 테마로 전환" : "어두운 테마로 전환"
+        );
+        toggle.setAttribute("aria-pressed", String(eff === "light"));
+      }
+      if (meta) meta.setAttribute("content", META_COLOR[eff]);
+    };
+
+    if (toggle) {
+      toggle.addEventListener("click", function () {
+        var next = effective() === "dark" ? "light" : "dark";
+        root.setAttribute("data-theme", next);
+        try {
+          localStorage.setItem("liot-theme", next);
+        } catch (e) {}
+        sync();
+      });
+    }
+
+    // 시스템 테마가 바뀌면(수동 오버라이드가 없을 때만 의미 있음) 아이콘/메타 갱신
+    var onMq = function () {
+      sync();
+    };
+    if (mq.addEventListener) mq.addEventListener("change", onMq);
+    else if (mq.addListener) mq.addListener(onMq);
+
+    sync();
+  })();
+
   /* ---------- 내비 스크롤 상태 ---------- */
   var nav = document.getElementById("nav");
   if (nav) {

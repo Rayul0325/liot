@@ -24,6 +24,19 @@
 
   --safe: #7fb069;
 
+  /* 표면·상호작용 시맨틱 토큰 — 값은 테마별로 갈린다(아래 라이트 블록) */
+  --text-inverse: #16100d;
+  --nav-bg: rgba(13, 10, 9, 0.72);
+  --menu-bg: rgba(11, 9, 8, 0.96);
+  --hover-bg: rgba(243, 239, 233, 0.07);
+  --grain-opacity: 0.05;
+  --card-shadow-hover: 0 20px 44px rgba(0, 0, 0, 0.35);
+  --card-shadow-strong: 0 22px 50px rgba(0, 0, 0, 0.4);
+  --glow-ember: rgba(255, 92, 56, 0.17);
+  --glow-ember-soft: rgba(201, 58, 29, 0.07);
+  --glow-purple: rgba(157, 139, 223, 0.1);
+  --glow-cta: rgba(255, 92, 56, 0.2);
+
   --font-display: "Instrument Serif", "Pretendard Variable", serif;
   --font-body: "Pretendard Variable", Pretendard, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", monospace;
@@ -35,6 +48,95 @@
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --dur: 240ms;
+}
+
+/* ==========================================================================
+   라이트 테마 — "아침 종이". 단순 반전이 아닌 웜 페이퍼로의 재해석.
+   티어 색은 밝은 배경에서 4.5:1 대비를 위해 더 깊게 내린다.
+   적용 규칙:
+     - 시스템이 light + 수동 강제 없음  →  @media :root:not([data-theme])
+     - 수동으로 light 선택                →  :root[data-theme="light"]
+   (수동 dark 선택 시 [data-theme="dark"] 가 붙어 미디어쿼리가 비껴간다)
+   ========================================================================== */
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #f3eee5;
+    --bg-elev: #faf6ef;
+    --bg-card: #fffefb;
+    --text: #211a15;
+    --text-soft: #5c5249;
+    --muted: #6f6557;
+    --line: rgba(40, 30, 22, 0.1);
+    --line-strong: rgba(40, 30, 22, 0.18);
+
+    --ambient: #7d7058;
+    --breath: #876109;
+    --dusk: #6a52bf;
+    --ember: #bf3618;
+    --ember-deep: #8f2410;
+    --ember-glow: rgba(191, 54, 24, 0.34);
+    --safe: #487033;
+
+    --text-inverse: #faf6ef;
+    --nav-bg: rgba(246, 241, 234, 0.82);
+    --menu-bg: rgba(246, 241, 234, 0.97);
+    --hover-bg: rgba(40, 30, 22, 0.06);
+    --grain-opacity: 0.025;
+    --card-shadow-hover: 0 18px 40px rgba(80, 60, 40, 0.12);
+    --card-shadow-strong: 0 22px 48px rgba(80, 60, 40, 0.14);
+    --glow-ember: rgba(255, 120, 70, 0.12);
+    --glow-ember-soft: rgba(255, 150, 90, 0.05);
+    --glow-purple: rgba(157, 139, 223, 0.08);
+    --glow-cta: rgba(255, 110, 60, 0.13);
+  }
+}
+
+:root[data-theme="light"] {
+  --bg: #f3eee5;
+  --bg-elev: #faf6ef;
+  --bg-card: #fffefb;
+  --text: #211a15;
+  --text-soft: #5c5249;
+  --muted: #6f6557;
+  --line: rgba(40, 30, 22, 0.1);
+  --line-strong: rgba(40, 30, 22, 0.18);
+
+  --ambient: #7d7058;
+  --breath: #876109;
+  --dusk: #6a52bf;
+  --ember: #bf3618;
+  --ember-deep: #8f2410;
+  --ember-glow: rgba(191, 54, 24, 0.34);
+  --safe: #487033;
+
+  --text-inverse: #faf6ef;
+  --nav-bg: rgba(246, 241, 234, 0.82);
+  --menu-bg: rgba(246, 241, 234, 0.97);
+  --hover-bg: rgba(40, 30, 22, 0.06);
+  --grain-opacity: 0.025;
+  --card-shadow-hover: 0 18px 40px rgba(80, 60, 40, 0.12);
+  --card-shadow-strong: 0 22px 48px rgba(80, 60, 40, 0.14);
+  --glow-ember: rgba(255, 120, 70, 0.12);
+  --glow-ember-soft: rgba(255, 150, 90, 0.05);
+  --glow-purple: rgba(157, 139, 223, 0.08);
+  --glow-cta: rgba(255, 110, 60, 0.13);
+}
+
+/* 폰 목업·데모 알림은 어느 테마에서도 '어두운 기기'로 고정한다.
+   라이트 페이지 위에 떠 있는 다크 디바이스 → 의도된 포컬 대비.
+   내부 텍스트/라인/티어색을 다크값으로 핀해 명암을 보존한다. */
+.phone,
+.demo-noti {
+  --text: #f3efe9;
+  --text-soft: #c9c0b4;
+  --muted: #8f857a;
+  --line: rgba(243, 239, 233, 0.09);
+  --line-strong: rgba(243, 239, 233, 0.16);
+  --ambient: #ded8cc;
+  --breath: #e8b44f;
+  --dusk: #9d8bdf;
+  --ember: #ff5c38;
 }
 
 /* ---------- 베이스 ---------- */
@@ -64,6 +166,9 @@ body {
   letter-spacing: -0.011em;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  transition:
+    background-color 0.4s var(--ease-out),
+    color 0.4s var(--ease-out);
 }
 
 ::selection {
@@ -122,7 +227,7 @@ body::after {
   height: 200%;
   pointer-events: none;
   z-index: 90;
-  opacity: 0.05;
+  opacity: var(--grain-opacity);
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
@@ -229,7 +334,7 @@ body::after {
 }
 
 .nav.is-scrolled .nav-inner {
-  background: rgba(13, 10, 9, 0.72);
+  background: var(--nav-bg);
   border-color: var(--line);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -260,11 +365,44 @@ body::after {
   50% { opacity: 0.55; box-shadow: 0 0 4px var(--ember-glow); }
 }
 
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .nav-links {
   display: flex;
   align-items: center;
   gap: 4px;
 }
+
+/* 테마 토글 — 해/달 아이콘. 자동 인식을 기본으로, 클릭은 수동 오버라이드. */
+.theme-toggle {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-soft);
+  transition: color var(--dur) ease, background var(--dur) ease;
+}
+
+.theme-toggle:hover {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+
+.theme-toggle svg {
+  width: 19px;
+  height: 19px;
+}
+
+.theme-toggle[data-mode="dark"] .icon-moon { display: none; }
+.theme-toggle[data-mode="light"] .icon-sun { display: none; }
+/* JS 비활성 시 둘 다 보이지 않게: 기본은 달만 노출(다크 기준) */
+.theme-toggle:not([data-mode]) .icon-moon { display: none; }
 
 .nav-links a {
   font-size: 14.5px;
@@ -277,13 +415,13 @@ body::after {
 
 .nav-links a:hover {
   color: var(--text);
-  background: rgba(243, 239, 233, 0.07);
+  background: var(--hover-bg);
 }
 
 .nav-cta {
   font-size: 14.5px;
   font-weight: 600;
-  color: #16100d;
+  color: var(--text-inverse);
   background: var(--text);
   padding: 10px 20px;
   border-radius: 999px;
@@ -375,8 +513,8 @@ body::after {
   border-radius: 50%;
   background: radial-gradient(
     circle at center,
-    rgba(255, 92, 56, 0.17) 0%,
-    rgba(201, 58, 29, 0.07) 38%,
+    var(--glow-ember) 0%,
+    var(--glow-ember-soft) 38%,
     transparent 68%
   );
   animation: breathe 7s ease-in-out infinite;
@@ -392,7 +530,7 @@ body::after {
   border-radius: 50%;
   background: radial-gradient(
     circle at center,
-    rgba(157, 139, 223, 0.1) 0%,
+    var(--glow-purple) 0%,
     transparent 64%
   );
   animation: breathe 9s ease-in-out infinite 1.6s;
@@ -818,7 +956,7 @@ body::after {
 .stage:hover {
   transform: translateY(-5px);
   border-color: var(--line-strong);
-  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--card-shadow-hover);
 }
 
 .stage-badge {
@@ -984,7 +1122,7 @@ body::after {
 .tier-card:hover {
   transform: translateY(-5px);
   border-color: var(--line-strong);
-  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--card-shadow-strong);
 }
 
 .tier-card:hover::after {
@@ -1205,8 +1343,8 @@ body::after {
   height: 560px;
   background: radial-gradient(
     50% 100% at 50% 100%,
-    rgba(255, 92, 56, 0.2) 0%,
-    rgba(201, 58, 29, 0.07) 48%,
+    var(--glow-cta) 0%,
+    var(--glow-ember-soft) 48%,
     transparent 78%
   );
   pointer-events: none;
@@ -1325,7 +1463,7 @@ body::after {
 .scenario:hover {
   transform: translateY(-4px);
   border-color: var(--line-strong);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--card-shadow-hover);
 }
 
 .scenario.is-active {
