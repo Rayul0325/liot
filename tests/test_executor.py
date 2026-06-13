@@ -70,74 +70,93 @@ def test_safety_non_actuatable_is_notify_only():
     assert pol.decide(_act("notify", "alert", "gas"), RiskTier.EMBER) == ExecDecision.NOTIFY_ONLY
 
 
-# ── HAExecutor: 실제 호출 매핑 ─────────────────────────────────────────
-def test_haexecutor_calls_correct_service():
+# ── HAExecutor: 실제 호출 매핑 (async) ─────────────────────────────────
+async def test_haexecutor_calls_correct_service():
     calls = []
-    ex = HAExecutor(
-        call_service=lambda d, s, e, data: calls.append((d, s, e, data)),
-        get_state=lambda e: {"state": "on", "attributes": {"brightness": 200}},
-    )
-    res = ex.execute(_act("light", "set_brightness", "light", brightness=120))
+
+    async def call(d, s, e, data):
+        calls.append((d, s, e, data))
+
+    async def get_state(e):
+        return {"state": "on", "attributes": {"brightness": 200}}
+
+    ex = HAExecutor(call_service=call, get_state=get_state)
+    res = await ex.execute(_act("light", "set_brightness", "light", brightness=120))
     assert res.ok and res.service == "light.set_brightness"
     assert calls == [("light", "set_brightness", "light.test_entity", {"brightness": 120})]
     assert res.prior_state == {"state": "on", "attributes": {"brightness": 200}}
 
 
-def test_haexecutor_media_capability_maps_to_media_player():
+async def test_haexecutor_media_capability_maps_to_media_player():
     calls = []
-    ex = HAExecutor(call_service=lambda d, s, e, data: calls.append((d, s, e, data)))
-    ex.execute(_act("media", "pause", "media"))
+
+    async def call(d, s, e, data):
+        calls.append((d, s, e, data))
+
+    ex = HAExecutor(call_service=call)
+    await ex.execute(_act("media", "pause", "media"))
     assert calls[0][0] == "media_player" and calls[0][1] == "pause"
 
 
-def test_haexecutor_drops_non_numeric_params():
+async def test_haexecutor_drops_non_numeric_params():
     calls = []
-    ex = HAExecutor(call_service=lambda d, s, e, data: calls.append((d, s, e, data)))
+
+    async def call(d, s, e, data):
+        calls.append((d, s, e, data))
+
+    ex = HAExecutor(call_service=call)
     # 자유 문자열 파라미터는 전달되지 않아야 한다
-    ex.execute(_act("climate", "set_temperature", "climate", temperature=22, note="해킹시도"))
+    await ex.execute(_act("climate", "set_temperature", "climate", temperature=22, note="해킹시도"))
     assert calls[0][3] == {"temperature": 22}
 
 
-def test_haexecutor_denies_non_allowlisted():
-    ex = HAExecutor(call_service=lambda *a: None)
+async def test_haexecutor_denies_non_allowlisted():
+    async def call(*a):
+        return None
+
+    ex = HAExecutor(call_service=call)
     # 방어심층: unlock 은 화이트리스트 밖 → 정책을 우회해 직접 불러도 거부
     with pytest.raises(ExecutionDenied):
-        ex.execute(_act("lock", "unlock", "lock"))
+        await ex.execute(_act("lock", "unlock", "lock"))
 
 
-def test_haexecutor_wraps_call_failure():
-    def boom(*a):
+async def test_haexecutor_wraps_call_failure():
+    async def boom(*a):
         raise RuntimeError("ws down")
 
     ex = HAExecutor(call_service=boom)
     with pytest.raises(ExecutionError):
-        ex.execute(_act("light", "turn_off", "light"))
+        await ex.execute(_act("light", "turn_off", "light"))
 
 
-def test_haexecutor_undo_inverse_and_restore():
+async def test_haexecutor_undo_inverse_and_restore():
     calls = []
-    ex = HAExecutor(call_service=lambda d, s, e, data: calls.append((d, s, e, data)))
+
+    async def call(d, s, e, data):
+        calls.append((d, s, e, data))
+
+    ex = HAExecutor(call_service=call)
     # on/off 역동작
-    ex.undo(_act("light", "turn_off", "light"), {"state": "on"})
+    await ex.undo(_act("light", "turn_off", "light"), {"state": "on"})
     assert calls[-1][:2] == ("light", "turn_on")
     # set_temperature 는 이전 값 복원
-    ex.undo(_act("climate", "set_temperature", "climate"), {"attributes": {"temperature": 21}})
+    await ex.undo(_act("climate", "set_temperature", "climate"), {"attributes": {"temperature": 21}})
     assert calls[-1] == ("climate", "set_temperature", "climate.test_entity", {"temperature": 21})
 
 
 # ── FakeExecutor ───────────────────────────────────────────────────────
-def test_fake_executor_records_and_guards():
+async def test_fake_executor_records_and_guards():
     fx = FakeExecutor()
-    fx.execute(_act("light", "turn_off", "light"))
+    await fx.execute(_act("light", "turn_off", "light"))
     assert len(fx.executed) == 1
     with pytest.raises(ExecutionDenied):
-        fx.execute(_act("lock", "unlock", "lock"))
+        await fx.execute(_act("lock", "unlock", "lock"))
 
 
-def test_fake_executor_fail_mode():
+async def test_fake_executor_fail_mode():
     fx = FakeExecutor(fail=True)
     with pytest.raises(ExecutionError):
-        fx.execute(_act("light", "turn_off", "light"))
+        await fx.execute(_act("light", "turn_off", "light"))
 
 
 # ── env 빌더 ───────────────────────────────────────────────────────────

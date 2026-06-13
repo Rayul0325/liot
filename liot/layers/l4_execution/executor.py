@@ -139,10 +139,12 @@ class ExecutionResult:
 
 @runtime_checkable
 class Executor(Protocol):
-    """승인된 CandidateAction 을 실제 세계로 실행한다."""
+    """승인된 CandidateAction 을 실제 세계로 실행한다(async — HA WS 계층과 정합)."""
 
-    def execute(self, action: CandidateAction) -> ExecutionResult: ...
-    def undo(self, action: CandidateAction, prior_state: dict[str, Any]) -> ExecutionResult: ...
+    async def execute(self, action: CandidateAction) -> ExecutionResult: ...
+    async def undo(
+        self, action: CandidateAction, prior_state: dict[str, Any]
+    ) -> ExecutionResult: ...
 
 
 # capability → HA 도메인.
@@ -177,9 +179,10 @@ class HAExecutor:
 
     def __init__(
         self,
-        call_service: Callable[[str, str, str, dict[str, Any]], None],
-        get_state: Callable[[str], dict[str, Any]] | None = None,
+        call_service: Callable[[str, str, str, dict[str, Any]], Any],
+        get_state: Callable[[str], Any] | None = None,
     ) -> None:
+        # call_service/get_state 는 async 콜러블(awaitable 반환). HABridge 메서드 연결.
         self._call = call_service
         self._get_state = get_state
 
@@ -205,7 +208,7 @@ class HAExecutor:
                 data[k] = v
         return data
 
-    def execute(self, action: CandidateAction) -> ExecutionResult:
+    async def execute(self, action: CandidateAction) -> ExecutionResult:
         if not self._allowed(action):
             # 방어심층: 정책이 잘못 통과시켜도 실행기가 막는다.
             raise ExecutionDenied(f"action not in allowlist: {_key(action)}")
@@ -213,16 +216,18 @@ class HAExecutor:
         prior = None
         if self._get_state is not None:
             try:
-                prior = self._get_state(action.entity_id)
+                prior = await self._get_state(action.entity_id)
             except Exception:  # pragma: no cover - 상태 조회 실패는 치명적 아님
                 prior = None
         try:
-            self._call(domain, service, action.entity_id, self._service_data(action))
+            await self._call(domain, service, action.entity_id, self._service_data(action))
         except Exception as exc:
             raise ExecutionError(f"HA call_service {domain}.{service} 실패: {exc}") from exc
         return ExecutionResult(ok=True, service=f"{domain}.{service}", prior_state=prior)
 
-    def undo(self, action: CandidateAction, prior_state: dict[str, Any]) -> ExecutionResult:
+    async def undo(
+        self, action: CandidateAction, prior_state: dict[str, Any]
+    ) -> ExecutionResult:
         """이전 상태로 복원. on/off·open/close 는 역동작, set_* 는 prior 값 재적용."""
         domain, service = self._service_for(action)
         _, act = _key(action)
@@ -236,7 +241,7 @@ class HAExecutor:
                 if k in attrs and isinstance(attrs[k], (int, float)):
                     data[k] = attrs[k]
         try:
-            self._call(domain, inverse, action.entity_id, data)
+            await self._call(domain, inverse, action.entity_id, data)
         except Exception as exc:
             raise ExecutionError(f"HA undo {domain}.{inverse} 실패: {exc}") from exc
         return ExecutionResult(ok=True, service=f"{domain}.{inverse}(undo)")
@@ -250,7 +255,7 @@ class FakeExecutor:
         self.undone: list[CandidateAction] = []
         self.fail = fail
 
-    def execute(self, action: CandidateAction) -> ExecutionResult:
+    async def execute(self, action: CandidateAction) -> ExecutionResult:
         key = _key(action)
         if key not in COMFORT_EXECUTABLE and key not in SAFETY_EXECUTABLE:
             raise ExecutionDenied(f"action not in allowlist: {key}")
@@ -259,7 +264,9 @@ class FakeExecutor:
         self.executed.append(action)
         return ExecutionResult(ok=True, service=f"{key[0]}.{key[1]}", prior_state={"state": "prior"})
 
-    def undo(self, action: CandidateAction, prior_state: dict[str, Any]) -> ExecutionResult:
+    async def undo(
+        self, action: CandidateAction, prior_state: dict[str, Any]
+    ) -> ExecutionResult:
         self.undone.append(action)
         return ExecutionResult(ok=True, service=f"{_key(action)[0]}.undo")
 

@@ -29,6 +29,7 @@ from liot.app import LiotApp
 from liot.core.clock import Clock
 from liot.db.database import init_db
 from liot.layers.l3_judgment.llm_judge import build_llm_backend
+from liot.layers.l4_execution.executor import HAExecutor, build_execution_policy
 from liot.layers.l4_execution.ntfy_transport import build_ntfy_transport
 from liot.service import LiotService
 
@@ -63,13 +64,25 @@ async def _amain() -> int:
 
     app = LiotApp(clock=clock, categories=categories, llm_backend=build_llm_backend())
     transport = build_ntfy_transport()
+
+    # 조작(불변식 8): LIOT_EXECUTION_ENABLED 가 참이고 HA 브리지가 있을 때만 활성.
+    # HA 가 없으면 조작 대상이 없으므로 executor 미구성(제안-만 유지).
+    policy = build_execution_policy()
+    executor = None
+    if policy.enabled:
+        if bridge is not None:
+            executor = HAExecutor(bridge.call_service, bridge.get_state)
+        else:
+            print("[exec] LIOT_EXECUTION_ENABLED 이나 HA 미연결 → 조작 비활성(제안-만).")
+
     service = LiotService(
         app, db, home_id=home_id, clock=clock, transport=transport,
-        topic=topic, secret=secret,
+        topic=topic, secret=secret, executor=executor, policy=policy,
     )
     print(
         f"[LIOT] backend={app.judge.backend.model_id} "
-        f"ntfy={'on' if transport else 'sanitize-only'} tick={tick_seconds}s db={db_path}"
+        f"ntfy={'on' if transport else 'sanitize-only'} "
+        f"exec={'ON' if executor else 'off(제안-만)'} tick={tick_seconds}s db={db_path}"
     )
 
     fb_server = None

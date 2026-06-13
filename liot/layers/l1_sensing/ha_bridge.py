@@ -276,6 +276,39 @@ class HABridge:
             home_id=home_id,
         )
 
+    async def get_state(self, entity_id: str) -> dict[str, Any]:
+        """단일 엔티티의 현재 상태 dict 를 돌려준다(되돌리기용 이전 상태 캡처).
+
+        HA WS 는 단건 조회가 없어 get_states 후 필터링한다. 없으면 빈 dict.
+        """
+        await self.authenticate()
+        result = await self._request({"type": "get_states"})
+        for st in result.get("result", []) or []:
+            if st.get("entity_id") == entity_id:
+                return st
+        return {}
+
+    async def call_service(
+        self, domain: str, service: str, entity_id: str, data: dict[str, Any] | None = None
+    ) -> None:
+        """HA 서비스 호출(쓰기). **오직 L4 Executor 만 호출해야 한다.**
+
+        이 메서드는 LIOT 에서 실제 세계를 바꾸는 유일한 경로다. 호출 가능 여부는
+        Executor 의 화이트리스트 + ExecutionPolicy 가 이미 통제한다(불변식 8).
+        브리지 자체는 정책을 모르며, 센서 스트림/맥락/판단 경로는 이 메서드를
+        절대 호출하지 않는다(읽기 전용 유지).
+        """
+        await self.authenticate()
+        payload: dict[str, Any] = {
+            "type": "call_service",
+            "domain": domain,
+            "service": service,
+            "target": {"entity_id": entity_id},
+        }
+        if data:
+            payload["service_data"] = dict(data)
+        await self._request(payload)
+
     async def stream(self) -> AsyncIterator[SensorReading]:
         """인증 → state_changed 구독 → 이벤트를 SensorReading 으로 yield."""
         await self.authenticate()

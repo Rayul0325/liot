@@ -26,7 +26,18 @@ from typing import TYPE_CHECKING, Any
 from liot.app import LiotApp
 from liot.core.clock import Clock
 from liot.layers.l2_context.preference_store import PreferenceStore
-from liot.layers.l4_execution.feedback_gateway import FeedbackAuthError, FeedbackGateway
+from liot.layers.l4_execution.executor import (
+    ExecDecision,
+    ExecutionDenied,
+    ExecutionError,
+    ExecutionPolicy,
+    Executor,
+)
+from liot.layers.l4_execution.feedback_gateway import (
+    FeedbackAuthError,
+    FeedbackGateway,
+    verify_feedback_sig,
+)
 from liot.layers.l4_execution.notifier import (
     NotificationBudget,
     NotificationContext,
@@ -50,18 +61,27 @@ _DEDUP_WINDOW = timedelta(hours=2)
 class DispatchResult:
     """단일 제안 처리 결과(관측·테스트용)."""
 
-    __slots__ = ("proposal", "decision", "sent", "error")
+    __slots__ = ("proposal", "decision", "sent", "error", "executed")
 
     def __init__(
-        self, proposal: "Proposal", decision: str, sent: bool, error: str | None = None
+        self,
+        proposal: "Proposal",
+        decision: str,
+        sent: bool,
+        error: str | None = None,
+        executed: bool = False,
     ) -> None:
         self.proposal = proposal
         self.decision = decision  # IMMEDIATE | DIGEST | SUPPRESS
         self.sent = sent
         self.error = error
+        self.executed = executed  # 이 디스패치에서 실제 조작이 일어났는가(AUTO)
 
     def __repr__(self) -> str:  # pragma: no cover - 디버그 편의
-        return f"DispatchResult(decision={self.decision!r}, sent={self.sent}, error={self.error!r})"
+        return (
+            f"DispatchResult(decision={self.decision!r}, sent={self.sent}, "
+            f"executed={self.executed}, error={self.error!r})"
+        )
 
 
 class LiotService:
@@ -79,6 +99,8 @@ class LiotService:
         topic: str = "liot",
         secret: bytes | str = b"liot-dev-signing-key",
         budget_per_hour: int = 6,
+        executor: Executor | None = None,
+        policy: ExecutionPolicy | None = None,
     ) -> None:
         self.app = app
         self.clock = clock or app.clock
@@ -90,11 +112,17 @@ class LiotService:
         self.notifier = notifier or Notifier(secret=secret, topic=topic, clock=self.clock)
         self.transport = transport
         self.topic = topic
+        self._secret = secret.encode("utf-8") if isinstance(secret, str) else secret
         self.feedback = FeedbackGateway(secret, self.proposals)
         # 발화 빈도 상태(인메모리; NotificationBudget 과 동일 성격).
         self._budget = NotificationBudget(max_per_hour=budget_per_hour)
         self._budget_hour: str | None = None
         self._recent_notified: dict[str, datetime] = {}
+        # 조작(불변식 8): executor 없거나 policy 비활성이면 제안-만(현행) 유지.
+        self._executor = executor
+        self._policy = policy or ExecutionPolicy(enabled=False)
+        self._prior: dict[str, dict[str, Any]] = {}  # pid → 실행 전 상태(되돌리기)
+        self._awaiting_second: set[str] = set()  # 이중확인 1차 통과 대기 pid
 
     # ------------------------------------------------------------------
     # 발화 컨텍스트
@@ -132,22 +160,33 @@ class LiotService:
     # 디스패치(영속 + 발화 + 송신)
     # ------------------------------------------------------------------
     async def dispatch(self, proposal: "Proposal") -> DispatchResult:
-        """제안을 영속화하고 발화 게이트를 적용해 (가능하면) 실제 송신한다."""
+        """제안을 영속화하고 발화 게이트를 적용해 (가능하면) 실제 송신한다.
+
+        조작이 활성(executor+policy)이면, 정책이 AUTO(비안전 ≤BREATH)로 판정한
+        제안은 알림 게이트를 통과(IMMEDIATE)할 때 *즉시 실행*한다. DUSK/EMBER/
+        안전은 여기서 실행하지 않고 알림만 — 실행은 사람 승인(피드백) 후로 미룬다.
+        """
         await self.proposals.save(proposal)
 
         now_dt = self.clock.now_dt()
         self._roll_budget(now_dt)
         ctx = await self._build_context(now_dt)
         decision, sanitized = self.notifier.notify(proposal, ctx, self._budget)
+        exec_decision = self._policy.decide(proposal.action, proposal.risk_tier)
 
         if decision != "IMMEDIATE" or sanitized is None:
             return DispatchResult(proposal, decision, sent=False)
+
+        # AUTO: 알림 게이트를 통과했고(=억제/뮤트/거절 아님) 정책이 자동이면 즉시 실행.
+        executed = False
+        if exec_decision is ExecDecision.AUTO and self._executor is not None:
+            executed = await self._try_execute(proposal)
 
         if self.transport is None:
             # sanitize-only 모드: 실제 배달은 없다. dedup 을 오염시키지 않는다
             # (그래야 transport 가 붙은 뒤 같은 류가 억제되지 않는다).
             await self.proposals.record_notification(sanitized, now=self.clock.now_utc())
-            return DispatchResult(proposal, decision, sent=False)
+            return DispatchResult(proposal, decision, sent=False, executed=executed)
 
         # 실제 송신을 *먼저* 시도. 성공해야만 알림 기록 + dedup 갱신한다.
         # 실패 시 dedup 을 오염시키지 않아야 같은 류(특히 안전 EMBER)가 2시간
@@ -156,10 +195,64 @@ class LiotService:
             self.transport.send(self.topic, sanitized)
         except NtfyError as exc:
             # 송신 실패는 치명적이지 않다 — 제안은 pending 으로 남아 재시도 가능.
-            return DispatchResult(proposal, decision, sent=False, error=str(exc))
+            return DispatchResult(proposal, decision, sent=False, error=str(exc), executed=executed)
         await self.proposals.record_notification(sanitized, now=self.clock.now_utc())
         self._recent_notified[dedup_key(proposal)] = now_dt
-        return DispatchResult(proposal, decision, sent=True)
+        return DispatchResult(proposal, decision, sent=True, executed=executed)
+
+    # ------------------------------------------------------------------
+    # 조작(불변식 8) — fail-closed: 실행 실패는 파이프라인을 죽이지 않는다.
+    # ------------------------------------------------------------------
+    async def _try_execute(self, proposal: "Proposal") -> bool:
+        """executor 로 실제 조작. 이전 상태를 캡처(되돌리기용). 실패는 False."""
+        if self._executor is None:
+            return False
+        try:
+            res = await self._executor.execute(proposal.action)
+        except (ExecutionDenied, ExecutionError):
+            return False
+        if res.prior_state is not None:
+            self._prior[proposal.proposal_id] = res.prior_state
+        return res.ok
+
+    async def _on_approved(self, proposal: "Proposal") -> str:
+        """승인(accepted) 피드백 후 정책에 따라 실행한다.
+
+        CONFIRM(DUSK) → 즉시 실행. DOUBLE_CONFIRM(EMBER/안전) → 1차는 보류하고
+        한 번 더 확인 요청, 2차에서 실행. AUTO 는 이미 dispatch 에서 실행됨.
+        """
+        if self._executor is None:
+            return ""
+        decision = self._policy.decide(proposal.action, proposal.risk_tier)
+        if decision is ExecDecision.CONFIRM:
+            return " · executed" if await self._try_execute(proposal) else " · exec-failed"
+        if decision is ExecDecision.DOUBLE_CONFIRM:
+            pid = proposal.proposal_id
+            if pid in self._awaiting_second:
+                self._awaiting_second.discard(pid)
+                return (
+                    " · executed(2/2)" if await self._try_execute(proposal) else " · exec-failed"
+                )
+            self._awaiting_second.add(pid)
+            return " · confirm-again(1/2)"
+        return ""
+
+    async def _handle_undo(self, pid: str, tier: str, sig: str) -> tuple[str, str]:
+        """서명된 되돌리기. 직전 실행의 이전 상태로 복원한다."""
+        if self._executor is None:
+            return "404 Not Found", "undo unavailable"
+        if not verify_feedback_sig(self._secret, pid, tier, "undo", sig):
+            return "403 Forbidden", "invalid signature"
+        prior = self._prior.get(pid)
+        proposal = await self.proposals.get(pid)
+        if proposal is None or prior is None:
+            return "404 Not Found", "nothing to undo"
+        try:
+            await self._executor.undo(proposal.action, prior)
+        except (ExecutionDenied, ExecutionError):
+            return "200 OK", "undo-failed"
+        self._prior.pop(pid, None)
+        return "200 OK", "undone"
 
     # ------------------------------------------------------------------
     # 진입점들
@@ -262,10 +355,21 @@ class LiotService:
         tier = q.get("t", [""])[0]
         sig = q.get("sig", [""])[0]
         action = q.get("a", [""])[0]
+        key = (action or "").strip().lower()
+
+        # 되돌리기: 상태 피드백이 아니라 별도 서명 경로.
+        if key == "undo":
+            return await self._handle_undo(pid, tier, sig)
+
         try:
             proposal = await self.feedback.verify_and_apply(pid, tier, sig, action)
         except FeedbackAuthError:
             return "403 Forbidden", "invalid signature or action"
         if proposal is None:
             return "404 Not Found", "no such proposal"
-        return "200 OK", f"ok: {proposal.state}"
+
+        # 승인 시 정책에 따라 실제 조작(불변식 8). 거절/스누즈는 실행 없음.
+        note = ""
+        if key in ("accept", "accepted"):
+            note = await self._on_approved(proposal)
+        return "200 OK", f"ok: {proposal.state}{note}"
