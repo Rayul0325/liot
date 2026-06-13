@@ -20,9 +20,11 @@ from liot.core.contracts import (
 )
 from liot.core.event_bus import InProcessBus
 from liot.core.invariants import (
+    InvariantError,
     MonotonicityError,
     TopologyViolation,
-    assert_executor_absent,
+    assert_execution_gated,
+    assert_executor_confined,
     assert_monotonic,
 )
 from liot.core.risk import RiskTier, escalate_only
@@ -147,9 +149,14 @@ async def test_invariant2_gate2_cannot_downgrade_gate1() -> None:
 # --------------------------------------------------------------------------
 # (3) 제안-만: 구체 Executor 부재
 # --------------------------------------------------------------------------
-def test_invariant3_no_concrete_executor() -> None:
-    # l4_execution 패키지에 구체 Executor 가 있으면 InvariantError.
-    assert_executor_absent() is None
+def test_invariant3_executor_confined_to_dedicated_module() -> None:
+    # 구체 Executor 는 전용 모듈(l4_execution.executor)에만 — 흩어지면 InvariantError.
+    assert assert_executor_confined() is None
+
+
+def test_invariant8_execution_is_gated() -> None:
+    # 기본 OFF + 안전 자동금지 + 여는방향 제외(불변식 8).
+    assert assert_execution_gated() is None
 
 
 # --------------------------------------------------------------------------

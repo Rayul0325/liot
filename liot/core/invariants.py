@@ -9,8 +9,17 @@
 
 핵심 검증기:
   - assert_monotonic(old, new) : new < old 면 MonotonicityError.
-  - assert_executor_absent()   : l4_execution 패키지에 'Executor' 구체 구현이
-        있으면 InvariantError. (Phase1 = 제안-만, 액추에이터 실행 코드 부재)
+  - assert_executor_confined() : 구체 Executor 는 전용 모듈
+        (l4_execution.executor) 안에만 존재해야 한다. 다른 모듈에 흩어진
+        실행기(로그 Executor)가 있으면 InvariantError.
+  - assert_execution_gated()   : 불변식 8(Execution-Authorized-Only). 기본
+        ExecutionPolicy 는 비활성(옵트인 OFF), 안전 임계는 어떤 티어에서도
+        자동 실행되지 않으며, '여는 방향'(unlock/valve open) 동작은 어떤
+        실행 화이트리스트에도 없어야 한다.
+
+불변식 3 의 진화: 과거 "실행기 부재(제안-만)" → 현재 "실행은 옵트인·게이트".
+조작은 (a) 활성화 + (b) 화이트리스트 + (c) 티어 권한(자동은 비안전 ≤BREATH 만,
+그 외 신선한 사람 승인) 을 모두 만족할 때만 일어난다.
 """
 
 from __future__ import annotations
@@ -30,7 +39,8 @@ __all__ = [
     "EgressViolation",
     "MonotonicityError",
     "assert_monotonic",
-    "assert_executor_absent",
+    "assert_executor_confined",
+    "assert_execution_gated",
 ]
 
 
@@ -84,19 +94,24 @@ def _is_abstract_executor(obj: object) -> bool:
     return False
 
 
-def assert_executor_absent(package_name: str = "liot.layers.l4_execution") -> None:
-    """l4_execution 패키지에 'Executor' 구체 구현이 있으면 InvariantError.
+def assert_executor_confined(
+    package_name: str = "liot.layers.l4_execution",
+    *,
+    sanctioned_module: str = "liot.layers.l4_execution.executor",
+) -> None:
+    """구체 Executor 는 *전용 모듈* 안에만 존재해야 한다(아니면 InvariantError).
 
-    importlib/pkgutil 로 패키지의 모든 서브모듈을 임포트해 클래스 이름에
-    'Executor' 가 포함된 정의를 스캔한다. ABC/Protocol 기반의 추상
-    인터페이스는 허용한다(구체 구현만 금지).
+    조작 능력은 옵트인으로 추가됐지만(불변식 8), 실행기가 여기저기 흩어지면
+    감사·게이트가 무력화된다. 그래서 구체 Executor(클래스명에 'Executor' 포함,
+    추상/Protocol 제외)는 ``sanctioned_module`` 한 곳에만 두도록 강제한다.
+    그 밖의 모듈에서 발견되면 위반이다.
 
-    패키지가 아직 존재하지 않으면(스켈레톤 단계) 위반 없음으로 간주한다.
+    importlib/pkgutil 로 패키지의 모든 서브모듈을 임포트해 스캔한다. 패키지가
+    아직 없으면(스켈레톤) 위반 없음.
     """
     try:
         package = importlib.import_module(package_name)
     except ModuleNotFoundError:
-        # l4_execution 자체가 아직 없으면 당연히 Executor 도 없다.
         return
 
     module_names: list[str] = [package_name]
@@ -107,6 +122,8 @@ def assert_executor_absent(package_name: str = "liot.layers.l4_execution") -> No
 
     offenders: list[str] = []
     for mod_name in module_names:
+        if mod_name == sanctioned_module:
+            continue  # 전용 모듈의 실행기는 허용
         try:
             module = importlib.import_module(mod_name)
         except ModuleNotFoundError:
@@ -114,8 +131,7 @@ def assert_executor_absent(package_name: str = "liot.layers.l4_execution") -> No
         for attr_name, obj in vars(module).items():
             if not inspect.isclass(obj):
                 continue
-            # 이 모듈에서 실제로 정의된 클래스만 본다(임포트된 것은 제외).
-            if obj.__module__ != mod_name:
+            if obj.__module__ != mod_name:  # 임포트된 것 제외, 정의된 것만
                 continue
             if "Executor" not in obj.__name__:
                 continue
@@ -125,9 +141,60 @@ def assert_executor_absent(package_name: str = "liot.layers.l4_execution") -> No
 
     if offenders:
         raise InvariantError(
-            "Phase1 forbids concrete Executor implementations in "
-            f"{package_name}: {', '.join(sorted(offenders))}"
+            "concrete Executor 는 전용 모듈("
+            f"{sanctioned_module}) 밖에 두면 안 된다: {', '.join(sorted(offenders))}"
         )
+
+
+def assert_execution_gated() -> None:
+    """불변식 8(Execution-Authorized-Only)의 정적 속성을 검증한다.
+
+      1) 기본 ExecutionPolicy 는 비활성(옵트인 OFF) — 켜기 전엔 한 줄도 실행 안 함.
+      2) 안전 임계 카테고리는 어떤 티어에서도 AUTO 가 아니다(자동 조작 절대 금지).
+      3) '여는 방향'(lock.unlock, valve open)은 어떤 실행 화이트리스트에도 없다.
+    """
+    from .contracts import CandidateAction
+    from .risk import SAFETY_CRITICAL_CATEGORIES
+
+    try:
+        from ..layers.l4_execution.executor import (  # 지연 임포트(순환 회피)
+            COMFORT_EXECUTABLE,
+            SAFETY_EXECUTABLE,
+            ExecDecision,
+            ExecutionPolicy,
+        )
+    except ModuleNotFoundError:
+        return  # 실행기 모듈이 아직 없으면 검증할 것 없음
+
+    # (1) 기본 비활성
+    if ExecutionPolicy().enabled:
+        raise InvariantError("기본 ExecutionPolicy 가 활성화돼 있음 — 옵트인 OFF 위반")
+
+    # (2) 안전 카테고리는 자동 실행 금지(활성 정책으로도 AUTO 가 나오면 위반)
+    pol = ExecutionPolicy(enabled=True)
+    for cat in sorted(SAFETY_CRITICAL_CATEGORIES):
+        for cap, act in sorted(SAFETY_EXECUTABLE):
+            probe = CandidateAction(
+                capability=cap, action=act, category=cat,
+                entity_id=f"{cap}.probe", params={},
+            )
+            for tier in RiskTier:
+                if pol.decide(probe, tier) == ExecDecision.AUTO:
+                    raise InvariantError(
+                        f"안전 카테고리 {cat!r} {cap}.{act} 가 {tier.name} 에서 AUTO 로 "
+                        "결정됨 — 안전 자동 실행 금지 위반"
+                    )
+
+    # (3) 여는 방향은 어떤 화이트리스트에도 없어야 한다
+    forbidden_open = {("lock", "unlock"), ("valve", "open"), ("cover", "open")} & (
+        SAFETY_EXECUTABLE
+    )
+    if forbidden_open:
+        raise InvariantError(
+            f"여는 방향 동작이 안전 실행 화이트리스트에 있음: {sorted(forbidden_open)}"
+        )
+    if ("lock", "unlock") in COMFORT_EXECUTABLE or ("valve", "open") in COMFORT_EXECUTABLE:
+        raise InvariantError("lock.unlock/valve.open 은 컴포트 화이트리스트에 있으면 안 됨")
 
 
 # 외부에서 추상 Executor 인터페이스를 정의하고 싶을 때 베이스로 쓸 수 있는
