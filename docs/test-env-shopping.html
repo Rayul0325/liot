@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LIOT 실환경 테스트 — 구매 가이드</title>
+<style>
+  :root{
+    --bg:#0b0908; --elev:#16120f; --card:#1a1512;
+    --text:#f3efe9; --soft:#c9c0b4; --muted:#8f857a;
+    --line:rgba(243,239,233,.10); --line2:rgba(243,239,233,.18);
+    --ember:#ff5c38; --breath:#e8b44f; --dusk:#9d8bdf; --safe:#7fb069; --ambient:#ded8cc;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:"Apple SD Gothic Neo","Pretendard",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    font-size:16px;line-height:1.65;letter-spacing:-.01em;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1000px;margin:0 auto;padding:56px 24px 96px}
+  a{color:var(--breath)}
+  h1,h2,h3{margin:0;font-weight:700;letter-spacing:-.03em;line-height:1.2;word-break:keep-all}
+  .eyebrow{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--ember);
+    font-family:ui-monospace,"SF Mono",Menlo,monospace;display:flex;align-items:center;gap:10px;margin-bottom:18px}
+  .eyebrow::before{content:"";width:26px;height:1px;background:var(--ember);opacity:.7}
+  header h1{font-size:clamp(30px,5vw,46px)}
+  header h1 .it{font-style:italic;font-weight:400;color:var(--ember);
+    font-family:"Iowan Old Style","Palatino Linotype",Georgia,serif}
+  .lede{color:var(--soft);font-size:clamp(16px,2vw,18px);max-width:64ch;margin-top:16px}
+  .topo{margin-top:26px;padding:16px 18px;border:1px solid var(--line);border-radius:12px;
+    background:var(--elev);font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12.5px;
+    color:var(--muted);line-height:1.9;overflow-x:auto;white-space:pre}
+  .topo b{color:var(--soft)}
+  section{margin-top:54px}
+  h2{font-size:24px;display:flex;align-items:baseline;gap:12px}
+  h2 .n{font-family:"Iowan Old Style",Georgia,serif;font-style:italic;color:var(--muted);font-size:20px;font-weight:400}
+  .sub{color:var(--muted);font-size:14.5px;margin-top:6px}
+  /* tier cards */
+  .tiers{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:22px}
+  .tcard{border:1px solid var(--line);border-radius:16px;background:var(--elev);padding:24px;position:relative;overflow:hidden}
+  .tcard::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:var(--c,--ember);opacity:.8}
+  .tcard.t1{--c:var(--safe)} .tcard.t1::before{background:var(--safe)}
+  .tcard.t2{--c:var(--ember)} .tcard.t2::before{background:var(--ember)}
+  .tcard h3{font-size:18px;margin-bottom:4px}
+  .tcard .price{font-family:"Iowan Old Style",Georgia,serif;font-style:italic;font-size:30px;margin:10px 0 4px}
+  .tcard.t1 .price{color:var(--safe)} .tcard.t2 .price{color:var(--ember)}
+  .tcard p{color:var(--soft);font-size:14px;margin:8px 0 0}
+  /* tables */
+  .tablewrap{margin-top:20px;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:13px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  thead th{background:var(--elev);color:var(--muted);font-weight:600;font-size:12px;
+    letter-spacing:.08em;text-transform:uppercase}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:rgba(243,239,233,.025)}
+  td .prod{font-weight:600}
+  td .alt{color:var(--muted);font-size:12.5px;display:block;margin-top:2px}
+  td.price{font-family:ui-monospace,Menlo,monospace;color:var(--breath);white-space:nowrap}
+  .dc{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--dusk)}
+  .badge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;
+    padding:3px 8px;border-radius:6px;white-space:nowrap}
+  .b-safe{color:var(--ember);background:rgba(255,92,56,.12);border:1px solid rgba(255,92,56,.3)}
+  .b-comf{color:var(--breath);background:rgba(232,180,79,.1);border:1px solid rgba(232,180,79,.26)}
+  .b-core{color:var(--ambient);background:rgba(222,216,204,.08);border:1px solid rgba(222,216,204,.2)}
+  /* cost */
+  .cost{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:22px}
+  .costcard{border:1px solid var(--line);border-radius:14px;padding:22px;background:var(--elev)}
+  .costcard .lab{color:var(--muted);font-size:13px}
+  .costcard .big{font-family:"Iowan Old Style",Georgia,serif;font-style:italic;font-size:34px;margin-top:6px}
+  .costcard .krw{color:var(--breath)} .costcard .free{color:var(--safe)}
+  .costcard small{display:block;color:var(--muted);font-size:12.5px;margin-top:8px;font-style:normal;font-family:inherit}
+  /* notes */
+  .note{display:flex;gap:13px;padding:16px 18px;border:1px solid var(--line);border-radius:12px;
+    background:var(--elev);margin-top:12px}
+  .note .ic{flex:none;width:22px;height:22px;color:var(--ember)}
+  .note.warn{border-color:rgba(255,92,56,.3);background:rgba(255,92,56,.05)}
+  .note b{color:var(--text)} .note p{margin:0;color:var(--soft);font-size:14px}
+  footer{margin-top:64px;padding-top:22px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px;line-height:1.8}
+  footer a{color:var(--soft)}
+  .src{font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+  @media(max-width:720px){
+    .tiers,.cost{grid-template-columns:1fr}
+    .wrap{padding:40px 18px 72px}
+    table{font-size:13px} th,td{padding:10px 9px}
+    .hide-sm{display:none}
+  }
+  @media print{
+    :root{--bg:#fff;--elev:#faf7f2;--card:#fff;--text:#1a1512;--soft:#3a322b;--muted:#6b6358;
+      --line:#e6ded2;--line2:#d8cfc0}
+    body{font-size:11.5pt}.topo{white-space:pre-wrap}.note,.tcard,.costcard{break-inside:avoid}
+    tbody tr:hover{background:none}a{color:#a8410f}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">LIOT · Real-World Test Setup</p>
+    <h1>현실에서 LIOT을 돌리려면<br><span class="it">무엇을 사야 하나</span></h1>
+    <p class="lede">명령을 기다리지 않고 먼저 말을 거는 집 — LIOT을 실제 센서·실제 폰까지 잇기 위한 구매 가이드입니다. 하드웨어를 거의 안 사고 시작해서, 단계적으로 실센서로 올립니다.</p>
+    <div class="topo">[센서] ──Zigbee──&gt; <b>[Home Assistant]</b> ──WebSocket(읽기전용)──┐
+                          (Pi 5 / Docker)                     │
+                                                              ▼
+[폰: ntfy 앱] &lt;──알림── [ntfy] &lt;──POST── <b>[liot-serve 데몬]</b> ──&gt; [ollama: gemma4:e4b]
+      └── 수락/거절 (HMAC 서명) ──&gt; [피드백 :8099] ──┘        (home · M3 Ultra, 검증됨)</div>
+  </header>
+
+  <!-- 요약 -->
+  <section>
+    <h2><span class="n">00</span> 두 갈래</h2>
+    <p class="sub">먼저 0원으로 전체 파이프라인을 검증하고, 만족하면 실센서를 붙입니다.</p>
+    <div class="tiers">
+      <div class="tcard t1">
+        <h3>Tier 1 — MVP</h3>
+        <div class="price">≈ 0원</div>
+        <p>기존 PC(또는 home)에 Home Assistant를 Docker로 띄우고, <b>가짜 센서</b>(템플릿)로 전체 흐름을 실제 폰까지 검증. 살 게 없습니다.</p>
+      </div>
+      <div class="tcard t2">
+        <h3>Tier 2 — 실센서</h3>
+        <div class="price">≈ 40–55만원</div>
+        <p>Raspberry Pi 5 + Zigbee 코디네이터 + 실제 센서들. 진짜 가스·연기·모션을 LIOT이 읽고 판단합니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tier 1 -->
+  <section>
+    <h2><span class="n">01</span> Tier 1 — 하드웨어 0원으로 먼저</h2>
+    <p class="sub">실센서를 사기 전에 L1→L2→L3→L4 + 피드백 루프 전체를 실측합니다.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>필요한 것</th><th>방법 / 비용</th><th>역할</th></tr></thead>
+        <tbody>
+          <tr><td class="prod">Home Assistant</td><td>기존 PC·home에 <b>Docker</b>로 무료 설치<span class="alt">homeassistant/home-assistant</span></td><td>센서 허브 (L1)</td></tr>
+          <tr><td class="prod">가짜 센서</td><td>HA 헬퍼 <b>input_boolean</b> + <code>device_class: gas</code> 템플릿 센서<span class="alt">토글하면 진짜 이벤트 발생</span></td><td>가스/모션 시뮬레이션</td></tr>
+          <tr><td class="prod">ntfy 앱</td><td><b>무료</b> (iOS/Android), 토픽 구독</td><td>실제 폰 알림 + 피드백 버튼</td></tr>
+          <tr><td class="prod">LLM</td><td>home의 <b>gemma4:e4b</b> (ollama) — <b>이미 보유·검증</b></td><td>Gate2 판단 (~0.9초)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16v.5"/></svg>
+      <p><b>왜 이게 먼저인가:</b> 가짜 가스센서를 토글하면 LIOT이 <code>device_class=gas</code>를 읽어 <b>EMBER 알림을 실제 폰으로</b> 보냅니다. 센서를 한 개도 안 사고 전체 사슬을 검증할 수 있습니다.</p></div>
+  </section>
+
+  <!-- Tier 2 -->
+  <section>
+    <h2><span class="n">02</span> Tier 2 — 실센서 구매 목록</h2>
+    <p class="sub">가격은 글로벌 기준 <b>대략치</b>입니다(쿠팡/알리익스프레스에서 변동). 환율 ≈ 1,380원/$ 가정.</p>
+
+    <h3 style="font-size:16px;margin-top:24px;color:var(--soft)">① 기반 (허브 + 코디네이터)</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>분류</th><th>추천 제품</th><th>대략 가격</th><th class="hide-sm">LIOT 역할</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>허브 <span class="badge b-core">필수</span></td>
+            <td><span class="prod">Raspberry Pi 5 (8GB)</span><span class="alt">+ 27W PSU · NVMe SSD 또는 고급 SD · 케이스 / 또는 Home Assistant Green</span></td>
+            <td class="price">$120~130<br>≈ 17~18만원</td>
+            <td class="hide-sm">HA OS 구동 (L1)</td>
+          </tr>
+          <tr>
+            <td>Zigbee 코디네이터 <span class="badge b-core">필수</span></td>
+            <td><span class="prod">SONOFF ZBDongle-E</span> (Zigbee 3.0 USB)<span class="alt">대안: SkyConnect · ConBee II · ZBDongle-P</span></td>
+            <td class="price">$25<br>≈ 3.5만원</td>
+            <td class="hide-sm">센서↔HA 무선 연결</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="font-size:16px;margin-top:28px;color:var(--soft)">② 안전 센서 (LIOT의 EMBER 경로 — 핵심)</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>분류</th><th>추천 제품</th><th>대략 가격</th><th class="hide-sm">device_class → 티어</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>가스 <span class="badge b-safe">안전</span></td>
+            <td><span class="prod">Heiman Zigbee 가스 감지기</span><span class="alt">HA Z2M 카탈로그에 가스 32종 등록됨</span></td>
+            <td class="price">$40~60<br>≈ 6~8만원</td>
+            <td class="hide-sm"><span class="dc">gas → EMBER</span></td>
+          </tr>
+          <tr>
+            <td>연기 <span class="badge b-safe">안전</span></td>
+            <td><span class="prod">Heiman HS1SA-E / HS2SA-EF-3.0</span><span class="alt">smoke device_class 노출 확인됨</span></td>
+            <td class="price">$35~45<br>≈ 5~6만원</td>
+            <td class="hide-sm"><span class="dc">smoke → EMBER</span></td>
+          </tr>
+          <tr>
+            <td>누수 <span class="badge b-safe">안전</span></td>
+            <td><span class="prod">Aqara 누수 센서</span><span class="alt">device_class: moisture</span></td>
+            <td class="price">$18~20<br>≈ 2.5~3만원</td>
+            <td class="hide-sm"><span class="dc">moisture → leak → EMBER</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="font-size:16px;margin-top:28px;color:var(--soft)">③ 맥락 센서 (능동 제안 · BREATH/DUSK)</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>분류</th><th>추천 제품</th><th>대략 가격</th><th class="hide-sm">device_class → 티어</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>재실/모션 <span class="badge b-comf">편의</span></td>
+            <td><span class="prod">Aqara FP300</span> (mmWave 재실, Zigbee/Thread)<span class="alt">예산형: SONOFF SNZB-06P</span></td>
+            <td class="price">$20~55<br>≈ 3~7.5만원</td>
+            <td class="hide-sm"><span class="dc">occupancy → motion</span></td>
+          </tr>
+          <tr>
+            <td>온도/습도 <span class="badge b-comf">편의</span></td>
+            <td><span class="prod">Aqara 온습도</span> 또는 SONOFF SNZB-02P<span class="alt">±0.2~0.3°C</span></td>
+            <td class="price">$12~15<br>≈ 1.7~2만원</td>
+            <td class="hide-sm"><span class="dc">temperature → 난방 제안</span></td>
+          </tr>
+          <tr>
+            <td>도어/창문 <span class="badge b-safe">안전</span></td>
+            <td><span class="prod">SONOFF SNZB-04P</span> 또는 Aqara 접촉센서 T1</td>
+            <td class="price">$10~12<br>≈ 1.5만원</td>
+            <td class="hide-sm"><span class="dc">door/window → EMBER/맥락</span></td>
+          </tr>
+          <tr>
+            <td>도어락 <span class="badge b-core">선택</span></td>
+            <td><span class="prod">Zigbee 스마트 도어락</span><span class="alt">lock 카테고리 테스트용</span></td>
+            <td class="price">$80~150<br>≈ 11~20만원</td>
+            <td class="hide-sm"><span class="dc">lock → EMBER</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 비용 -->
+  <section>
+    <h2><span class="n">03</span> 비용 합계</h2>
+    <div class="cost">
+      <div class="costcard">
+        <div class="lab">Tier 1 — MVP</div>
+        <div class="big free">≈ 0원</div>
+        <small>기존 PC + 폰 + home의 ollama. ntfy·HA·LIOT 전부 무료/오픈소스.</small>
+      </div>
+      <div class="costcard">
+        <div class="lab">Tier 2 — 실센서 (도어락 제외)</div>
+        <div class="big krw">≈ 40~55만원</div>
+        <small>허브 18 + 코디네이터 3.5 + 안전센서 3종 ~15 + 맥락센서 3종 ~10만원. 도어락 추가 시 +11~20만원.</small>
+      </div>
+    </div>
+  </section>
+
+  <!-- 주의점 -->
+  <section>
+    <h2><span class="n">04</span> 사기 전 꼭 확인</h2>
+    <div class="note warn"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 3 19h18L12 2z"/><path d="M12 9v5M12 17v.5"/></svg>
+      <p><b>안전 면책:</b> LIOT은 <b>보조 알림자</b>이지 인증된 독립 가스·화재 경보기의 대체물이 아닙니다. 실제 안전은 KC 인증 독립 경보기를 별도로 두고, LIOT은 그 위의 "한 번 더 알려주는 층"으로 쓰세요.</p></div>
+    <div class="note"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16v.5"/></svg>
+      <p><b>device_class가 생명:</b> LIOT의 안전(EMBER) 분류는 도메인이 아니라 <code>device_class</code>로 결정됩니다. 구매 전 그 센서가 HA에서 <code>gas/smoke/moisture</code> 등을 노출하는지 확인하세요(없으면 HA <code>customize</code>로 지정 가능).</p></div>
+    <div class="note"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16v.5"/></svg>
+      <p><b>Zigbee2MQTT 호환 확인:</b> 위 안전 센서는 ZHA/Z2M 호환이 검증된 모델입니다. 저가 Tuya 제품은 device_class 누락이 잦으니 <a href="https://www.zigbee2mqtt.io/supported-devices/">zigbee2mqtt.io 지원 목록</a>·<a href="https://home-assistant-devices.com/en">home-assistant-devices.com</a>에서 모델명을 먼저 대조하세요.</p></div>
+    <div class="note"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16v.5"/></svg>
+      <p><b>피드백 URL 도달성:</b> ntfy 수락/거절 버튼은 <b>폰이 직접</b> 데몬의 <code>:8099</code>를 호출합니다. 집 밖에서도 되려면 <code>LIOT_NTFY_FEEDBACK_URL</code>을 <b>Tailscale 주소</b>로 두고 폰도 테일넷에 넣으세요. 추가 구매 없음.</p></div>
+  </section>
+
+  <footer>
+    <p>가격은 글로벌 평균 <b>대략치</b>이며 실제 구매 시 쿠팡·알리익스프레스·네이버에서 변동될 수 있습니다. 환율 ≈ 1,380원/$ 가정. 안전 센서는 인증·호환을 반드시 재확인하세요.</p>
+    <p class="src">조사 출처 ·
+      <a href="https://www.zigbee2mqtt.io/supported-devices/">zigbee2mqtt.io 지원기기</a> ·
+      <a href="https://home-assistant-devices.com/en">home-assistant-devices.com</a> ·
+      <a href="https://sonoff.tech/en-us/blogs/news/home-assistant-presence-detection-zigbee-setup-guide">SONOFF HA 가이드</a> ·
+      <a href="https://smarthomescene.com/blog/best-and-worst-presence-sensors-for-home-assistant/">SmartHomeScene 재실센서</a> ·
+      <a href="https://zigbeehubs.com/smoke-detectors/">ZigbeeHubs 연기감지기</a>
+    </p>
+    <p>LIOT — Life × IoT · 제안은 AI가, 실행은 언제나 사람이. · 생성 2026-06-13</p>
+  </footer>
+
+</div>
+</body>
+</html>
