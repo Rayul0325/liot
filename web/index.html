@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LIOT — 집이 먼저, 말을 겁니다</title>
+  <meta name="description" content="LIOT은 명령을 기다리지 않는 능동형 스마트홈 AI입니다. 제안은 AI가, 실행은 언제나 사람이. 4계층 안전 파이프라인 위에서." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+  <link rel="stylesheet" href="assets/style.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='10' fill='%23ff5c38'/%3E%3C/svg%3E" />
+</head>
+<body>
+
+  <!-- ===== 내비게이션 ===== -->
+  <header class="nav" id="nav">
+    <div class="nav-inner">
+      <a class="brand" href="#top" aria-label="LIOT 홈">
+        <span class="dot" aria-hidden="true"></span>LIOT
+      </a>
+      <nav class="nav-links" aria-label="주요 메뉴">
+        <a href="#philosophy">철학</a>
+        <a href="#pipeline">아키텍처</a>
+        <a href="#tiers">위험도</a>
+        <a href="#silence">안전 원칙</a>
+      </nav>
+      <a class="nav-cta" href="demo.html">데모 체험</a>
+      <button class="nav-toggle" id="navToggle" aria-label="메뉴 열기" aria-expanded="false" aria-controls="mobileMenu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M4 7h16M4 12h16M4 17h16" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="mobile-menu" id="mobileMenu">
+    <a href="#philosophy">철학</a>
+    <a href="#pipeline">아키텍처</a>
+    <a href="#tiers">위험도</a>
+    <a href="#silence">안전 원칙</a>
+    <a href="demo.html" style="color: var(--ember)">데모 체험 →</a>
+  </div>
+
+  <main id="top">
+
+    <!-- ===== 히어로 ===== -->
+    <section class="hero">
+      <div class="hero-glow" aria-hidden="true"></div>
+      <div class="wrap">
+        <div class="hero-copy">
+          <p class="eyebrow reveal">Life × IoT — Proactive Home AI</p>
+          <h1 class="hero-title reveal" data-delay="1">
+            집이 먼저,<br /><span class="accent">말을 겁니다.</span>
+          </h1>
+          <p class="hero-sub reveal" data-delay="2">
+            명령을 기다리는 스마트홈은 이미 충분합니다. LIOT은 맥락을 읽고
+            <strong>먼저 제안하는</strong> 집입니다 — 그러나 스위치를 누르는 손은,
+            언제나 <strong>사람의 것</strong>입니다.
+          </p>
+          <div class="hero-actions reveal" data-delay="3">
+            <a class="btn btn-primary" href="demo.html">
+              파이프라인 데모 체험
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+            </a>
+            <a class="btn btn-ghost" href="#pipeline">아키텍처 보기</a>
+          </div>
+          <div class="hero-meta reveal" data-delay="4">
+            <span><i></i>4-LAYER PIPELINE</span>
+            <span><i></i>7 INVARIANTS</span>
+            <span><i></i>PROPOSAL-ONLY</span>
+          </div>
+        </div>
+
+        <div class="hero-visual reveal" data-delay="2">
+          <div class="phone" role="img" aria-label="LIOT 알림이 도착한 휴대폰 화면 예시">
+            <div class="phone-screen">
+              <p class="phone-time">21:47</p>
+              <p class="phone-date">10월 23일 목요일</p>
+              <div class="noti-stack">
+                <div class="noti">
+                  <div class="noti-icon t-breath" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2M5.6 5.6l1.4 1.4M3 12h2M18.4 5.6 17 7M19 12h2M8 17a4 4 0 1 1 8 0v1H8z" /><path d="M7 21h10" /></svg>
+                  </div>
+                  <div class="noti-body">
+                    <div class="noti-app"><span>LIOT</span><span>지금</span></div>
+                    <p class="noti-title">○ 잔잔 — 제안이 하나 있어요</p>
+                    <p class="noti-text">거실이 30분째 비어 있어요. 조명을 꺼 둘까요?</p>
+                    <div class="noti-actions"><span>좋아요</span><span>괜찮아요</span></div>
+                  </div>
+                </div>
+                <div class="noti">
+                  <div class="noti-icon t-dusk" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9a4 4 0 0 0-4 4h8a4 4 0 0 0-4-4z" /><path d="M3 17h18M5 21h14M12 3v2M6 5l1.5 1.5M18 5l-1.5 1.5" /></svg>
+                  </div>
+                  <div class="noti-body">
+                    <div class="noti-app"><span>LIOT</span><span>9분 전</span></div>
+                    <p class="noti-title">◐ 노을 — 확인이 필요해요</p>
+                    <p class="noti-text">바깥 기온이 떨어지고 있어요. 침실을 22°C로 데워 둘까요?</p>
+                    <div class="noti-actions"><span>데워줘</span><span>오늘은 말고</span></div>
+                  </div>
+                </div>
+                <div class="noti">
+                  <div class="noti-icon t-ember" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 3 19h18L12 2z" /><path d="M12 9v5M12 17v.5" /></svg>
+                  </div>
+                  <div class="noti-body">
+                    <div class="noti-app"><span>LIOT</span><span>지금</span></div>
+                    <p class="noti-title">● 잉걸 — 즉시 확인해 주세요</p>
+                    <p class="noti-text">주방에서 가스 농도 상승이 감지됐어요. 직접 확인이 필요해요.</p>
+                    <div class="noti-actions"><span>확인했어요</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 철학 ===== -->
+    <section class="section philosophy" id="philosophy">
+      <div class="wrap philosophy-grid">
+        <div class="philosophy-sticky">
+          <p class="eyebrow reveal">Philosophy</p>
+          <h2 class="h-display reveal" data-delay="1">
+            스마트홈은 똑똑해졌지만,<br />
+            여전히 <span class="accent">기다립니다.</span>
+          </h2>
+          <p class="lede reveal" data-delay="2" style="margin-top: 24px">
+            "불 꺼줘"라고 말해야 꺼지는 집은 비서가 아니라 리모컨입니다.
+            LIOT은 센서가 그리는 생활의 맥락을 읽고 먼저 다가갑니다.
+            대신, 절대로 넘지 않는 선을 코드 안에 새겼습니다.
+          </p>
+        </div>
+        <div class="philosophy-list">
+          <div class="principle reveal">
+            <span class="principle-num">01</span>
+            <div>
+              <h3>제안만 하고, 실행하지 않는다</h3>
+              <p>LIOT의 코드 어디에도 액추에이터를 호출하는 실행기가 없습니다. 구조적으로 불가능하게 설계했습니다 — 신뢰는 약속이 아니라 아키텍처에서 나옵니다.</p>
+              <span class="mono-tag">invariant 3 · proposal-only</span>
+            </div>
+          </div>
+          <div class="principle reveal" data-delay="1">
+            <span class="principle-num">02</span>
+            <div>
+              <h3>먼저 말을 걸되, 가볍게만</h3>
+              <p>능동 제안은 편의 영역에서만, 가장 낮은 위험 수준 안에서만 일어납니다. 안전이 걸린 일은 AI가 먼저 "해두겠다"고 나서지 않습니다.</p>
+              <span class="mono-tag">invariant 7 · proactive-safe-silent</span>
+            </div>
+          </div>
+          <div class="principle reveal" data-delay="2">
+            <span class="principle-num">03</span>
+            <div>
+              <h3>LLM에게 거부권만 준다</h3>
+              <p>제안은 사람이 검수한 결정론적 규칙이 만들고, LLM은 그 제안을 막을 수만 있습니다. 모델이 오염되더라도 최악의 결과는 단 하나 — 침묵입니다.</p>
+              <span class="mono-tag">gate 2 · veto-only LLM</span>
+            </div>
+          </div>
+          <div class="principle reveal" data-delay="3">
+            <span class="principle-num">04</span>
+            <div>
+              <h3>밖으로 나가는 모든 데이터는 한 문으로</h3>
+              <p>알림·LLM·날씨 — 외부로 향하는 모든 페이로드는 단일 정제 게이트를 지나며 기기명·방 이름·개인정보가 구조적으로 제거됩니다.</p>
+              <span class="mono-tag">egress gate · single-pass</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 파이프라인 ===== -->
+    <section class="section pipeline" id="pipeline">
+      <div class="wrap">
+        <div class="pipeline-head">
+          <p class="eyebrow reveal">Architecture</p>
+          <h2 class="h-display reveal" data-delay="1">
+            하나의 제안이 지나는<br /><span class="accent">네 개의 관문</span>
+          </h2>
+          <p class="lede reveal" data-delay="2" style="margin-top: 22px">
+            센서의 작은 신호 하나가 알림이 되기까지 — 모든 제안은 같은 길을 걷습니다.
+            지름길은 없습니다.
+          </p>
+        </div>
+
+        <div class="rail reveal" data-delay="2">
+          <div class="rail-line" aria-hidden="true">
+            <i class="node" style="left: 12.5%"></i>
+            <i class="node" style="left: 37.5%"></i>
+            <i class="node" style="left: 62.5%"></i>
+            <i class="node" style="left: 87.5%"></i>
+            <span class="spark"></span>
+          </div>
+
+          <article class="stage" data-layer="1">
+            <div class="stage-badge" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2.5" /><path d="M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9M4.6 4.6a10.5 10.5 0 0 0 0 14.8M19.4 4.6a10.5 10.5 0 0 1 0 14.8" /></svg>
+            </div>
+            <p class="stage-num">Layer 1</p>
+            <h3>감지 — Sensing</h3>
+            <p>Home Assistant에서 센서 신호를 읽기 전용으로 수신합니다. 쓰기 권한 자체가 없습니다.</p>
+            <div class="gate"><i>read-only stream</i></div>
+          </article>
+
+          <article class="stage" data-layer="2">
+            <div class="stage-badge" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a1 1 0 0 1 1-1h9l5 5v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" /><path d="M14 4v5h5M8 13h8M8 16.5h5" /></svg>
+            </div>
+            <p class="stage-num">Layer 2</p>
+            <h3>맥락 — Context</h3>
+            <p>점유 상태, 시간대, 최근 변화를 한 장의 스냅샷으로 구성합니다. 능동 제안의 씨앗도 여기서 싹틉니다.</p>
+            <div class="gate"><i>snapshot-pinned</i></div>
+          </article>
+
+          <article class="stage" data-layer="3">
+            <div class="stage-badge" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M3 12h3M18 12h3M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" /><circle cx="12" cy="12" r="3.5" /></svg>
+            </div>
+            <p class="stage-num">Layer 3</p>
+            <h3>판단 — Judgment</h3>
+            <p>이중 관문. 결정론적 가드레일이 먼저 거르고, LLM은 통과한 제안에 거부권만 행사합니다.</p>
+            <div class="gate"><i>gate 1 · guardrail</i><i>gate 2 · LLM veto</i></div>
+          </article>
+
+          <article class="stage" data-layer="4">
+            <div class="stage-badge" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.4 3 8.4 7 9.8 4-1.4 7-5.4 7-9.8V6l-7-3z" /><path d="M9.2 12.2l2 2 3.6-4" /></svg>
+            </div>
+            <p class="stage-num">Layer 4</p>
+            <h3>집행 안전 — Execution</h3>
+            <p>발화 게이트가 피로도·중복·야간을 따져 알림 여부를 정하고, 정제 게이트가 개인정보를 걸러 송신합니다.</p>
+            <div class="gate"><i>egress · sanitized</i></div>
+          </article>
+        </div>
+
+        <div class="pipeline-note reveal" data-delay="1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16v.5" /></svg>
+          <p><strong>역방향 통로는 단 하나.</strong> 4층의 결과(수락/거절)만 2층의 학습으로 돌아갑니다. 판단이 감지를 조작하거나, 실행이 판단을 건너뛰는 길은 존재하지 않습니다.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 위험도 티어 ===== -->
+    <section class="section" id="tiers">
+      <div class="wrap">
+        <p class="eyebrow reveal">Risk Tiers</p>
+        <h2 class="h-display reveal" data-delay="1">
+          모든 제안에는<br /><span class="accent">온도</span>가 있습니다
+        </h2>
+        <p class="lede reveal" data-delay="2" style="margin-top: 22px">
+          위험은 깎아내릴 수 없고, 올려 잡을 수만 있습니다. 두 판단이 어긋나면
+          언제나 더 뜨거운 쪽을 따릅니다 — escalate only.
+        </p>
+
+        <div class="tiers-scale reveal" aria-hidden="true"></div>
+        <div class="tiers-scale-labels reveal" aria-hidden="true">
+          <span>차분함</span>
+          <span>긴급함</span>
+        </div>
+
+        <div class="tier-grid">
+          <article class="tier-card reveal" data-tier="ambient">
+            <p class="tier-name"><i aria-hidden="true"></i>AMBIENT</p>
+            <h3 class="tier-kr">여백 · 0</h3>
+            <p>알아채지 못해도 좋은 미세한 흐름. 기록만 남기고 조용히 흘려보냅니다.</p>
+            <div class="tier-confirm"><span>확인 절차</span><b>없음 — 무음 기록</b></div>
+          </article>
+          <article class="tier-card reveal" data-delay="1" data-tier="breath">
+            <p class="tier-name"><i aria-hidden="true"></i>BREATH</p>
+            <h3 class="tier-kr">잔잔 · 1</h3>
+            <p>비어 있는 방의 조명, 한 모금의 환기 — 가벼운 편의 제안. 능동 제안의 상한선입니다.</p>
+            <div class="tier-confirm"><span>확인 절차</span><b>가벼운 한 번의 터치</b></div>
+          </article>
+          <article class="tier-card reveal" data-delay="2" data-tier="dusk">
+            <p class="tier-name"><i aria-hidden="true"></i>DUSK</p>
+            <h3 class="tier-kr">노을 · 2</h3>
+            <p>난방 온도, 외출 모드처럼 생활에 닿는 변화. 분명한 동의를 받아야 움직입니다.</p>
+            <div class="tier-confirm"><span>확인 절차</span><b>명시적 확인</b></div>
+          </article>
+          <article class="tier-card reveal" data-delay="3" data-tier="ember">
+            <p class="tier-name"><i aria-hidden="true"></i>EMBER</p>
+            <h3 class="tier-kr">잉걸 · 3</h3>
+            <p>가스, 연기, 누수, 현관 — 안전이 걸린 신호. 피로도 제한을 제치고 반드시 도달합니다.</p>
+            <div class="tier-confirm"><span>확인 절차</span><b>이중 확인</b></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 침묵의 비대칭 ===== -->
+    <section class="section silence" id="silence">
+      <div class="wrap">
+        <p class="eyebrow reveal">The Asymmetry of Silence</p>
+        <h2 class="h-display reveal" data-delay="1">침묵에도 방향이 있습니다</h2>
+
+        <div class="silence-grid reveal" data-delay="2">
+          <div class="silence-half never">
+            <span class="silence-tag">Safety — Never Silent</span>
+            <h3>안전은 <em>절대로</em><br />침묵하지 않는다</h3>
+            <p>가스 농도가 오르는데 알림 예산이 떨어졌다고, 새벽이라고, 같은 알림을 보냈었다고 조용히 넘어가는 일은 없습니다. 안전 신호는 모든 피로도 장치를 제치고 도달합니다.</p>
+            <p class="inv">invariant 6 — 침묵이 곧 위험이므로</p>
+          </div>
+          <div class="silence-half safe">
+            <span class="silence-tag">Comfort — Safe to Silence</span>
+            <h3>편의는 침묵해도<br /><em>안전하다</em></h3>
+            <p>조명 제안 하나가 막혀도 잃는 것은 약간의 편리함뿐입니다. 그래서 능동 제안은 세 겹의 기본 거부 위에 서 있고, 의심스러우면 언제나 입을 다뭅니다.</p>
+            <p class="inv">invariant 7 — 침묵이 곧 안전이므로</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 숫자 ===== -->
+    <section class="section numbers">
+      <div class="wrap">
+        <p class="eyebrow reveal">By the Numbers</p>
+        <h2 class="h-display reveal" data-delay="1">약속이 아니라, <span class="accent">구조</span></h2>
+
+        <div class="numbers-grid">
+          <div class="num-card reveal">
+            <p class="num-value"><span data-count="4">0</span></p>
+            <p class="num-label">계층 파이프라인</p>
+            <p class="num-sub">SENSING → EXECUTION</p>
+          </div>
+          <div class="num-card reveal" data-delay="1">
+            <p class="num-value"><span data-count="7">0</span></p>
+            <p class="num-label">런타임 불변식</p>
+            <p class="num-sub">EVERY TICK, EVERY PATH</p>
+          </div>
+          <div class="num-card reveal" data-delay="2">
+            <p class="num-value"><span data-count="116">0</span></p>
+            <p class="num-label">자동화 테스트</p>
+            <p class="num-sub">ADVERSARIALLY PROBED</p>
+          </div>
+          <div class="num-card reveal" data-delay="3">
+            <p class="num-value"><span data-count="0">0</span></p>
+            <p class="num-label">액추에이터 호출</p>
+            <p class="num-sub">NO EXECUTOR, BY DESIGN</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== CTA ===== -->
+    <section class="cta">
+      <div class="cta-glow" aria-hidden="true"></div>
+      <div class="wrap">
+        <h2 class="reveal">신호 하나가 알림이 되는 길,<br /><span class="accent">직접 걸어 보세요</span></h2>
+        <p class="reveal" data-delay="1">
+          가스 경보부터 빈방의 조명까지 — 세 가지 시나리오가 네 개의 관문을
+          통과하는 과정을 실시간으로 지켜볼 수 있습니다.
+        </p>
+        <div class="hero-actions reveal" data-delay="2" style="margin-top: 40px">
+          <a class="btn btn-primary" href="demo.html">
+            데모 시작하기
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          </a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===== 푸터 ===== -->
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer-grid">
+        <div>
+          <p class="brand"><span class="dot" aria-hidden="true"></span>LIOT</p>
+          <p class="footer-note">Life × IoT — 능동형 스마트홈 AI 연구 프로젝트. 제안은 AI가, 실행은 언제나 사람이.</p>
+        </div>
+        <div class="footer-stack">
+          <span>RUNTIME</span>
+          Python · Home Assistant (read-only)
+          <span style="margin-top: 6px">DELIVERY</span>
+          ntfy · HMAC-signed feedback
+          <span style="margin-top: 6px">JUDGMENT</span>
+          Deterministic guardrail + local LLM veto
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© 2026 LIOT — R&amp;E Research Project</span>
+        <span>localhost 데모 빌드</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/main.js"></script>
+</body>
+</html>

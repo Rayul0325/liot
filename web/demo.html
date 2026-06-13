@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LIOT 데모 — 네 개의 관문을 지나는 길</title>
+  <meta name="description" content="센서 신호 하나가 LIOT의 4계층 안전 파이프라인을 통과해 알림이 되는 과정을 시나리오별로 체험해 보세요." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+  <link rel="stylesheet" href="assets/style.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='10' fill='%23ff5c38'/%3E%3C/svg%3E" />
+</head>
+<body>
+
+  <header class="nav" id="nav">
+    <div class="nav-inner">
+      <a class="brand" href="index.html" aria-label="LIOT 홈으로">
+        <span class="dot" aria-hidden="true"></span>LIOT
+      </a>
+      <nav class="nav-links" aria-label="주요 메뉴">
+        <a href="index.html#philosophy">철학</a>
+        <a href="index.html#pipeline">아키텍처</a>
+        <a href="index.html#tiers">위험도</a>
+        <a href="index.html#silence">안전 원칙</a>
+      </nav>
+      <a class="nav-cta" href="index.html">홈으로</a>
+      <button class="nav-toggle" id="navToggle" aria-label="메뉴 열기" aria-expanded="false" aria-controls="mobileMenu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M4 7h16M4 12h16M4 17h16" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="mobile-menu" id="mobileMenu">
+    <a href="index.html#philosophy">철학</a>
+    <a href="index.html#pipeline">아키텍처</a>
+    <a href="index.html#tiers">위험도</a>
+    <a href="index.html#silence">안전 원칙</a>
+    <a href="index.html" style="color: var(--ember)">홈으로 →</a>
+  </div>
+
+  <main class="demo-main">
+    <div class="wrap">
+      <div class="demo-head">
+        <p class="eyebrow reveal">Interactive Demo</p>
+        <h1 class="h-display reveal" data-delay="1">
+          신호 하나를 골라,<br /><span class="accent">관문에 흘려보내세요</span>
+        </h1>
+        <p class="lede reveal" data-delay="2" style="margin-top: 22px">
+          세 가지 시나리오는 서로 다른 결말에 닿습니다 — 반드시 도달하는 안전 알림,
+          조심스러운 편의 제안, 그리고 의도된 침묵.
+        </p>
+      </div>
+
+      <div class="scenario-row reveal" role="group" aria-label="시나리오 선택">
+        <button class="scenario" data-scenario="gas">
+          <span class="scenario-tag t-ember">EMBER · SAFETY</span>
+          <span class="scenario-title">주방의 가스 농도 상승</span>
+          <p>심야, 알림 예산도 바닥났습니다. 그래도 이 신호는 반드시 도달해야 합니다.</p>
+        </button>
+        <button class="scenario" data-scenario="light">
+          <span class="scenario-tag t-breath">BREATH · PROACTIVE</span>
+          <span class="scenario-title">30분째 비어 있는 거실</span>
+          <p>아무도 시키지 않았습니다. LIOT이 먼저 조명 끄기를 제안해 봅니다.</p>
+        </button>
+        <button class="scenario" data-scenario="heat">
+          <span class="scenario-tag t-muted">DUSK · CEILING</span>
+          <span class="scenario-title">쌀쌀한 저녁, 난방 제안</span>
+          <p>능동 제안이 BREATH 상한을 넘어서면 어떻게 될까요? 침묵을 지켜보세요.</p>
+        </button>
+      </div>
+
+      <div class="board reveal" data-delay="1">
+        <div class="board-rail" aria-live="polite">
+          <p class="board-title">
+            <span>Pipeline Trace</span>
+            <span class="live" id="liveTag" hidden><i aria-hidden="true"></i>RUNNING</span>
+          </p>
+
+          <div class="step" data-step="l1">
+            <div class="step-orb" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2.5" /><path d="M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9" /></svg>
+            </div>
+            <div class="step-info">
+              <span class="step-layer">Layer 1 · Sensing</span>
+              <h4>신호 수신</h4>
+              <p class="step-log" data-log="l1"></p>
+            </div>
+            <span class="step-state" data-state="l1">대기</span>
+          </div>
+
+          <div class="step" data-step="l2">
+            <div class="step-orb" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a1 1 0 0 1 1-1h9l5 5v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" /><path d="M14 4v5h5" /></svg>
+            </div>
+            <div class="step-info">
+              <span class="step-layer">Layer 2 · Context</span>
+              <h4>맥락 스냅샷</h4>
+              <p class="step-log" data-log="l2"></p>
+            </div>
+            <span class="step-state" data-state="l2">대기</span>
+          </div>
+
+          <div class="step" data-step="g1">
+            <div class="step-orb" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.4 3 8.4 7 9.8 4-1.4 7-5.4 7-9.8V6l-7-3z" /></svg>
+            </div>
+            <div class="step-info">
+              <span class="step-layer">Layer 3 · Gate 1</span>
+              <h4>결정론적 가드레일</h4>
+              <p class="step-log" data-log="g1"></p>
+            </div>
+            <span class="step-state" data-state="g1">대기</span>
+          </div>
+
+          <div class="step" data-step="g2">
+            <div class="step-orb" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9h8M8 13h5" /><path d="M21 12a8 8 0 1 0-3.1 6.3L21 19l-.7-3.2A8 8 0 0 0 21 12z" /></svg>
+            </div>
+            <div class="step-info">
+              <span class="step-layer">Layer 3 · Gate 2</span>
+              <h4>LLM 거부권 심사</h4>
+              <p class="step-log" data-log="g2"></p>
+            </div>
+            <span class="step-state" data-state="g2">대기</span>
+          </div>
+
+          <div class="step" data-step="l4">
+            <div class="step-orb" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13l6 6L20 7" /></svg>
+            </div>
+            <div class="step-info">
+              <span class="step-layer">Layer 4 · Execution Safety</span>
+              <h4>발화 게이트 + 정제 송신</h4>
+              <p class="step-log" data-log="l4"></p>
+            </div>
+            <span class="step-state" data-state="l4">대기</span>
+          </div>
+        </div>
+
+        <div class="board-result">
+          <p class="board-title"><span>휴대폰 도착함</span></p>
+          <div class="result-zone" id="resultZone" aria-live="polite">
+            <div class="result-idle">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 2h10a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" /><path d="M11 18h2" /></svg>
+              <p>위에서 시나리오를 고르면<br />이곳에 결과가 도착합니다.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="demo-disclaimer reveal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16v.5" /></svg>
+        이 데모는 실제 LIOT 파이프라인의 판단 로직을 브라우저에서 재현한 시뮬레이션입니다. 실제 시스템은 Python으로 구동되며, 어떤 시나리오에서도 액추에이터를 직접 호출하지 않습니다.
+      </p>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer-bottom" style="margin-top: 0; padding-top: 0; border-top: 0">
+        <span>© 2026 LIOT — R&amp;E Research Project</span>
+        <a href="index.html" style="color: var(--text-soft)">← 홈으로 돌아가기</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/main.js"></script>
+  <script src="assets/demo.js"></script>
+</body>
+</html>
