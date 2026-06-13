@@ -253,13 +253,17 @@ class OllamaBackend:
 def build_ollama_backend(alias: AliasMap | None = None) -> OllamaBackend:
     """환경변수로 Ollama 백엔드 구성.
 
-    LIOT_OLLAMA_MODEL   : 모델 태그(예: gemma3:4b). 미설정 시 'gemma3:4b'.
+    LIOT_OLLAMA_MODEL   : 모델 태그. 미설정 시 'gemma4:e4b'.
+        (home=M3 Ultra 시뮬레이션 2026-06: gemma4:e4b 가 Gate2 시나리오 전수 정답
+         + 프롬프트 인젝션 저항 + ~0.9s/판정으로, gemma4:31b 와 동일 정확도이나
+         2.7배 빠르고 2배 가볍다. qwen3 계열은 thinking 토큰으로 JSON-only 출력이
+         깨지거나(빈 응답) 인젝션에 취약 → 부적합.)
     LIOT_OLLAMA_TRANSPORT: 'ssh'(기본) | 'http'.
     LIOT_OLLAMA_SSH_HOST: ssh 별칭(기본 'home').
     LIOT_OLLAMA_HTTP_URL: http base(기본 http://127.0.0.1:11434).
     LIOT_OLLAMA_TIMEOUT : 초(기본 30).
     """
-    model = os.environ.get("LIOT_OLLAMA_MODEL", "gemma4:31b").strip()
+    model = os.environ.get("LIOT_OLLAMA_MODEL", "gemma4:e4b").strip()
     kind = os.environ.get("LIOT_OLLAMA_TRANSPORT", "ssh").strip().lower()
     timeout = float(os.environ.get("LIOT_OLLAMA_TIMEOUT", "30") or "30")
     transport: OllamaTransport
