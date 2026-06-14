@@ -34,3 +34,6 @@ htmlcov/
 # Local secrets / env
 .env
 .env.*
+
+# Harness / session state (대화 컨텍스트 포함 가능 — 절대 커밋 금지)
+.claude/
