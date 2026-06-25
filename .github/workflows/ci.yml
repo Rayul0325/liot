@@ -26,12 +26,16 @@ jobs:
       - name: Test (pytest, incl. 6 invariants)
         run: uv run python -m pytest -q
 
-      - name: Invariant gate — executor MUST be absent (Phase1 proposal-only)
+      - name: Invariant gate — executor confined + execution gated (opt-in OFF)
         run: |
           uv run python - <<'PY'
-          from liot.core.invariants import assert_executor_absent
-          assert_executor_absent()
-          print("OK: no concrete Executor (Phase1 proposal-only invariant holds)")
+          from liot.core.invariants import (
+              assert_executor_confined,
+              assert_execution_gated,
+          )
+          assert_executor_confined()
+          assert_execution_gated()
+          print("OK: executor confined to sanctioned module; execution gated (opt-in OFF)")
           PY
 
       - name: Secret scan (no plaintext keys committed)
