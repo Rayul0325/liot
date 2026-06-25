@@ -32,6 +32,14 @@ __all__ = [
     "NotificationPayload",
     "EventMessage",
     "compute_snapshot_hash",
+    # 다중 후보 파이프라인(새 기획: 생성→평가→선택)
+    "NOOP_CAPABILITY",
+    "make_noop_candidate",
+    "is_noop",
+    "ActionCandidate",
+    "CandidateSet",
+    "ExternalContext",
+    "EvaluationResult",
 ]
 
 
@@ -201,3 +209,134 @@ class EventMessage(BaseModel):
     ref_id: str
     partition_key: str
     ts: str
+
+
+# ── 다중 후보 파이프라인 (새 기획: 생성 → 평가 → 선택) ──────────────────────
+# 개념 8단계 중 L4 Candidate Generation · L5 Evaluation & Selection 의 데이터 계약.
+# 기존 단일 CandidateAction 은 그대로 두고, 그 위에 점수·집합·외부맥락을 *추가*한다.
+# 선택된 단일 CandidateAction 만 L3(가드레일)로 넘어가므로 L3·L4 핸들러는 무변경.
+
+NOOP_CAPABILITY = "noop"
+"""무행동(아무것도 하지 않음) 후보의 예약 capability.
+
+별도 타입을 만들지 않고 CandidateAction 으로 표현한다(타입 폭증 회피).
+NoOp 가 선택되면 파이프라인은 proposal 없이 침묵한다(가드레일을 거치지 않음).
+"""
+
+
+def make_noop_candidate(entity_id: str = "__none__") -> CandidateAction:
+    """무행동 후보를 만든다. CandidateSet 은 항상 이것을 하나 이상 포함해야 한다."""
+    return CandidateAction(
+        capability=NOOP_CAPABILITY,
+        action="hold",
+        params={},
+        entity_id=entity_id,
+        category=NOOP_CAPABILITY,
+    )
+
+
+def is_noop(candidate: CandidateAction) -> bool:
+    """후보가 무행동인지."""
+    return candidate.capability == NOOP_CAPABILITY
+
+
+class ActionCandidate(BaseModel):
+    """점수가 매겨진 행동 후보(L5 평가 대상).
+
+    candidate 는 기존 단일 행동 타입을 그대로 감싼다. 점수는 0~1 정규화.
+    safety_risk 는 결정론적으로(catalog 기반) 채워지며 LLM 이 제출한 값은 무시된다.
+    reason 은 설명 전용(점수 가중 0)이며 외부로 송신되지 않는다(egress 미포함).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidate: CandidateAction
+    expected_effect: float = 0.0
+    user_preference_fit: float = 0.0
+    energy_cost: float = 0.0
+    disturbance: float = 0.0
+    safety_risk: float = 0.0
+    final_score: float = 0.0
+    reason: str = ""
+    origin: str = ""  # "rule:<id>" | "llm" | "noop"
+
+
+class CandidateSet(BaseModel):
+    """한 트리거에서 생성된 행동 후보 집합. 항상 무행동 후보를 포함한다.
+
+    selected_index 는 평가 후 선택된 후보를 가리킨다(무행동 선택 가능).
+    snapshot_hash 로 재현성을 고정한다(같은 스냅샷 → 같은 후보 집합).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    trace_id: str
+    home_id: str = "singleton"
+    snapshot_hash: str
+    candidates: list[ActionCandidate]
+    selected_index: int = 0
+
+    @model_validator(mode="after")
+    def _validate(self) -> "CandidateSet":
+        if not self.candidates:
+            raise ValueError("CandidateSet 은 비어 있을 수 없다(최소 무행동 후보 1개).")
+        if not any(is_noop(c.candidate) for c in self.candidates):
+            raise ValueError("CandidateSet 은 항상 무행동(NoOp) 후보를 포함해야 한다.")
+        if not (0 <= self.selected_index < len(self.candidates)):
+            raise ValueError(
+                f"selected_index({self.selected_index})가 범위를 벗어났다"
+                f"(0..{len(self.candidates) - 1})."
+            )
+        return self
+
+    @property
+    def selected(self) -> ActionCandidate:
+        """선택된 후보."""
+        return self.candidates[self.selected_index]
+
+    def selected_action(self) -> CandidateAction:
+        """선택된 행동(기존 단일 타입). L3 로 넘어가는 유일한 값."""
+        return self.candidates[self.selected_index].candidate
+
+    def selected_is_noop(self) -> bool:
+        """선택이 무행동이면 True → 파이프라인은 침묵한다."""
+        return is_noop(self.selected_action())
+
+
+class ExternalContext(BaseModel):
+    """외부 데이터(날씨·외기 공기질) 조회 결과(L3 Context Acquisition).
+
+    degraded=True 면 외부 조회가 실패/불확실 → 평가는 보수적으로(무행동/저위험) 선택.
+    structured 에 병합돼 snapshot_hash 에 반영된다(외기 변화가 후보 우선순위를 바꿈).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    outdoor_temp_c: float | None = None
+    outdoor_aqi: int | None = None
+    source: str = "fake"
+    fetched_at: str
+    degraded: bool = False
+
+    def to_structured(self) -> dict[str, Any]:
+        """ContextSnapshot.structured 에 병합할 결정론적 dict.
+
+        fetched_at(타임스탬프)은 일부러 제외한다 — 같은 외기면 같은 해시여야
+        재현성(불변식 4)이 유지되기 때문. 의미 있는 수치/플래그만 병합한다.
+        """
+        return {
+            "outdoor_temp_c": self.outdoor_temp_c,
+            "outdoor_aqi": self.outdoor_aqi,
+            "ext_source": self.source,
+            "ext_degraded": self.degraded,
+        }
+
+
+class EvaluationResult(BaseModel):
+    """L5 평가·선택의 산출물(감사/데모용). scored 는 점수 내림차순 권장."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scored: list[ActionCandidate]
+    selected_index: int
+    rationale: str
