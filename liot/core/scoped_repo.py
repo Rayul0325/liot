@@ -29,6 +29,7 @@ _TENANT_TABLES: tuple[str, ...] = (
     "notifications",
     "audit_log",
     "trust_state",
+    "candidate_evaluations",
 )
 
 

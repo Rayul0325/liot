@@ -55,9 +55,35 @@ async def _apply_baseline(db: "aiosqlite.Connection") -> None:
     await db.executescript(sql)
 
 
+async def _add_candidate_evaluations(db: "aiosqlite.Connection") -> None:
+    """버전 2: 후보 평가 결과 보관(감사/데모/연구 로그).
+
+    L5 평가기의 CandidateSet/EvaluationResult 를 trace 단위로 남긴다 — 어떤
+    후보들이 생성·점수화됐고 무엇이 선택됐는지(무행동 포함). 멱등(CREATE IF NOT
+    EXISTS). 컬럼 삭제/이름변경 금지 규칙은 schema.sql 과 동일하게 적용된다.
+    """
+    await db.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS candidate_evaluations (
+            home_id        TEXT    NOT NULL DEFAULT 'singleton',
+            trace_id       TEXT    NOT NULL,
+            snapshot_hash  TEXT    NOT NULL,   -- 후보집합 재현 키
+            scored_json    TEXT    NOT NULL,   -- list[ActionCandidate] 직렬화
+            selected_index INTEGER NOT NULL,   -- 선택된 후보(무행동 가능)
+            rationale      TEXT    NOT NULL,
+            created_at     TEXT    NOT NULL,
+            PRIMARY KEY (home_id, trace_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_candidate_eval_snapshot
+            ON candidate_evaluations (home_id, snapshot_hash);
+        """
+    )
+
+
 # (version, async fn(db)) 순서대로 누적 적용한다. version 은 1부터 단조 증가.
 _MIGRATIONS: list[tuple[int, str, Callable[["aiosqlite.Connection"], object]]] = [
     (1, "baseline schema (schema.sql)", _apply_baseline),
+    (2, "candidate_evaluations table", _add_candidate_evaluations),
 ]
 
 LATEST_VERSION = max((v for v, _, _ in _MIGRATIONS), default=0)

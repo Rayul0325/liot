@@ -333,10 +333,32 @@ class ExternalContext(BaseModel):
 
 
 class EvaluationResult(BaseModel):
-    """L5 평가·선택의 산출물(감사/데모용). scored 는 점수 내림차순 권장."""
+    """L5 평가·선택의 산출물(감사/데모용)."""
 
     model_config = ConfigDict(extra="forbid")
 
     scored: list[ActionCandidate]
     selected_index: int
     rationale: str
+
+    @model_validator(mode="after")
+    def _validate(self) -> "EvaluationResult":
+        if self.scored and not (0 <= self.selected_index < len(self.scored)):
+            raise ValueError(
+                f"selected_index({self.selected_index})가 범위를 벗어났다"
+                f"(0..{len(self.scored) - 1})."
+            )
+        return self
+
+    @property
+    def selected(self) -> ActionCandidate:
+        """선택된(점수가 매겨진) 후보."""
+        return self.scored[self.selected_index]
+
+    def selected_action(self) -> CandidateAction:
+        """선택된 행동(기존 단일 타입)."""
+        return self.scored[self.selected_index].candidate
+
+    def selected_is_noop(self) -> bool:
+        """선택이 무행동이면 True → 파이프라인은 침묵한다."""
+        return is_noop(self.scored[self.selected_index].candidate)

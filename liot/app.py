@@ -19,6 +19,7 @@ Phase1: 실행 코드 없음. L4 는 Proposal 생성에서 멈춘다.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 
@@ -27,6 +28,7 @@ from liot.core.contracts import (
     CandidateAction,
     ContextSnapshot,
     EventMessage,
+    ExternalContext,
     Judgment,
     Layer,
     Proposal,
@@ -39,6 +41,9 @@ from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l1_sensing.state_cache import StateCache
 from liot.layers.l2_context.context_builder import ContextBuilder
 from liot.layers.l2_context.candidate_llm import LLMCandidateBackend
+from liot.layers.l2_context.evaluator import CandidateEvaluator
+from liot.layers.l2_context.external_provider import ExternalDataProvider
+from liot.layers.l2_context.feedback_store import FeedbackStore
 from liot.layers.l2_context.proactive import (
     PROACTIVE_TIER_CEILING,
     ProactiveDecision,
@@ -71,6 +76,9 @@ class LiotApp:
         categories: dict[str, str] | None = None,
         proactive: ProactiveGenerator | None = None,
         llm_candidate_backend: LLMCandidateBackend | None = None,
+        evaluator: CandidateEvaluator | None = None,
+        external_provider: ExternalDataProvider | None = None,
+        feedback_store: FeedbackStore | None = None,
     ) -> None:
         self.home_id = home_id
         self.clock = clock or Clock()
@@ -104,6 +112,17 @@ class LiotApp:
                 llm_candidate_backend=llm_candidate_backend,
             )
         )
+        # 후보 평가·선택(L5). 기본 평가기는 카탈로그 권위로 점수화한다 —
+        # 단일 컴포트 후보는 무행동 기준선을 넘어 선택되므로 기존 동작 보존.
+        self.evaluator = (
+            evaluator
+            if evaluator is not None
+            else CandidateEvaluator(catalog=self.catalog, llm=llm_candidate_backend)
+        )
+        # 외부 데이터(옵션). 미설정이면 외기 미반영(외부 맥락 없음).
+        self.external_provider = external_provider
+        # 선호 신호(옵션). 미설정이면 중립.
+        self.feedback_store = feedback_store
 
         # 한 번의 process_reading 동안 단계 산출물을 잇기 위한 trace-stash.
         self._stash: dict[str, dict[str, Any]] = {}
@@ -306,6 +325,22 @@ class LiotApp:
         stash["proposal"] = proposal
 
     # ------------------------------------------------------------------
+    # 외부 데이터(옵션)
+    # ------------------------------------------------------------------
+    async def _fetch_external(self) -> ExternalContext | None:
+        """외부 맥락을 가져온다(provider 미설정이면 None = 외기 미반영).
+
+        provider 는 실패 시 예외가 아니라 degraded 로 표시하기로 계약돼 있으나,
+        방어적으로 예외도 degraded 로 강등한다(평가기가 보수적으로 침묵).
+        """
+        if self.external_provider is None:
+            return None
+        try:
+            return await self.external_provider.fetch()
+        except Exception:  # pragma: no cover - 계약상 도달 불가, fail-closed 백스톱
+            return ExternalContext(fetched_at=self.clock.now_utc(), degraded=True)
+
+    # ------------------------------------------------------------------
     # 후보 행동 기본값
     # ------------------------------------------------------------------
     def _default_action(self, category: str, reading: SensorReading) -> str:
@@ -339,15 +374,23 @@ class LiotApp:
         cur = self.state_cache.norm_values()
         decision = self.proactive.propose(cur)
         if decision.candidate is None:
-            return None
+            return None  # 예산/쿨다운/무매칭 → 침묵(게이팅은 propose 의 몫)
 
-        cand = decision.candidate
         trace_id = uuid.uuid4().hex
-        # 다중 후보 집합(감사/데모용). 선택은 이번 단계에선 여전히 propose
-        # 승자다 — Phase3 평가기가 이 집합에서 점수 기반으로 선택을 구동한다.
+        # 다중 후보 집합(L4 생성) → 평가기(L5)가 점수 기반으로 선택을 구동한다.
         candidate_set = self.proactive.candidate_set_for(
             cur, decision, trace_id=trace_id
         )
+        external = await self._fetch_external()
+        evaluation = self.evaluator.evaluate(
+            candidate_set, external=external, feedback=self.feedback_store
+        )
+        if evaluation.selected_is_noop():
+            return None  # 평가기가 무행동 선택(보수적/거절 반영) → 침묵
+
+        cand = evaluation.selected_action()
+        # 평가기 선택을 결정에 반영(출처/ttl 은 propose 의 것을 유지).
+        decision = replace(decision, candidate=cand)
         expires_at = (
             (self.clock.now_dt() + timedelta(minutes=decision.ttl_minutes))
             .replace(microsecond=0)
@@ -381,6 +424,7 @@ class LiotApp:
             "force_snapshot": True,
             "proactive": decision,
             "candidate_set": candidate_set,
+            "evaluation": evaluation,
             "expires_at": expires_at,
             "snapshot": snapshot,
             "judgment": None,
