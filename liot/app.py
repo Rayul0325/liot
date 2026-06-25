@@ -38,6 +38,7 @@ from liot.core.risk import SAFETY_CRITICAL_CATEGORIES
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l1_sensing.state_cache import StateCache
 from liot.layers.l2_context.context_builder import ContextBuilder
+from liot.layers.l2_context.candidate_llm import LLMCandidateBackend
 from liot.layers.l2_context.proactive import (
     PROACTIVE_TIER_CEILING,
     ProactiveDecision,
@@ -69,6 +70,7 @@ class LiotApp:
         llm_backend: LLMBackend | None = None,
         categories: dict[str, str] | None = None,
         proactive: ProactiveGenerator | None = None,
+        llm_candidate_backend: LLMCandidateBackend | None = None,
     ) -> None:
         self.home_id = home_id
         self.clock = clock or Clock()
@@ -99,6 +101,7 @@ class LiotApp:
                 categories=self._categories,
                 clock=self.clock,
                 home_id=home_id,
+                llm_candidate_backend=llm_candidate_backend,
             )
         )
 
@@ -340,6 +343,11 @@ class LiotApp:
 
         cand = decision.candidate
         trace_id = uuid.uuid4().hex
+        # 다중 후보 집합(감사/데모용). 선택은 이번 단계에선 여전히 propose
+        # 승자다 — Phase3 평가기가 이 집합에서 점수 기반으로 선택을 구동한다.
+        candidate_set = self.proactive.candidate_set_for(
+            cur, decision, trace_id=trace_id
+        )
         expires_at = (
             (self.clock.now_dt() + timedelta(minutes=decision.ttl_minutes))
             .replace(microsecond=0)
@@ -372,6 +380,7 @@ class LiotApp:
             "params": None,
             "force_snapshot": True,
             "proactive": decision,
+            "candidate_set": candidate_set,
             "expires_at": expires_at,
             "snapshot": snapshot,
             "judgment": None,

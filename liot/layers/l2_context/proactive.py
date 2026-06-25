@@ -29,10 +29,17 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Mapping
 
 from liot.core.clock import Clock
-from liot.core.contracts import CandidateAction
+from liot.core.contracts import (
+    ActionCandidate,
+    CandidateAction,
+    CandidateSet,
+    compute_snapshot_hash,
+    make_noop_candidate,
+)
 from liot.core.invariants import InvariantError
 from liot.core.risk import SAFETY_CRITICAL_CATEGORIES, RiskTier
 
+from .candidate_llm import LLMCandidateBackend, parse_llm_candidates
 from .context_builder import derive_occupancy
 from .proactive_rules import (
     PROACTIVE_ALLOWED,
@@ -212,6 +219,7 @@ class ProactiveGenerator:
         clock: Clock | None = None,
         limits: ProactiveLimits | None = None,
         home_id: str = "singleton",
+        llm_candidate_backend: LLMCandidateBackend | None = None,
     ) -> None:
         self.ruleset: ProactiveRuleSet = (
             ruleset if ruleset is not None else load_proactive_rulesets(rules_dir)
@@ -222,6 +230,9 @@ class ProactiveGenerator:
         self.clock = clock or Clock()
         self.limits = limits if limits is not None else self.ruleset.limits
         self.home_id = home_id
+        # LLM 후보 보조 생성기(옵션). None 이면 규칙만으로 후보를 만든다 —
+        # 기본 파이프라인 동작을 바꾸지 않기 위해 기본값은 None.
+        self.llm_candidate_backend = llm_candidate_backend
 
     # ------------------------------------------------------------------
     def _origin_for(self, rule: ProactiveRule) -> str:
@@ -316,3 +327,109 @@ class ProactiveGenerator:
             matched_rule_ids=tuple(r.rule_id for r in matched),
             suppressed_by=last_reason,
         )
+
+    # ------------------------------------------------------------------
+    # 다중 후보 (새 기획: 생성 → 평가 → 선택). propose() 는 보존하고 그 위에
+    # 후보 집합(다중 + 무행동)을 *추가*한다. 선택 구동은 Phase3 평가기로.
+    # ------------------------------------------------------------------
+    def _gen_facts(self, cur: Mapping[str, Any]) -> dict[str, str]:
+        return {
+            "time_bucket": self.clock.time_bucket(),
+            "occupancy": derive_occupancy(cur, self.categories),
+        }
+
+    def candidate_set_for(
+        self,
+        cur: Mapping[str, Any],
+        decision: ProactiveDecision,
+        *,
+        trace_id: str = "",
+    ) -> CandidateSet:
+        """이미 내려진 decision 을 선택으로 삼아 후보 집합을 빚는다(읽기 전용).
+
+        후보 풀 = 검증 통과 규칙 후보 + (있으면) 검증 통과 LLM 후보 + 무행동.
+        선택(selected_index)은 decision.candidate(=propose 승자) 또는 무행동.
+        상태(쿨다운/예산) 변경은 하지 않는다 — 그건 propose() 의 몫이다.
+        """
+        facts = self._gen_facts(cur)
+        gen_hash = compute_snapshot_hash({"facts": dict(facts), "cur": dict(cur)})
+
+        cands: list[ActionCandidate] = []
+        seen: set[tuple[str, str, str]] = set()
+
+        def _add(c: CandidateAction, origin: str) -> None:
+            key = (c.capability, c.action, c.entity_id)
+            if key in seen:
+                return
+            seen.add(key)
+            cands.append(ActionCandidate(candidate=c, origin=origin))
+
+        # 규칙 후보(검증 통과만).
+        for rule in self.ruleset.matching(facts, cur):
+            c = self._build_candidate(rule)
+            if validate_proactive_candidate(c, self.catalog) is None:
+                _add(c, f"rule:{rule.rule_id}")
+
+        # LLM 후보(검증 통과만 — 금지/화이트리스트 밖은 폐기, fail-closed).
+        if self.llm_candidate_backend is not None:
+            raw = self.llm_candidate_backend.propose_candidates(facts, cur)
+            for c in parse_llm_candidates(raw):
+                if validate_proactive_candidate(c, self.catalog) is not None:
+                    continue
+                if "__origin__" not in c.params:
+                    c = c.model_copy(
+                        update={"params": {**c.params, "__origin__": "proactive:llm"}}
+                    )
+                _add(c, "llm")
+
+        # 무행동 후보(항상 포함, 마지막).
+        noop_idx = len(cands)
+        cands.append(ActionCandidate(candidate=make_noop_candidate(), origin="noop"))
+
+        # 선택 = propose 승자(있으면 그 후보) 또는 무행동.
+        selected = noop_idx
+        if decision.candidate is not None:
+            wkey = (
+                decision.candidate.capability,
+                decision.candidate.action,
+                decision.candidate.entity_id,
+            )
+            found = next(
+                (
+                    i
+                    for i, ac in enumerate(cands)
+                    if (
+                        ac.candidate.capability,
+                        ac.candidate.action,
+                        ac.candidate.entity_id,
+                    )
+                    == wkey
+                ),
+                None,
+            )
+            if found is None:
+                # 승자가 풀에 없으면(이론상 드묾) 무행동 앞에 끼워 넣는다.
+                cands.insert(
+                    noop_idx,
+                    ActionCandidate(candidate=decision.candidate, origin="rule"),
+                )
+                selected = noop_idx
+            else:
+                selected = found
+
+        return CandidateSet(
+            trace_id=trace_id,
+            home_id=self.home_id,
+            snapshot_hash=gen_hash,
+            candidates=cands,
+            selected_index=selected,
+        )
+
+    def generate(self, cur: Mapping[str, Any], *, trace_id: str = "") -> CandidateSet:
+        """현재 상태에서 후보 집합을 만든다 = propose(선택+상태) + 후보 데코.
+
+        Phase2 임시 선택은 propose() 승자(최우선 유효 규칙) 또는 무행동이다.
+        Phase3 평가기가 이 선택을 점수 기반으로 대체한다.
+        """
+        decision = self.propose(cur)
+        return self.candidate_set_for(cur, decision, trace_id=trace_id)
