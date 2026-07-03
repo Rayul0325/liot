@@ -217,7 +217,7 @@ feedback, notifications, audit_log, trust_state, candidate_evaluations`.
 
 ---
 
-## `liot.core.egress_gate`  — 모든 외부 송신의 단일 통로
+## `liot.core.egress_gate` — 모든 외부 송신의 단일 통로
 
 ```python
 class Destination(str, Enum): LLM="LLM"; NTFY="NTFY"; KMA="KMA"
@@ -267,8 +267,10 @@ class Clock:
 ## `liot.db`
 
 ### `schema.sql` (버전 1 기준 스키마)
+
 테이블: `schema_version, preferences, sensor_readings, context_snapshots, judgments,
 proposals, feedback, notifications, audit_log, llm_cache, trust_state`.
+
 - 모든 테넌트 테이블: `home_id TEXT NOT NULL DEFAULT 'singleton'`.
 - `judgments`: `action_json`, `risk_tier`(INTEGER 0..3), `snapshot_hash`, `gate1_verdict`,
   `gate2_verdict`(NULL 가능), `bundle_id`, `model_id`, `degraded`(0/1) — 재현 키 보존.
@@ -282,6 +284,7 @@ proposals, feedback, notifications, audit_log, llm_cache, trust_state`.
 > 로드 시 `CandidateAction.model_validate_json(...)` 를 쓴다.
 
 ### `migrations.py`
+
 ```python
 SCHEMA_SQL_PATH: Path                 # schema.sql 절대경로
 LATEST_VERSION: int                   # = 2
@@ -295,6 +298,7 @@ selected_index, rationale, created_at`. PK `(home_id, trace_id)`.
 writer 는 `LiotService.run_tick`(무행동 선택도 기록).
 
 ### `database.py`
+
 ```python
 async def connect(path: str, durable: bool=False) -> aiosqlite.Connection
     # row_factory=aiosqlite.Row, journal_mode=WAL, foreign_keys=ON,
@@ -313,7 +317,7 @@ async def init_db(path: str, durable: bool=False) -> aiosqlite.Connection
    통과 필수 + SafetyGate 는 출처 무관 + 평가기 `safety_risk` 는 카탈로그가 덮어씀
    (`tests/test_llm_floor.py`).
 3. 실행 옵트인 게이트 → `assert_executor_confined()`(구체 Executor 는 전용 모듈만)
-   + `assert_execution_gated()`(기본 OFF·안전 AUTO 불가·여는 방향 불가·개입 하한).
+   - `assert_execution_gated()`(기본 OFF·안전 AUTO 불가·여는 방향 불가·개입 하한).
 4. 재현 가능한 판단 → `Judgment.snapshot_hash` + `bundle_id` + `rationale` 동시 보존
    (DB `judgments` 동일 컬럼). `compute_snapshot_hash` 가 결정론적.
    외부 데이터는 `ExternalContext.to_structured()` 로 틱 트리거에 병합돼 해시에 고정.
@@ -321,6 +325,6 @@ async def init_db(path: str, durable: bool=False) -> aiosqlite.Connection
 6. Safety-Never-Silent → `SAFETY_CRITICAL_CATEGORIES` 의 트리거는 LLM 없이
    Gate1 결정론만으로 즉시 EMBER 제안 생성 (`gate2_verdict=None` 허용, `degraded` 무관).
 7. 능동 = 컴포트 전용 + BREATH 상한 → `PROACTIVE_ALLOWED` + `validate_proactive_candidate`
-   + app 상한(초과 = 침묵). 무행동(NoOp) 후보는 `CandidateSet` validator 가 강제.
+   - app 상한(초과 = 침묵). 무행동(NoOp) 후보는 `CandidateSet` validator 가 강제.
 8. Execution-Authorized-Only + 개입 하한 → `ExecutionPolicy`(옵트인·티어 권한)
-   + 실행기 화이트리스트 재검 + `InterventionPolicy`(조건 A/B, 기준선 이하 금지).
+   - 실행기 화이트리스트 재검 + `InterventionPolicy`(조건 A/B, 기준선 이하 금지).
