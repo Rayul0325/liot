@@ -24,7 +24,7 @@ from ...core.contracts import CandidateAction, ContextSnapshot
 from ...core.risk import SAFETY_CRITICAL_CATEGORIES, RiskTier, escalate_only
 from .rules_loader import Rule, RuleSet, load_rulesets
 
-__all__ = ["Guardrail", "Gate1Result"]
+__all__ = ["Guardrail", "SafetyGate", "Gate1Result"]
 
 # 알려진 비안전 카테고리의 기본 하한. 여기에도 없으면 deny-by-default(EMBER).
 # (안전 임계 카테고리는 이 표를 거치지 않고 무조건 EMBER 이다.)
@@ -156,3 +156,10 @@ class Guardrail:
             matched_rule_ids=tuple(r.rule_id for r in matched),
             safety_critical=is_safety,
         )
+
+
+# 새 기획(다중 후보 파이프라인)의 개념 L6 'Safety Gate' = 이 Gate1 가드레일.
+# 기존 이름·임포트는 그대로 보존하고 별칭만 추가한다. LLM 이 후보를 만들든
+# 규칙이 만들든, 선택된 행동은 반드시 이 결정론 게이트를 지나며(출처 무관),
+# 게이트는 위험도 하한을 올릴 수만 있다(불변식 2′: LLM 은 floor 를 못 낮춘다).
+SafetyGate = Guardrail

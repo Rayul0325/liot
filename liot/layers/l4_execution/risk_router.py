@@ -8,7 +8,10 @@ Phase1 불변식: **실행 호출 절대 금지**. 이 모듈은 Judgment 를 �
     (Gate1 결정론 가드레일을 통과하지 않은 판단은 라우팅 불가)
   * Proposal.risk_tier 는 Judgment.risk_tier 를 그대로 따른다
     (= max(gate1, gate2). escalate_only/assert_monotonic 로 단조 보장).
-  * required_confirmation = risk_tier.required_confirmation.
+  * required_confirmation = 개입 정책(InterventionPolicy)이 정한다. 기본은
+    조건 B(위험도 차등 = risk_tier.required_confirmation)이며, 어떤 정책도
+    티어 기준선보다 **약한** 확인을 낼 수 없다(개입 하한 — 위반 시
+    InvariantError). 조건 A/B 는 여기(L4)서만 갈리고 L2 선택은 동일하다.
   * 카탈로그 위험도가 Judgment 위험도보다 높으면 **승격만**(escalate_only).
     이는 안전 방향(강등 불가, 불변식 5)으로만 작동한다.
 """
@@ -21,6 +24,8 @@ from typing import TYPE_CHECKING
 from liot.core.contracts import Judgment, Proposal
 from liot.core.invariants import InvariantError, assert_monotonic
 from liot.core.risk import escalate_only
+
+from .intervention import CONFIRMATION_ORDER, InterventionPolicy, TieredIntervention
 
 if TYPE_CHECKING:  # pragma: no cover
     from liot.core.clock import Clock
@@ -40,9 +45,12 @@ class RiskRouter:
         self,
         catalog: "DeviceCatalog | None" = None,
         clock: "Clock | None" = None,
+        intervention: InterventionPolicy | None = None,
     ) -> None:
         self._catalog = catalog
         self._clock = clock
+        # 개입 정책(조건 A/B). 기본 = 조건 B(위험도 차등, 현행과 동일).
+        self._intervention: InterventionPolicy = intervention or TieredIntervention()
 
     def route(
         self,
@@ -79,6 +87,15 @@ class RiskRouter:
         if created_at is None:
             created_at = self._now()
 
+        # 개입 하한: 정책이 티어 기준선보다 약한 확인을 내면 불변식 위반.
+        required = self._intervention.confirmation_for(risk_tier)
+        baseline = risk_tier.required_confirmation
+        if CONFIRMATION_ORDER.get(required, -1) < CONFIRMATION_ORDER[baseline]:
+            raise InvariantError(
+                f"intervention policy weakened confirmation below tier baseline: "
+                f"{required!r} < {baseline!r} (tier={risk_tier.name})"
+            )
+
         return Proposal(
             proposal_id=str(uuid.uuid4()),
             judgment_id=judgment.judgment_id,
@@ -86,7 +103,7 @@ class RiskRouter:
             risk_tier=risk_tier,
             action=judgment.action,
             rationale=judgment.rationale,
-            required_confirmation=risk_tier.required_confirmation,
+            required_confirmation=required,
             perishable=perishable,
             expires_at=expires_at,
             state="pending",

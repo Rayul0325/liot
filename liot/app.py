@@ -53,6 +53,7 @@ from liot.layers.l2_context.proactive import (
 from liot.layers.l3_judgment.guardrail import Guardrail
 from liot.layers.l3_judgment.llm_judge import LLMBackend, LLMJudge
 from liot.layers.l4_execution.device_catalog import DeviceCatalog, load_device_catalog
+from liot.layers.l4_execution.intervention import build_intervention
 from liot.layers.l4_execution.risk_router import RiskRouter
 
 __all__ = ["LiotApp"]
@@ -79,6 +80,7 @@ class LiotApp:
         evaluator: CandidateEvaluator | None = None,
         external_provider: ExternalDataProvider | None = None,
         feedback_store: FeedbackStore | None = None,
+        condition: str = "B",
     ) -> None:
         self.home_id = home_id
         self.clock = clock or Clock()
@@ -98,7 +100,14 @@ class LiotApp:
         )
         self.guardrail = guardrail if guardrail is not None else Guardrail()
         self.judge = LLMJudge(backend=llm_backend)
-        self.router = RiskRouter(catalog=self.catalog, clock=self.clock)
+        # 연구 조건 A/B(개입 방식)는 라우터(L4)에서만 갈린다 — L2 의 후보
+        # 생성·평가·선택은 condition 을 보지 못한다(동일 선택, 개입만 차등).
+        self.condition = (condition or "B").strip().upper()
+        self.router = RiskRouter(
+            catalog=self.catalog,
+            clock=self.clock,
+            intervention=build_intervention(self.condition),
+        )
         # 능동 생성기(Phase2). 기본은 config/proactive/*.yaml 의 규칙셋 —
         # 디렉터리가 없으면 빈 규칙셋(능동 제안 없음, 안전한 기본값).
         self.proactive = (

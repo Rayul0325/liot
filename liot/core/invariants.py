@@ -152,6 +152,8 @@ def assert_execution_gated() -> None:
       1) 기본 ExecutionPolicy 는 비활성(옵트인 OFF) — 켜기 전엔 한 줄도 실행 안 함.
       2) 안전 임계 카테고리는 어떤 티어에서도 AUTO 가 아니다(자동 조작 절대 금지).
       3) '여는 방향'(lock.unlock, valve open)은 어떤 실행 화이트리스트에도 없다.
+      4) 개입 정책(조건 A/B)은 어떤 티어에서도 기준선보다 약한 확인을 못 낸다
+         (개입 하한) — 실험 조건이 안전 확인 강도를 무르게 만들 수 없다.
     """
     from .contracts import CandidateAction
     from .risk import SAFETY_CRITICAL_CATEGORIES
@@ -195,6 +197,22 @@ def assert_execution_gated() -> None:
         )
     if ("lock", "unlock") in COMFORT_EXECUTABLE or ("valve", "open") in COMFORT_EXECUTABLE:
         raise InvariantError("lock.unlock/valve.open 은 컴포트 화이트리스트에 있으면 안 됨")
+
+    # (4) 개입 하한: 어떤 조건(A/B)도 티어 기준선 아래로 확인을 못 낮춘다
+    from ..layers.l4_execution.intervention import (  # 지연 임포트(순환 회피)
+        CONFIRMATION_ORDER,
+        TieredIntervention,
+        UniformIntervention,
+    )
+
+    for intervention in (TieredIntervention(), UniformIntervention()):
+        for tier in RiskTier:
+            conf = intervention.confirmation_for(tier)
+            if CONFIRMATION_ORDER[conf] < CONFIRMATION_ORDER[tier.required_confirmation]:
+                raise InvariantError(
+                    f"개입 정책(조건 {intervention.condition})이 {tier.name} 기준선"
+                    f"({tier.required_confirmation})보다 약한 확인({conf})을 냄 — 개입 하한 위반"
+                )
 
 
 # 외부에서 추상 Executor 인터페이스를 정의하고 싶을 때 베이스로 쓸 수 있는
