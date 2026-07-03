@@ -307,7 +307,8 @@ class ExternalContext(BaseModel):
     """외부 데이터(날씨·외기 공기질) 조회 결과(L3 Context Acquisition).
 
     degraded=True 면 외부 조회가 실패/불확실 → 평가는 보수적으로(무행동/저위험) 선택.
-    structured 에 병합돼 snapshot_hash 에 반영된다(외기 변화가 후보 우선순위를 바꿈).
+    to_structured() 산출물이 틱 트리거(→ structured)에 병합돼 snapshot_hash 에
+    반영된다(외기가 후보 우선순위를 바꾸므로 해시에 고정돼야 재현 가능, 불변식 4).
     """
 
     model_config = ConfigDict(extra="forbid")

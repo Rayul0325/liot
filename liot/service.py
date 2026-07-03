@@ -20,11 +20,14 @@ LiotApp(두뇌, 네트워크 없음·결정만)을 둘러싸고 부수효과를 
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from liot.app import LiotApp
 from liot.core.clock import Clock
+from liot.core.scoped_repo import ScopedRepo
+from liot.layers.l2_context.feedback_store import InMemoryFeedbackStore
 from liot.layers.l2_context.preference_store import PreferenceStore
 from liot.layers.l4_execution.executor import (
     ExecDecision,
@@ -105,6 +108,8 @@ class LiotService:
         self.app = app
         self.clock = clock or app.clock
         self.home_id = home_id
+        self._db = db
+        self._repo = ScopedRepo(home_id)
         self.proposals = ProposalService(db, home_id=home_id, clock=self.clock)
         self.prefs = PreferenceStore(home_id, db=db)
         # 알림 서명과 피드백 검증은 동일 비밀키를 써야 한다. notifier 를 직접
@@ -265,12 +270,59 @@ class LiotService:
         return await self.dispatch(proposal)
 
     async def run_tick(self) -> DispatchResult | None:
-        """능동 틱 1회 + 만료 스윕. 능동 제안이 나오면 디스패치."""
+        """능동 틱 1회 + 만료 스윕. 능동 제안이 나오면 디스패치.
+
+        틱 전에 거절 이력·수용률 스냅샷을 평가기의 선호 신호로 주입하고,
+        틱 후에 후보 평가 결과(무행동 선택 포함)를 candidate_evaluations 로
+        영속한다 — 어떤 후보들이 점수화됐고 왜 그 선택이었는지가 남는다.
+        """
         await self.proposals.expire_due()
+        await self._refresh_feedback()
         proposal = await self.app.tick()
+        await self._record_evaluation()
         if proposal is None:
             return None
         return await self.dispatch(proposal)
+
+    async def _refresh_feedback(self) -> None:
+        """DB 의 거절/수용 이력을 동기 스냅샷으로 빚어 앱에 주입한다.
+
+        L2 평가기는 동기·결정론을 유지해야 하므로(비동기 DB 조회 금지),
+        비동기 조회는 여기(서비스)서 하고 결과만 넘긴다.
+        """
+        rejected = await self.proposals.recently_rejected_keys()
+        rates = await self.proposals.accept_rate()
+        self.app.feedback_store = InMemoryFeedbackStore(
+            rejected_keys=rejected,
+            accept_rate={
+                origin: v["accept_rate"]
+                for origin, v in rates.items()
+                if v.get("accept_rate") is not None
+            },
+        )
+
+    async def _record_evaluation(self) -> None:
+        """직전 틱의 후보 평가를 candidate_evaluations 에 남긴다(연구/감사 로그)."""
+        ev = self.app.last_candidate_evaluation
+        if ev is None:
+            return
+        self.app.last_candidate_evaluation = None  # 중복 기록 방지(1틱 1행)
+        evaluation = ev["evaluation"]
+        await self._repo.insert(
+            self._db,
+            "candidate_evaluations",
+            {
+                "trace_id": ev["trace_id"],
+                "snapshot_hash": ev["snapshot_hash"],
+                "scored_json": json.dumps(
+                    [a.model_dump() for a in evaluation.scored], ensure_ascii=False
+                ),
+                "selected_index": evaluation.selected_index,
+                "rationale": evaluation.rationale,
+                "created_at": self.clock.now_utc(),
+            },
+        )
+        await self._db.commit()
 
     async def run(
         self,

@@ -123,6 +123,9 @@ class LiotApp:
         self.external_provider = external_provider
         # 선호 신호(옵션). 미설정이면 중립.
         self.feedback_store = feedback_store
+        # 최근 틱의 후보 평가 결과(무행동 선택 포함). 앱은 네트워크/DB 를 만지지
+        # 않으므로 여기 노출만 하고, 영속(candidate_evaluations)은 서비스 계층이 한다.
+        self.last_candidate_evaluation: dict[str, Any] | None = None
 
         # 한 번의 process_reading 동안 단계 산출물을 잇기 위한 trace-stash.
         self._stash: dict[str, dict[str, Any]] = {}
@@ -385,6 +388,14 @@ class LiotApp:
         evaluation = self.evaluator.evaluate(
             candidate_set, external=external, feedback=self.feedback_store
         )
+        # 평가 결과 노출(무행동 포함) — 서비스가 candidate_evaluations 로 영속.
+        self.last_candidate_evaluation = {
+            "trace_id": trace_id,
+            "snapshot_hash": candidate_set.snapshot_hash,
+            "candidate_set": candidate_set,
+            "evaluation": evaluation,
+            "context_snapshot_hash": None,  # 스냅샷 생성 후 채움(무행동이면 None)
+        }
         if evaluation.selected_is_noop():
             return None  # 평가기가 무행동 선택(보수적/거절 반영) → 침묵
 
@@ -408,6 +419,10 @@ class LiotApp:
             "category": cand.category,
             "time_bucket": self.clock.time_bucket(),
         }
+        if external is not None:
+            # 외기 맥락도 트리거에 병합 → snapshot_hash 가 외부 데이터까지 고정.
+            # 외기가 선택을 바꿀 수 있으므로, 해시에 없으면 재현성(불변식 4)이 깨진다.
+            trigger.update(external.to_structured())
         snapshot = self.context_builder.build(
             cur,
             trigger,
@@ -415,6 +430,7 @@ class LiotApp:
             trace_id=trace_id,
             alias=AliasMap(),
         )
+        self.last_candidate_evaluation["context_snapshot_hash"] = snapshot.snapshot_hash
 
         self._stash[trace_id] = {
             "reading": None,  # 틱은 센서 읽기 없이 진입한다(합성 읽기 금지)
