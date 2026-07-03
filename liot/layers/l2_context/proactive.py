@@ -200,12 +200,13 @@ class ProactiveState:
 
 
 class ProactiveGenerator:
-    """Tier A 결정론 능동 생성기.
+    """Tier A 결정론 능동 생성기 + 다중 후보 집합 빌더.
 
     rules(데이터) + 현재 상태(cur) + Clock 으로 결정한다. 네트워크/실행
-    표면 없음 — LLM 의 역할은 발의가 아니라 기존 Gate2 의 거부권/승격뿐
-    (승격되면 app 의 BREATH 상한이 침묵시키므로, 인젝션된 LLM 의 최악
-    결과는 '침묵'이다 — fail-closed).
+    표면 없음. LLM 은 (옵션) 후보를 *제안*할 수 있으나 두 관문(pydantic
+    구조 검증 + validate_proactive_candidate)을 통과해야 하고, 위험도는
+    기존 Gate2 가 올릴 수만 있다(승격되면 app 의 BREATH 상한이 침묵시키므로,
+    인젝션된 LLM 의 최악 결과는 '침묵'이다 — fail-closed, 불변식 2′).
     """
 
     def __init__(

@@ -170,9 +170,9 @@
           <div class="principle reveal" data-delay="2">
             <span class="principle-num">03</span>
             <div>
-              <h3>LLM에게 거부권만 준다</h3>
-              <p>제안은 사람이 검수한 결정론적 규칙이 만들고, LLM은 그 제안을 막을 수만 있습니다. 모델이 오염되더라도 최악의 결과는 단 하나 — 침묵입니다.</p>
-              <span class="mono-tag">gate 2 · veto-only LLM</span>
+              <h3>제안은 여럿이 겨루고, 결정은 결정론이 한다</h3>
+              <p>규칙과 LLM이 행동 후보를 여럿 내놓지만(아무것도 안 하기 포함), 점수의 안전 항목과 위험도 하한은 언제나 결정론이 정합니다. LLM은 위험도를 올릴 수만 있고 — 모델이 오염되더라도 최악의 결과는 단 하나, 침묵입니다.</p>
+              <span class="mono-tag">candidates · deterministic gate</span>
             </div>
           </div>
           <div class="principle reveal" data-delay="3">
@@ -226,8 +226,8 @@
             </div>
             <p class="stage-num">Layer 2</p>
             <h3>맥락 — Context</h3>
-            <p>점유 상태, 시간대, 최근 변화를 한 장의 스냅샷으로 구성합니다. 능동 제안의 씨앗도 여기서 싹틉니다.</p>
-            <div class="gate"><i>snapshot-pinned</i></div>
+            <p>점유·시간대·거절 이력·바깥 공기까지 한 장의 스냅샷으로 굳히고, 행동 후보를 여럿 만들어(무행동 포함) 점수로 겨뤄 하나를 고릅니다.</p>
+            <div class="gate"><i>snapshot-pinned</i><i>candidates + noop</i><i>evaluate &amp; select</i></div>
           </article>
 
           <article class="stage" data-layer="3">
@@ -236,8 +236,8 @@
             </div>
             <p class="stage-num">Layer 3</p>
             <h3>판단 — Judgment</h3>
-            <p>이중 관문. 결정론적 가드레일이 먼저 거르고, LLM은 통과한 제안에 거부권만 행사합니다.</p>
-            <div class="gate"><i>gate 1 · guardrail</i><i>gate 2 · LLM veto</i></div>
+            <p>이중 관문. 결정론적 안전 게이트가 위험도 하한을 박고, LLM 교차 검증은 그 하한을 올릴 수만 있습니다 — 내릴 수는 없습니다.</p>
+            <div class="gate"><i>gate 1 · safety gate</i><i>gate 2 · escalate-only LLM</i></div>
           </article>
 
           <article class="stage" data-layer="4">
@@ -246,8 +246,8 @@
             </div>
             <p class="stage-num">Layer 4</p>
             <h3>집행 안전 — Execution</h3>
-            <p>발화 게이트가 피로도·중복·야간을 따져 알림 여부를 정하고, 정제 게이트가 개인정보를 걸러 송신합니다.</p>
-            <div class="gate"><i>egress · sanitized</i></div>
+            <p>위험도에 맞는 개입 방식(자동·확인·이중확인)을 정하고, 발화 게이트가 피로도·중복·야간을 따진 뒤 정제 게이트가 개인정보를 걸러 송신합니다.</p>
+            <div class="gate"><i>intervention · tiered</i><i>egress · sanitized</i></div>
           </article>
         </div>
 
@@ -393,7 +393,7 @@
           <span style="margin-top: 6px">DELIVERY</span>
           ntfy · HMAC-signed feedback
           <span style="margin-top: 6px">JUDGMENT</span>
-          Deterministic guardrail + local LLM veto
+          Candidate evaluation + deterministic safety gate (LLM escalate-only)
         </div>
       </div>
       <div class="footer-bottom">

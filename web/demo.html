@@ -66,8 +66,8 @@
           신호 하나를 골라,<br /><span class="accent">관문에 흘려보내세요</span>
         </h1>
         <p class="lede reveal" data-delay="2" style="margin-top: 22px">
-          세 가지 시나리오는 서로 다른 결말에 닿습니다 — 반드시 도달하는 안전 알림,
-          조심스러운 편의 제안, 그리고 의도된 침묵.
+          네 가지 시나리오는 서로 다른 결말에 닿습니다 — 반드시 도달하는 안전 알림,
+          여러 후보 중 고른 편의 제안, 상한이 만든 침묵, 그리고 거절을 기억하는 침묵.
         </p>
       </div>
 
@@ -78,14 +78,19 @@
           <p>심야, 알림 예산도 바닥났습니다. 그래도 이 신호는 반드시 도달해야 합니다.</p>
         </button>
         <button class="scenario" data-scenario="light">
-          <span class="scenario-tag t-breath">BREATH · PROACTIVE</span>
+          <span class="scenario-tag t-breath">AMBIENT · PROACTIVE</span>
           <span class="scenario-title">30분째 비어 있는 거실</span>
-          <p>아무도 시키지 않았습니다. LIOT이 먼저 조명 끄기를 제안해 봅니다.</p>
+          <p>아무도 시키지 않았습니다. 후보를 여럿 만들어 점수로 겨루고, 이긴 제안만 건넵니다.</p>
         </button>
         <button class="scenario" data-scenario="heat">
           <span class="scenario-tag t-muted">DUSK · CEILING</span>
           <span class="scenario-title">쌀쌀한 저녁, 난방 제안</span>
-          <p>능동 제안이 BREATH 상한을 넘어서면 어떻게 될까요? 침묵을 지켜보세요.</p>
+          <p>평가가 고른 후보라도 BREATH 상한을 넘으면? 침묵을 지켜보세요.</p>
+        </button>
+        <button class="scenario" data-scenario="reject">
+          <span class="scenario-tag t-muted">NOOP · FEEDBACK</span>
+          <span class="scenario-title">어제 거절했던 그 제안</span>
+          <p>거절 이력이 선호 점수를 깎아, 이번엔 무행동이 이깁니다. AI가 물러나는 법.</p>
         </button>
       </div>
 
@@ -114,10 +119,34 @@
             </div>
             <div class="step-info">
               <span class="step-layer">Layer 2 · Context</span>
-              <h4>맥락 스냅샷</h4>
+              <h4>맥락 스냅샷 + 이력·외기</h4>
               <p class="step-log" data-log="l2"></p>
             </div>
             <span class="step-state" data-state="l2">대기</span>
+          </div>
+
+          <div class="step" data-step="gen">
+            <div class="step-orb" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v6M12 15v6M3 12h6M15 12h6" /><circle cx="12" cy="12" r="2.4" /></svg>
+            </div>
+            <div class="step-info">
+              <span class="step-layer">Layer 2 · Candidates</span>
+              <h4>행동 후보 생성 (무행동 포함)</h4>
+              <p class="step-log" data-log="gen"></p>
+            </div>
+            <span class="step-state" data-state="gen">대기</span>
+          </div>
+
+          <div class="step" data-step="eval">
+            <div class="step-orb" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></svg>
+            </div>
+            <div class="step-info">
+              <span class="step-layer">Layer 2 · Evaluate</span>
+              <h4>후보 평가 · 선택</h4>
+              <p class="step-log" data-log="eval"></p>
+            </div>
+            <span class="step-state" data-state="eval">대기</span>
           </div>
 
           <div class="step" data-step="g1">
@@ -126,7 +155,7 @@
             </div>
             <div class="step-info">
               <span class="step-layer">Layer 3 · Gate 1</span>
-              <h4>결정론적 가드레일</h4>
+              <h4>결정론적 안전 게이트</h4>
               <p class="step-log" data-log="g1"></p>
             </div>
             <span class="step-state" data-state="g1">대기</span>
@@ -138,7 +167,7 @@
             </div>
             <div class="step-info">
               <span class="step-layer">Layer 3 · Gate 2</span>
-              <h4>LLM 거부권 심사</h4>
+              <h4>LLM 교차 검증 (승격만)</h4>
               <p class="step-log" data-log="g2"></p>
             </div>
             <span class="step-state" data-state="g2">대기</span>
@@ -149,8 +178,8 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13l6 6L20 7" /></svg>
             </div>
             <div class="step-info">
-              <span class="step-layer">Layer 4 · Execution Safety</span>
-              <h4>발화 게이트 + 정제 송신</h4>
+              <span class="step-layer">Layer 4 · Intervention</span>
+              <h4>개입 방식 결정 + 정제 송신</h4>
               <p class="step-log" data-log="l4"></p>
             </div>
             <span class="step-state" data-state="l4">대기</span>

@@ -1,6 +1,6 @@
 """런타임 불변식 예외와 검증기.
 
-여기 정의한 예외들은 파이프라인 전역에서 6대 불변식을 강제하는 데 쓰인다.
+여기 정의한 예외들은 파이프라인 전역에서 8대 불변식을 강제하는 데 쓰인다.
 
   - TopologyViolation : 허용되지 않은 레이어 간 publish (event_bus).
   - IsolationError    : home_id 누락/공백 등 테넌시 격리 위반 (scoped_repo).
@@ -45,7 +45,7 @@ __all__ = [
 
 
 class InvariantError(Exception):
-    """6대 불변식 위반의 기반 예외."""
+    """8대 불변식 위반의 기반 예외."""
 
 
 class TopologyViolation(InvariantError):
@@ -216,7 +216,7 @@ def assert_execution_gated() -> None:
 
 
 # 외부에서 추상 Executor 인터페이스를 정의하고 싶을 때 베이스로 쓸 수 있는
-# Protocol. assert_executor_absent 가 이 형태(추상)는 허용한다.
+# Protocol. assert_executor_confined 가 이 형태(추상)는 허용한다.
 @runtime_checkable
 class ExecutorProtocol(Protocol):  # pragma: no cover - 인터페이스 선언
     """액추에이터 실행 인터페이스(Phase1 에서는 구현 금지)."""

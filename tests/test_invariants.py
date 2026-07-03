@@ -1,11 +1,14 @@
-"""6대 불변식 검증.
+"""핵심 불변식 검증.
 
 (1) 단방향 파이프라인: 비허용 엣지 publish → TopologyViolation.
 (2) Gate2 는 Gate1 을 무를 수 없다: LLM 이 강등 시도해도 최종 = max(gate1, llm).
-(3) 제안-만: assert_executor_absent() 통과(구체 Executor 0개).
+(3) 실행 옵트인 게이트: assert_executor_confined() 통과(구체 Executor 는 전용 모듈만).
 (4) 재현 가능: Judgment 에 snapshot_hash · bundle_id · rationale 동시 존재.
 (5) 승격만, 강등 불가: escalate_only / assert_monotonic 가 강등을 거부.
 (6) Safety-Never-Silent: 가스누출 + LLM 강제 실패(degraded)에도 ember Proposal.
+
+(2′ LLM floor 는 test_llm_floor.py, 7 능동 상한은 test_proactive.py,
+ 8 실행 게이트·개입 하한은 test_executor.py / test_intervention_ab.py 참조.)
 """
 
 from __future__ import annotations

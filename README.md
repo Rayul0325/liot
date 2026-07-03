@@ -1,26 +1,39 @@
-# LIOT — 능동형 스마트홈 AI (Phase1)
+# LIOT — 능동형 스마트홈 AI
 
-LIOT 는 집의 신호를 읽어 **위험도에 따라 사람에게 "제안"** 하는 능동형
-스마트홈 AI 다. Phase1 은 **제안-만(suggestion-only)** 수직 슬라이스로,
-실제로 실행되고 `pytest` 가 통과하는 4-Layer 위험도 파이프라인을 구현한다.
+LIOT 는 집 안팎의 신호·이력·외부 데이터를 종합해 **행동 후보를 여럿 만들고
+(무행동 포함), 평가·선택한 뒤, 위험도에 맞는 개입 방식으로 사람에게 닿는**
+능동형 스마트홈 AI 다. 실제로 실행되고 `pytest` 가 통과하는 4-Layer
+파이프라인이며, 개념적으로는 8단계를 구현한다:
 
 ```
-L1 Sensing  →  L2 Context  →  L3 Judgment(Gate1 가드레일 + Gate2 LLM)  →  L4 Execution Safety
+버스:   L1 Sensing → L2 Context → L3 Judgment(Gate1 안전게이트 + Gate2 LLM) → L4 Execution
+개념:   감지 → 트리거 → 맥락 확보(이력·외기) → 후보 생성(+무행동) → 평가·선택
+        → 안전 게이트 → 개입 방식 결정(조건 A/B) → 알림/실행(옵트인)
 ```
+
+개념 8단계 중 후보 생성·평가·선택은 버스 L2 내부의 협력 객체
+(`proactive`/`candidate_llm`/`evaluator`/`external_provider`/`feedback_store`)로
+구현된다 — 버스 위상(불변식 1)은 그대로다.
 
 위험도 4단계(심각도 오름차순): **ambient(잔잔 ●) < breath(숨결 ✓) < dusk(땅거미 ?) < ember(불씨 🛡)**.
 
-> Phase1 범위 = **제안만**. 액추에이터를 실제로 구동하는 코드는 존재하지 않는다.
-> L4 에는 구체 `Executor` 클래스가 없으며, `assert_executor_absent()` 가 이를 런타임에 검증한다.
+> 기본 동작 = **제안만**. 실행은 옵트인(`LIOT_EXECUTION_ENABLED`, 기본 OFF)이며
+> 구체 `Executor` 는 전용 모듈에만 존재한다 — `assert_executor_confined()` +
+> `assert_execution_gated()` 가 런타임에 검증한다(불변식 8).
 
 ---
 
-## 런타임이 강제하는 7대 불변식
+## 런타임이 강제하는 8대 불변식
 
 1. **단방향 파이프라인** — EventBus 는 `(L1→L2, L2→L3, L3→L4, L4→L2)` 만 허용한다.
    그 외 publish 는 `TopologyViolation`.
 2. **Gate2(LLM)는 Gate1을 무를 수 없다** — 최종 위험도 = `escalate_only(gate1, gate2)` = `max(...)`.
-3. **제안-만 모델** — 액추에이터 실행 코드/구체 Executor 0개. `assert_executor_absent()` 가 검증.
+   **2′. LLM 은 안전 floor 를 낮출 수 없다** — LLM 이 만든 후보도 같은 결정론
+   게이트를 지나며(출처 무관), 금지 후보는 후보 집합에서 폐기되고, 평가기의
+   `safety_risk` 는 LLM 제출값을 무시하고 카탈로그 값으로 덮는다.
+3. **실행 옵트인 게이트** — 기본은 제안-만(실행 0). 실행은 (a) 활성화
+   (`LIOT_EXECUTION_ENABLED`) + (b) 화이트리스트 + (c) 티어 권한을 모두 만족할
+   때만. 구체 Executor 는 전용 모듈에만(`assert_executor_confined`).
 4. **재현 가능한 판단** — 모든 `Judgment` 에 `snapshot_hash` + `bundle_id` + `rationale` 동시 저장.
 5. **승격만, 강등 불가** — `escalate_only(cur, target) = max` + 런타임 단조 가드(`assert_monotonic`).
 6. **Safety-Never-Silent** — 안전 임계 카테고리
@@ -35,6 +48,10 @@ L1 Sensing  →  L2 Context  →  L3 Judgment(Gate1 가드레일 + Gate2 LLM)  �
    컴포트는 침묵이 안전하다. 로드(`proactive_rules`)·생성(`validate_proactive_candidate`)·
    판단 후(app 상한) 3중 deny-by-default 로 강제하며, 인젝션된 LLM 의 최악
    결과는 '침묵'이다.
+8. **Execution-Authorized-Only + 개입 하한** — 안전 임계는 어떤 티어에서도
+   자동 실행 불가, '여는 방향'(unlock/valve open)은 어떤 실행 화이트리스트에도
+   없다. 어떤 개입 정책(조건 A/B)도 티어 기준선보다 약한 확인을 못 낸다.
+   `assert_execution_gated()` 가 정적으로 검증.
 
 ---
 
@@ -46,11 +63,14 @@ liot/
   db/           schema.sql, migrations, database
   layers/
     l1_sensing/  base, fake_source, ha_bridge, state_cache, normalizer
-    l2_context/  context_builder, preference_store, proactive, proactive_rules
-    l3_judgment/ rules_loader, guardrail, prompt_registry, llm_judge
-    l4_execution/ device_catalog, risk_router, proposal_service, notifier
+    l2_context/  context_builder, preference_store, proactive, proactive_rules,
+                 candidate_llm(LLM 후보), evaluator(평가·선택),
+                 external_provider(외기), feedback_store(선호 신호)
+    l3_judgment/ rules_loader, guardrail(=SafetyGate), prompt_registry, llm_judge
+    l4_execution/ device_catalog, risk_router, intervention(조건 A/B),
+                 proposal_service, notifier, executor(옵트인)
   app.py        파이프라인 글루(LiotApp) + 능동 틱(tick)
-  demo.py       실행 가능한 데모
+  demo.py       실행 가능한 데모(후보 평가 트레이스 포함)
 config/
   device_catalog.yaml
   rules/        emergency.yaml, night_quiet.yaml   (Gate1: 하한 승격만)
@@ -66,7 +86,7 @@ tests/          불변식 / Gate1 / risk_router / egress / e2e / proactive
 # 의존성 설치 (개발 도구 포함)
 uv pip install -e ".[dev]"
 
-# 데모 실행 (일상 light / 야간 thermostat lower / 가스누출 emergency)
+# 데모 실행 (light / thermostat / 가스누출 / 능동 틱 — 후보 평가 트레이스 출력)
 uv run python -m liot.demo
 
 # 테스트
@@ -173,9 +193,11 @@ proposal = await app.tick()   # 결정 없음/쿨다운/예산/검증실패 → 
 - **Tier A 결정론 규칙**(`config/proactive/*.yaml`): 닫힌 비교자
   (`eq/ne/lt/le/gt/ge`)의 상태 술어 + enum 매치(`time_bucket`/`occupancy`).
   스크립트/표현식 불가. 로더가 `PROACTIVE_ALLOWED` 밖 선언을 거부한다.
-- **LLM 의 역할 = 거부권**: 능동 후보를 *발의*하는 LLM 은 없다. 기존
-  Gate2 가 후보를 판정하고, breath 위로 승격하면 그 제안은 침묵한다
-  (불변식 7) — 인젝션된 LLM 의 최악 결과는 침묵이다.
+- **LLM 의 역할 = 후보 제안·설명(옵션), 결정은 결정론**: LLM 후보 백엔드
+  (`candidate_llm`, 기본 미장착)가 후보를 *제안*할 수 있으나 pydantic 구조
+  검증 + `validate_proactive_candidate` 두 관문을 통과해야 후보 집합에 든다.
+  위험도는 기존 Gate2 가 올릴 수만 있고, breath 위로 승격하면 그 제안은
+  침묵한다(불변식 7·2′) — 인젝션된 LLM 의 최악 결과는 침묵이다.
 - **알림 피로 게이팅(생성 시)**: (타깃, 액션)별 쿨다운 60분 + 시간대당
   1건 + 하루 3건(`limits:`, 데이터 주도). L4 notifier 의 표출 억제와
   별개·더 보수적 — 수용률(Proposal-Accept-Rate ≥ 60%)이 North Star.
@@ -192,6 +214,39 @@ proposal = await app.tick()   # 결정 없음/쿨다운/예산/검증실패 → 
 
 검증: `tests/test_proactive.py` (로더 deny-by-default / 발의·침묵 결정론 /
 LLM 폭주 → 침묵 + 안전 경로 무손상 / egress 불출 / occupancy fact 부활).
+
+---
+
+## 다중 후보 파이프라인 — 생성 → 평가 → 선택 → 개입
+
+새 기획의 핵심: AI 가 더 많은 기기를 만지는 게 아니라, **여러 후보 중에서
+상황에 맞는 행동을 고르고**(아무것도 안 하기 포함) **위험도에 맞게 개입
+수준을 조절**한다.
+
+- **후보 집합(`CandidateSet`)**: 매 틱, 매칭된 규칙 후보 전부 + (옵션) LLM
+  후보 + **무행동(NoOp, 항상 포함 — pydantic validator 가 구조적으로 강제)**.
+- **평가·선택(`CandidateEvaluator`)**: 효과·선호·에너지·방해도·안전위험을
+  가중 합산해 최고점을 고른다. `safety_risk` 는 카탈로그 결정론 값으로
+  **LLM 제출값을 덮어쓴다**. 무행동 기준선(0.35)을 못 넘으면 침묵.
+- **외부 데이터(`ExternalDataProvider`)**: 외기 AQI·기온이 점수에 반영된다
+  (바깥 나쁨 → 환기 감점·청정기 가점). 산출물은 스냅샷 트리거에 병합돼
+  `snapshot_hash` 에 고정된다(불변식 4). 기본은 결정론 Fake — **실제
+  기상청/공기질 API 호출은 예정**(env `LIOT_EXTERNAL_ENABLED` 스텁은
+  degraded 를 돌려주고, degraded 면 평가기가 보수적으로 무행동을 고른다).
+- **거절 학습(`FeedbackStore`)**: 서비스가 틱마다 거절 이력·수용률 스냅샷을
+  주입 — 최근 거절된 류의 후보는 선호가 감점돼 무행동에 밀린다(조르지 않음).
+- **평가 기록**: 매 틱의 후보·점수·선택(무행동 포함)이
+  `candidate_evaluations` 테이블에 남는다(연구 로그·감사).
+- **개입 조건 A/B(`intervention`)**: `LiotApp(condition="A"|"B")`.
+  A=단일 승인(전부 explicit, 단 EMBER 는 double 유지), B=위험도 차등(기본).
+  **후보 생성·평가·선택은 조건을 보지 못한다** — 동일 선택, 개입만 차등
+  (실험 오염 방지). 어떤 조건도 티어 기준선보다 약한 확인을 못 낸다.
+- **미구현(예정)**: 실 기상청/공기질 HTTP 연동 · 실모델 LLM 후보 생성 ·
+  평가 가중치 학습 · 조건 A/B 실험 로그 집계.
+
+검증: `tests/test_candidate_generation.py` · `test_evaluator.py` ·
+`test_external_provider.py` · `test_external_snapshot_and_persist.py` ·
+`test_intervention_ab.py` · `test_llm_floor.py`.
 
 ---
 

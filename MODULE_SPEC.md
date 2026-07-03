@@ -16,10 +16,13 @@ from liot.core.risk import RiskTier, escalate_only, SAFETY_CRITICAL_CATEGORIES
 from liot.core.contracts import (
     Layer, SensorReading, CandidateAction, ContextSnapshot, Judgment,
     Proposal, FeedbackEvent, NotificationPayload, EventMessage, compute_snapshot_hash,
+    # 다중 후보 파이프라인
+    NOOP_CAPABILITY, make_noop_candidate, is_noop,
+    ActionCandidate, CandidateSet, ExternalContext, EvaluationResult,
 )
 from liot.core.invariants import (
     InvariantError, TopologyViolation, IsolationError, EgressViolation, MonotonicityError,
-    assert_monotonic, assert_executor_absent, ExecutorProtocol,
+    assert_monotonic, assert_executor_confined, assert_execution_gated, ExecutorProtocol,
 )
 from liot.core.event_bus import InProcessBus, ALLOWED_EDGES, Handler
 from liot.core.scoped_repo import ScopedRepo, assert_no_null_tenants, DEFAULT_HOME_ID
@@ -106,6 +109,31 @@ class EventMessage(BaseModel):
 
 def compute_snapshot_hash(structured: dict[str,Any]) -> str
     # sha256(hex). canonical JSON: sort_keys=True, 컴팩트 구분자, default=str. 키 순서 무관.
+
+# ── 다중 후보 파이프라인(생성→평가→선택) ──────────────────────────────
+NOOP_CAPABILITY = "noop"                       # 무행동 예약 capability
+def make_noop_candidate(entity_id="__none__") -> CandidateAction
+def is_noop(candidate: CandidateAction) -> bool
+
+class ActionCandidate(BaseModel):              # 점수 붙은 후보
+    candidate: CandidateAction
+    expected_effect/user_preference_fit/energy_cost/disturbance/safety_risk/final_score: float = 0.0
+    reason: str = ""    # 설명 전용(점수 가중 0, egress 불출)
+    origin: str = ""    # "rule:<id>" | "llm" | "noop"
+
+class CandidateSet(BaseModel):                 # 무행동 후보 필수(validator 강제)
+    trace_id: str; home_id: str = "singleton"; snapshot_hash: str
+    candidates: list[ActionCandidate]; selected_index: int = 0
+    # selected(속성) / selected_action() / selected_is_noop()
+
+class ExternalContext(BaseModel):              # 외부 데이터(외기) 조회 결과
+    outdoor_temp_c: float|None; outdoor_aqi: int|None
+    source: str = "fake"; fetched_at: str; degraded: bool = False
+    def to_structured(self) -> dict            # fetched_at 제외(재현성) — 틱 트리거에 병합
+
+class EvaluationResult(BaseModel):             # 평가·선택 산출물(감사/영속)
+    scored: list[ActionCandidate]; selected_index: int; rationale: str
+    # selected(속성) / selected_action() / selected_is_noop()
 ```
 
 `ContextSnapshot.snapshot_hash` 는 `compute_snapshot_hash(structured)` 와 동일하게 채워진다.
@@ -123,19 +151,25 @@ class EgressViolation(InvariantError)      # egress_gate
 class MonotonicityError(InvariantError)    # risk 단조
 
 def assert_monotonic(old, new) -> RiskTier   # new<old -> MonotonicityError, 아니면 new 반환
-def assert_executor_absent(package_name="liot.layers.l4_execution") -> None
-    # 패키지 전 서브모듈을 importlib/pkgutil 스캔. 이름에 'Executor' 포함된 구체 클래스 발견 시 InvariantError.
-    # ABC(추상 메서드 잔존)/Protocol(_is_protocol) 기반 인터페이스는 허용. 패키지 부재면 통과.
+def assert_executor_confined(package_name="liot.layers.l4_execution",
+                             *, sanctioned_module="liot.layers.l4_execution.executor") -> None
+    # 구체 Executor(이름에 'Executor' 포함, 추상/Protocol 제외)는 전용 모듈에만.
+    # 다른 모듈에서 발견되면 InvariantError. 패키지 부재면 통과.
+def assert_execution_gated() -> None
+    # 불변식 8 정적 검증: (1) 기본 ExecutionPolicy 비활성(옵트인 OFF)
+    # (2) 안전 임계는 어떤 티어에서도 AUTO 불가 (3) '여는 방향'(unlock/valve
+    # open)은 어떤 실행 화이트리스트에도 없음 (4) 개입 정책(조건 A/B)은 어떤
+    # 티어에서도 기준선(required_confirmation)보다 약한 확인 불가(개입 하한).
 
 @runtime_checkable
 class ExecutorProtocol(Protocol):
     async def execute(self, *args, **kwargs) -> object: ...
-    # 추상 인터페이스를 정의하고 싶을 때 베이스로 사용 (assert_executor_absent 가 허용).
+    # 추상 인터페이스를 정의하고 싶을 때 베이스로 사용 (confined 검사가 허용).
 ```
 
-L4 작성자 주의: **구체 Executor 클래스 금지**. 이름에 `Executor` 가 들어가는 클래스를
-구현하면 `assert_executor_absent()` 가 실패한다. 인터페이스가 필요하면 `ExecutorProtocol`
-또는 추상 메서드가 남은 ABC 로만 선언하라.
+L4 작성자 주의: **구체 Executor 클래스는 `l4_execution/executor.py` 밖 금지**.
+다른 모듈에 두면 `assert_executor_confined()` 가 실패한다. 인터페이스가 필요하면
+`ExecutorProtocol` 또는 추상 메서드가 남은 ABC 로만 선언하라.
 
 ---
 
@@ -179,7 +213,7 @@ async def assert_no_null_tenants(db) -> None   # 테넌트 테이블에 NULL/공
 ```
 
 테넌트 테이블: `preferences, sensor_readings, context_snapshots, judgments, proposals,
-feedback, notifications, audit_log, trust_state`.
+feedback, notifications, audit_log, trust_state, candidate_evaluations`.
 
 ---
 
@@ -250,10 +284,15 @@ proposals, feedback, notifications, audit_log, llm_cache, trust_state`.
 ### `migrations.py`
 ```python
 SCHEMA_SQL_PATH: Path                 # schema.sql 절대경로
-LATEST_VERSION: int                   # = 1
+LATEST_VERSION: int                   # = 2
 async def current_version(db) -> int                 # 없으면 0
 async def run_migrations(db) -> int                  # forward-only, 멱등. 적용 후 최신 버전 반환.
 ```
+
+버전 2: `candidate_evaluations` — 틱별 후보 평가 로그(연구/감사).
+컬럼: `home_id, trace_id, snapshot_hash, scored_json(list[ActionCandidate] 직렬화),
+selected_index, rationale, created_at`. PK `(home_id, trace_id)`.
+writer 는 `LiotService.run_tick`(무행동 선택도 기록).
 
 ### `database.py`
 ```python
@@ -266,13 +305,22 @@ async def init_db(path: str, durable: bool=False) -> aiosqlite.Connection
 
 ---
 
-## 6대 불변식 ↔ 코어 매핑 (테스트가 검증할 지점)
+## 불변식 ↔ 코어 매핑 (테스트가 검증할 지점)
 
 1. 단방향 파이프라인 → `event_bus.ALLOWED_EDGES` + `TopologyViolation`.
 2. Gate2 는 Gate1 을 무를 수 없다 → 최종 `risk_tier = escalate_only(gate1, gate2)` (`max`).
-3. Phase1 = 제안-만 → `assert_executor_absent()` (구체 Executor 0개).
+   2′. LLM 은 안전 floor 를 낮출 수 없다 → LLM 후보도 `validate_proactive_candidate`
+   통과 필수 + SafetyGate 는 출처 무관 + 평가기 `safety_risk` 는 카탈로그가 덮어씀
+   (`tests/test_llm_floor.py`).
+3. 실행 옵트인 게이트 → `assert_executor_confined()`(구체 Executor 는 전용 모듈만)
+   + `assert_execution_gated()`(기본 OFF·안전 AUTO 불가·여는 방향 불가·개입 하한).
 4. 재현 가능한 판단 → `Judgment.snapshot_hash` + `bundle_id` + `rationale` 동시 보존
    (DB `judgments` 동일 컬럼). `compute_snapshot_hash` 가 결정론적.
+   외부 데이터는 `ExternalContext.to_structured()` 로 틱 트리거에 병합돼 해시에 고정.
 5. 승격만, 강등 불가 → `escalate_only` + `assert_monotonic`(`MonotonicityError`).
 6. Safety-Never-Silent → `SAFETY_CRITICAL_CATEGORIES` 의 트리거는 LLM 없이
    Gate1 결정론만으로 즉시 EMBER 제안 생성 (`gate2_verdict=None` 허용, `degraded` 무관).
+7. 능동 = 컴포트 전용 + BREATH 상한 → `PROACTIVE_ALLOWED` + `validate_proactive_candidate`
+   + app 상한(초과 = 침묵). 무행동(NoOp) 후보는 `CandidateSet` validator 가 강제.
+8. Execution-Authorized-Only + 개입 하한 → `ExecutionPolicy`(옵트인·티어 권한)
+   + 실행기 화이트리스트 재검 + `InterventionPolicy`(조건 A/B, 기준선 이하 금지).
