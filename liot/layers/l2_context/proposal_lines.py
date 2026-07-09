@@ -23,6 +23,7 @@ from liot.core.contracts import (
     CandidateAction,
     CandidateSet,
     compute_snapshot_hash,
+    is_noop,
     make_noop_candidate,
 )
 
@@ -37,6 +38,7 @@ __all__ = [
     "MLProposalLine",
     "LLMProposalLine",
     "merge_candidate_set",
+    "augment_candidate_set",
 ]
 
 # "켜짐"으로 간주하는 정규화 값(조명 상태 판단).
@@ -238,5 +240,62 @@ def merge_candidate_set(
         home_id=home_id,
         snapshot_hash=snapshot_hash,
         candidates=candidates,
+        selected_index=noop_idx,
+    )
+
+
+def augment_candidate_set(
+    base: CandidateSet,
+    lines: Sequence[ProposalLine],
+    *,
+    facts: Mapping[str, Any],
+    cur: Mapping[str, Any],
+    catalog: "DeviceCatalog | None",
+    embedder: PreferenceEmbedder | None = None,
+    available_actions: Sequence[Mapping[str, Any]] | None = None,
+) -> CandidateSet:
+    """기존 후보셋(Line A 규칙 풀)에 제안 라인들의 후보를 병합한다.
+
+    - 라인 후보는 validate_proactive_candidate 통과분만 든다(fail-closed).
+    - (capability, action, entity_id)가 겹치면 origin 을 합치고 더 높은
+      line_confidence 를 취한다(여러 소스가 같은 행동에 동의했다는 신호 보존),
+      새 행동이면 후보로 추가한다.
+    - trace_id/home_id/snapshot_hash 는 base 유지(맥락 동일). NoOp 하나 유지.
+    - selected_index 는 NoOp — 실제 선택은 아비터(CandidateEvaluator).
+    """
+    cands: list[ActionCandidate] = list(base.candidates)
+    index: dict[tuple[str, str, str], int] = {}
+    for i, c in enumerate(cands):
+        if not is_noop(c.candidate):
+            index[_dedup_key(c)] = i
+    for line in lines:
+        for ac in line.propose(
+            facts, cur, embedder=embedder, available_actions=available_actions
+        ):
+            if validate_proactive_candidate(ac.candidate, catalog) is not None:
+                continue  # fail-closed
+            key = _dedup_key(ac)
+            if key in index:
+                prev = cands[index[key]]
+                origins = "+".join(
+                    dict.fromkeys(prev.origin.split("+") + ac.origin.split("+"))
+                )
+                cands[index[key]] = prev.model_copy(
+                    update={
+                        "origin": origins,
+                        "line_confidence": max(
+                            prev.line_confidence, ac.line_confidence
+                        ),
+                    }
+                )
+            else:
+                cands.append(ac)
+                index[key] = len(cands) - 1
+    noop_idx = next(i for i, c in enumerate(cands) if is_noop(c.candidate))
+    return CandidateSet(
+        trace_id=base.trace_id,
+        home_id=base.home_id,
+        snapshot_hash=base.snapshot_hash,
+        candidates=cands,
         selected_index=noop_idx,
     )

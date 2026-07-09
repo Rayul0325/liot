@@ -39,11 +39,21 @@ from liot.core.event_bus import InProcessBus
 from liot.core.risk import SAFETY_CRITICAL_CATEGORIES
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l1_sensing.state_cache import StateCache
-from liot.layers.l2_context.context_builder import ContextBuilder
+from liot.layers.l2_context.context_builder import ContextBuilder, derive_occupancy
 from liot.layers.l2_context.candidate_llm import LLMCandidateBackend
 from liot.layers.l2_context.evaluator import CandidateEvaluator
 from liot.layers.l2_context.external_provider import ExternalDataProvider
+from liot.layers.l2_context.feature_vector import (
+    FakePreferenceEmbedder,
+    PreferenceEmbedder,
+)
 from liot.layers.l2_context.feedback_store import FeedbackStore
+from liot.layers.l2_context.proposal_lines import (
+    LLMProposalLine,
+    MLProposalLine,
+    ProposalLine,
+    augment_candidate_set,
+)
 from liot.layers.l2_context.proactive import (
     PROACTIVE_TIER_CEILING,
     ProactiveDecision,
@@ -128,6 +138,14 @@ class LiotApp:
             if evaluator is not None
             else CandidateEvaluator(catalog=self.catalog, llm=llm_candidate_backend)
         )
+        # 능동 파이프라인 확장(2갈래 제안 + 선호 임베딩). 규칙 풀(Line A)에
+        # ML/LLM 라인이 후보를 보태고, 아비터(evaluator)가 최종 선택한다.
+        # 임베더는 Phase3 에서 영속 셀맵을 로드; 지금은 중립(0.5).
+        self._embedder: PreferenceEmbedder = FakePreferenceEmbedder()
+        self._proposal_lines: list[ProposalLine] = [
+            MLProposalLine(),
+            LLMProposalLine(),
+        ]
         # 외부 데이터(옵션). 미설정이면 외기 미반영(외부 맥락 없음).
         self.external_provider = external_provider
         # 선호 신호(옵션). 미설정이면 중립.
@@ -407,6 +425,22 @@ class LiotApp:
         # 다중 후보 집합(L4 생성) → 평가기(L5)가 점수 기반으로 선택을 구동한다.
         candidate_set = self.proactive.candidate_set_for(
             cur, decision, trace_id=trace_id
+        )
+        # 2갈래 제안: 규칙 풀(Line A)에 ML/LLM 라인 후보를 병합한다(validate 강제).
+        # 같은 행동에 여러 소스가 동의하면 origin 이 합쳐진다. 최종 선택은
+        # 아비터(CandidateEvaluator) — safety_risk 는 여전히 카탈로그 권위.
+        facts = {
+            "time_bucket": self.clock.time_bucket(),
+            "occupancy": derive_occupancy(cur, self._categories),
+        }
+        candidate_set = augment_candidate_set(
+            candidate_set,
+            self._proposal_lines,
+            facts=facts,
+            cur=cur,
+            catalog=self.catalog,
+            embedder=self._embedder,
+            available_actions=self.catalog.available_actions(),
         )
         external = await self._fetch_external()
         evaluation = self.evaluator.evaluate(

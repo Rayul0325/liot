@@ -10,13 +10,22 @@
 
 from __future__ import annotations
 
-from liot.core.contracts import ActionCandidate, CandidateAction, is_noop
+from liot.core.contracts import (
+    ActionCandidate,
+    CandidateAction,
+    CandidateSet,
+    compute_snapshot_hash,
+    is_noop,
+    make_noop_candidate,
+)
+from liot.layers.l2_context.evaluator import CandidateEvaluator
 from liot.layers.l2_context.feature_vector import FakePreferenceEmbedder, cell_key
 from liot.layers.l2_context.proactive import validate_proactive_candidate
 from liot.layers.l2_context.proposal_lines import (
     LLMProposalLine,
     MLProposalLine,
     ProposalLine,
+    augment_candidate_set,
     merge_candidate_set,
 )
 from liot.layers.l4_execution.device_catalog import load_device_catalog
@@ -129,3 +138,64 @@ def test_no_context_only_noop():
     )
     assert len(cs.candidates) == 1
     assert is_noop(cs.candidates[0].candidate)
+
+
+# ── Phase 2a: augment(규칙 풀 + 라인) + 아비터(evaluator) ──────────────
+
+
+def _base_rule_set():
+    """규칙 풀 모사: light.turn_off(rule) + NoOp."""
+    rule = ActionCandidate(
+        candidate=CandidateAction(
+            capability="light",
+            action="turn_off",
+            params={},
+            entity_id="light.living_room",
+            category="light",
+        ),
+        origin="rule:vacant-light-off",
+    )
+    noop = ActionCandidate(candidate=make_noop_candidate(), origin="noop")
+    return CandidateSet(
+        trace_id="t",
+        snapshot_hash=compute_snapshot_hash({"a": 1}),
+        candidates=[rule, noop],
+        selected_index=1,
+    )
+
+
+def _augment(base):
+    return augment_candidate_set(
+        base,
+        [MLProposalLine(), LLMProposalLine()],
+        facts=FACTS,
+        cur=CUR,
+        catalog=CATALOG,
+        embedder=FakePreferenceEmbedder(),
+        available_actions=ACTS,
+    )
+
+
+def test_augment_merges_origins_and_preserves_hash_noop():
+    base = _base_rule_set()
+    aug = _augment(base)
+    assert aug.snapshot_hash == base.snapshot_hash  # 맥락 동일 → 해시 유지
+    assert sum(1 for c in aug.candidates if is_noop(c.candidate)) == 1
+    off = [
+        c
+        for c in aug.candidates
+        if c.candidate.capability == "light" and c.candidate.action == "turn_off"
+    ][0]
+    # 규칙 + 두 라인이 같은 행동에 동의 → origin 합쳐짐
+    assert "rule:vacant-light-off" in off.origin
+    assert "line_a:ml" in off.origin and "line_b:llm" in off.origin
+
+
+def test_arbiter_selects_deterministically_safety_from_catalog():
+    aug = _augment(_base_rule_set())
+    ev = CandidateEvaluator(catalog=CATALOG).evaluate(aug)
+    sel = ev.selected_action()
+    assert (sel.capability, sel.action) == ("light", "turn_off")
+    # 안전위험은 catalog 값(light=ambient tier 0 → 0.0), 라인/임베딩과 무관
+    scored_off = [a for a in ev.scored if a.candidate.capability == "light"][0]
+    assert scored_off.safety_risk == 0.0
