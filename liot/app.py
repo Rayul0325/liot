@@ -42,6 +42,7 @@ from liot.layers.l1_sensing.state_cache import StateCache
 from liot.layers.l2_context.context_builder import ContextBuilder, derive_occupancy
 from liot.layers.l2_context.candidate_llm import LLMCandidateBackend
 from liot.layers.l2_context.evaluator import CandidateEvaluator
+from liot.layers.l2_context.event_detector import EventDetector, build_event_detector
 from liot.layers.l2_context.external_provider import ExternalDataProvider
 from liot.layers.l2_context.feature_vector import (
     EmbedderFeedbackStore,
@@ -91,6 +92,7 @@ class LiotApp:
         evaluator: CandidateEvaluator | None = None,
         external_provider: ExternalDataProvider | None = None,
         feedback_store: FeedbackStore | None = None,
+        event_detector: EventDetector | None = None,
         condition: str = "B",
     ) -> None:
         self.home_id = home_id
@@ -149,6 +151,11 @@ class LiotApp:
         ]
         # 최근 틱의 맥락(time_bucket/occupancy) — 서비스가 선호 셀 키를 만들 때 참조.
         self.last_facts: dict[str, Any] | None = None
+        # 트리거 감지 계층(규칙 상시 + LLM 옵트인). tick 진입부 pre-bus 게이트 —
+        # 새 버스 엣지 없음. propose 회계는 게이트 통과 후 정확히 1회.
+        self._event_detector: EventDetector = (
+            event_detector if event_detector is not None else build_event_detector()
+        )
         # 외부 데이터(옵션). 미설정이면 외기 미반영(외부 맥락 없음).
         self.external_provider = external_provider
         # 선호 신호(옵션). 미설정이면 중립.
@@ -428,6 +435,11 @@ class LiotApp:
              그대로 통과한다. BREATH 상한 초과는 침묵(불변식 7).
         """
         cur = self.state_cache.norm_values()
+        # 트리거 감지 게이트(규칙 상시 + LLM 옵트인) — 이벤트 없으면 propose 이전에
+        # 침묵(무회계). 실제 행동 게이팅은 통과 후 propose 가 정확히 1회 수행한다.
+        trig = self._event_detector.detect(cur)
+        if not trig.fire:
+            return None
         decision = self.proactive.propose(cur)
         if decision.candidate is None:
             return None  # 예산/쿨다운/무매칭 → 침묵(게이팅은 propose 의 몫)
