@@ -250,6 +250,51 @@ LLM 폭주 → 침묵 + 안전 경로 무손상 / egress 불출 / occupancy fact
 
 ---
 
+## 능동 파이프라인 확장 (2026-07 · 진행 중) — 트리거·2갈래·아비터·개인화·자연어 지시
+
+능동(tick) 앞단을 더 명시적인 구조로 확장한다. 전체 흐름 다이어그램·핵심 요약은
+**`docs/pipeline-overview.md`**(Mermaid, 타인 설명용).
+
+```
+① 트리거 감지(규칙 상시 + LLM 옵트인) → ② 전체 데이터 수집 + 선호 임베딩
+  → ③ 2갈래 제안(Line A ML / Line B LLM, 각각 행동+가중치)
+  → ④ 병합 후보풀(+무행동) → ⑤ 결정론 아비터(가중합·최고점)
+  → ⑥ Gate1 → ⑦ Gate2 → ⑧ L4 개입 → 알림
+알림 응답(수락/거부/무시) ─┐
+       └── 선호 임베딩 갱신(유튜브식 EMA+감쇠) ──┘  → 다음 판단이 점점 개인화
+자연어 지시("오늘 밤 불 켜놔줘", 채팅/음성) → 자율 후보 억제(안전 제외)
+```
+
+- **트리거 감지**(`event_detector`): 언제 판단을 시작할지 결정. 규칙 감지 상시 +
+  LLM 감지 저빈도 옵트인(기본 off).
+- **선호 임베딩**(`feature_vector`): 맥락×행동 셀맵 `{(시간대,재실,cap:action)→0~1}`
+  을 `PreferenceStore`(scope `pref_embed`)에 영속. **알림 응답이 이 값을 계속
+  갱신**(수락↑·거부↓·무시 약↓, 온라인 EMA + 시간감쇠) → 유튜브식 개인화. 두 제안
+  라인이 이 임베딩을 소비한다.
+- **2갈래 제안**(`proposal_lines`): **Line A(ML)** = 규칙 후보 + `EvalWeights`
+  휴리스틱 재사용, **Line B(LLM)** = `device_catalog.available_actions()`(조작
+  가능 행동 목록)를 받아 제안. **두 라인 모든 후보는 `validate_proactive_candidate`
+  통과 필수** → NoOp 포함 병합 `CandidateSet`.
+- **결정론 아비터**: 기존 `CandidateEvaluator` **무변경** 재사용. 두 라인 후보를
+  가중합으로 겨뤄 최종 1개 선택 → 기존 Gate1/Gate2/L4 로 흐른다. 라인 자신감은
+  텔레메트리(점수 미개입).
+- **자연어 지시 오버라이드**(`nl_directive`): "오늘 밤 불 켜놔줘" 같은 지시를
+  구조화 `UserDirective` 로 파싱해 자율 제안을 억제/제약. **comfort 후보만** 억제
+  가능 — 안전 카테고리·EMBER 는 어떤 지시로도 못 낮춘다. 채팅(`/api/directive`)
+  실동작 + 음성(Web Speech API STT/TTS) 옵션.
+
+**안전 불변식(확장 2′)**: 모델·임베딩·지시는 전부 선호 층위. `safety_risk` 는
+언제나 catalog 결정론이고, 가스/누수 등 안전 임계는 LLM 이 꺼져 있어도·사용자가
+무시하라 해도 EMBER 를 유지한다(Safety-Never-Silent). `evaluator.py`·Gate1/Gate2/L4·
+버스 엣지 무변경.
+
+**구현 현황(2026-07-09)**: Phase 0(인터페이스 골격 + `line_confidence` +
+`available_actions()`) ✅ 완료 · Phase 1~6(제안 라인·아비터·개인화 루프·트리거·
+자연어 지시·시각화) ⏳ 진행. 실 ML/LLM/임베딩 학습은 인터페이스 뒤 결정론 Fake +
+env 슬롯(예정). 상세 계약: `MODULE_SPEC.md` §능동 파이프라인 확장.
+
+---
+
 ## 물리적 연결 레이어 (상시 데몬 · `liot-serve`)
 
 `LiotApp`(두뇌, 네트워크 없음)을 둘러싸 실제 세계에 잇는 "몸통"이

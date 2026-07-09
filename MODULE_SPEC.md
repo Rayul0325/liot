@@ -118,8 +118,10 @@ def is_noop(candidate: CandidateAction) -> bool
 class ActionCandidate(BaseModel):              # 점수 붙은 후보
     candidate: CandidateAction
     expected_effect/user_preference_fit/energy_cost/disturbance/safety_risk/final_score: float = 0.0
-    reason: str = ""    # 설명 전용(점수 가중 0, egress 불출)
-    origin: str = ""    # "rule:<id>" | "llm" | "noop"
+    reason: str = ""            # 설명 전용(점수 가중 0, egress 불출)
+    origin: str = ""            # "rule:<id>" | "line_a:ml" | "line_b:llm" | "llm" | "noop"
+    line_confidence: float = 0.0  # 제안 라인 자신감. v1 텔레메트리/타이브레이크 전용
+                                  # (final_score 미개입 → 결정론 아비터=evaluator 무변경)
 
 class CandidateSet(BaseModel):                 # 무행동 후보 필수(validator 강제)
     trace_id: str; home_id: str = "singleton"; snapshot_hash: str
@@ -328,3 +330,91 @@ async def init_db(path: str, durable: bool=False) -> aiosqlite.Connection
    - app 상한(초과 = 침묵). 무행동(NoOp) 후보는 `CandidateSet` validator 가 강제.
 8. Execution-Authorized-Only + 개입 하한 → `ExecutionPolicy`(옵트인·티어 권한)
    - 실행기 화이트리스트 재검 + `InterventionPolicy`(조건 A/B, 기준선 이하 금지).
+
+---
+
+## 능동 파이프라인 확장 (L2) — 신규 모듈 시그니처
+
+능동(tick) 앞단을 **트리거 감지 → 데이터+선호 임베딩 → 2갈래 제안(ML/LLM) →
+결정론 아비터**로 재구성하고, **알림 응답이 선호 임베딩을 갱신하는 개인화 루프**와
+**자연어 지시 오버라이드**를 붙인다. 전체 흐름은 `docs/pipeline-overview.md`(Mermaid).
+
+> **관통 원칙**: 모델(ML 라인·LLM 라인·LLM 트리거·임베딩·지시)은 전부 **선호/제안**
+> 층위다. `safety_risk` 는 항상 catalog 결정론(`evaluator._safety_risk`)이고, 안전
+> 카테고리/EMBER 는 임베딩·지시로 낮출 수 없다(불변식 2′ 확장). 아비터는 기존
+> `CandidateEvaluator` **무변경** 재사용 — 라인 자신감은 점수 미개입(텔레메트리).
+> 모든 실모델(ML/LLM/임베딩 학습)은 인터페이스 뒤 결정론 Fake + env 슬롯(`예정`).
+
+```python
+# liot.layers.l2_context.event_detector  — ① 트리거 감지
+@dataclass(frozen=True)
+class TriggerDecision:  fire: bool; reason: str = ""; source: str = "rule"  # "rule"|"llm"
+
+@runtime_checkable
+class EventDetector(Protocol):
+    source: str
+    def detect(self, cur: Mapping, prev: Mapping|None = None) -> TriggerDecision: ...
+
+class RuleEventDetector:        source="rule"   # Phase4: should_snapshot/propose 게이팅 재사용
+class FakeLLMEventDetector:     source="llm"    # 저빈도 옵트인(env, 기본 off), 결정론
+def build_event_detector() -> EventDetector    # 기본 규칙 감지. 실 LLM 감지=예정
+
+# liot.layers.l2_context.feature_vector  — ② 선호 임베딩(개인화)
+NEUTRAL_PREF = 0.5;  PREF_EMBED_SCOPE = "pref_embed"
+def cell_key(time_bucket: str, occupancy: str, candidate: CandidateAction) -> str
+    # = "{time_bucket}|{occupancy}|{capability}:{action}"
+
+@runtime_checkable
+class PreferenceEmbedder(Protocol):
+    def preference_for(self, candidate: CandidateAction, facts: Mapping) -> float: ...  # 0~1
+
+class FakePreferenceEmbedder:   # 영속 셀맵(PreferenceStore scope="pref_embed") 조회. 없으면 중립.
+    def __init__(self, cells: Mapping[str,float]|None = None)
+    # Phase3: 알림 응답으로 EMA 갱신 cell += 0.3(target−cell) + 시간감쇠 cell += 0.05(0.5−cell)/일
+    #         (수락 target=1.0 / 거부 0.0 / 무시·만료 0.30)
+
+# liot.layers.l2_context.proposal_lines  — ③ 2갈래 제안
+@runtime_checkable
+class ProposalLine(Protocol):
+    name: str
+    def propose(self, facts: Mapping, cur: Mapping, *, embedder: PreferenceEmbedder|None=None,
+                available_actions: Sequence[Mapping]|None=None) -> list[ActionCandidate]: ...
+
+class MLProposalLine:   name="line_a:ml"    # 규칙 후보 + EvalWeights 휴리스틱 재사용
+class LLMProposalLine:  name="line_b:llm"   # available_actions 소비 결정론 Fake. 실모델=예정
+# 두 라인 모든 후보는 validate_proactive_candidate 통과 필수 → 병합기(+NoOp) → CandidateSet
+# (snapshot_hash 는 facts+cur+embedding 전부 덮어야 재현성/불변식4 유지)
+
+# liot.layers.l2_context.nl_directive  — 자연어 지시 오버라이드(대화형)
+@dataclass(frozen=True)
+class UserDirective:  capability; entity_id=""; constraint="prefer"  # keep_on|keep_off|forbid|prefer
+                      until=""; source="chat"  # chat|voice; raw_text=""
+
+@runtime_checkable
+class DirectiveParser(Protocol):
+    def parse(self, text: str, *, source: str = "chat") -> list[UserDirective]: ...
+
+class FakeDirectiveParser:   # 결정론 파싱. 실 LLM 파싱=예정
+# 활성 directive 는 comfort 후보만 억제(안전 카테고리·EMBER 는 억제 불가). Phase5.
+
+# liot.layers.l4_execution.device_catalog  — Line B 입력
+class DeviceCatalog:
+    def available_actions(self) -> list[dict]   # {entity_id, capability, action, category, tier}
+        # _devices × _capabilities 교차, tier 는 risk_for 권위. 후보 '생성 상한'(권위 아닌 필터).
+```
+
+### 구현 현황 (2026-07-09)
+
+| Phase | 내용 | 상태 |
+|---|---|---|
+| 0 | 인터페이스 골격(Protocol+Fake 스텁) + `line_confidence` + `available_actions()` | ✅ 완료 |
+| 1 | 선호 임베딩 조회 + 2갈래 제안 라인 실동작 → 병합 `CandidateSet` | ⏳ 진행 |
+| 2 | 아비터(evaluator 재사용) + `app.tick()` 재작성 + 데모 트레이스 | ⏳ 진행 |
+| 3 | 개인화 루프(피드백→임베딩 EMA+감쇠, `_refresh_feedback` 훅) | ⏳ 진행 |
+| 4 | 트리거 감지 배선(규칙 상시 + LLM 옵트인) | ⏳ 진행 |
+| 5 | 자연어 지시 오버라이드(`/api/directive` + 음성 옵션) | ⏳ 진행 |
+| 6 | 데모 시각화 + 문서·불변식 스윕 | ⏳ 진행 |
+
+> 스펙-우선: 이 시그니처가 목표 계약이다. Phase 1~6 구현이 이 문서를 따른다
+> (변경 시 이 문서를 먼저 갱신). Phase 0 은 스텁이라 두 제안 라인은 빈 목록,
+> 트리거는 항상 fire, 임베더는 중립 0.5 를 돌려준다(동작 무변경).
