@@ -44,6 +44,7 @@ from liot.layers.l2_context.candidate_llm import LLMCandidateBackend
 from liot.layers.l2_context.evaluator import CandidateEvaluator
 from liot.layers.l2_context.external_provider import ExternalDataProvider
 from liot.layers.l2_context.feature_vector import (
+    EmbedderFeedbackStore,
     FakePreferenceEmbedder,
     PreferenceEmbedder,
 )
@@ -146,6 +147,8 @@ class LiotApp:
             MLProposalLine(),
             LLMProposalLine(),
         ]
+        # 최근 틱의 맥락(time_bucket/occupancy) — 서비스가 선호 셀 키를 만들 때 참조.
+        self.last_facts: dict[str, Any] | None = None
         # 외부 데이터(옵션). 미설정이면 외기 미반영(외부 맥락 없음).
         self.external_provider = external_provider
         # 선호 신호(옵션). 미설정이면 중립.
@@ -400,6 +403,14 @@ class LiotApp:
     # ------------------------------------------------------------------
     # 공개 API
     # ------------------------------------------------------------------
+    def set_preference_cells(self, cells: dict[str, float]) -> None:
+        """선호 임베딩 셀맵을 주입한다(서비스가 영속 셀을 로드해 매 틱 갱신).
+
+        셀이 비면 중립(0.5)만 반환하는 임베더 — 기존 동작과 동일. 개인화
+        루프(Phase3)가 알림 응답으로 이 셀들을 계속 갱신한다.
+        """
+        self._embedder = FakePreferenceEmbedder(cells)
+
     async def tick(self) -> Proposal | None:
         """주기적 컴포트 틱(Phase2 능동성) — "AI 가 먼저 말을 거는" 진입점.
 
@@ -433,6 +444,7 @@ class LiotApp:
             "time_bucket": self.clock.time_bucket(),
             "occupancy": derive_occupancy(cur, self._categories),
         }
+        self.last_facts = facts
         candidate_set = augment_candidate_set(
             candidate_set,
             self._proposal_lines,
@@ -443,8 +455,12 @@ class LiotApp:
             available_actions=self.catalog.available_actions(),
         )
         external = await self._fetch_external()
+        # 선호 임베딩이 evaluator 의 선호 신호(user_preference_fit)를 구동 →
+        # 선택이 개인화된다(맥락별 셀). base(거절 이력)의 강한 거절은 우선하고,
+        # safety_risk 는 여전히 카탈로그 결정론이라 개인화가 안전을 못 낮춘다(2′).
+        feedback = EmbedderFeedbackStore(self._embedder, facts, base=self.feedback_store)
         evaluation = self.evaluator.evaluate(
-            candidate_set, external=external, feedback=self.feedback_store
+            candidate_set, external=external, feedback=feedback
         )
         # 평가 결과 노출(무행동 포함) — 서비스가 candidate_evaluations 로 영속.
         self.last_candidate_evaluation = {

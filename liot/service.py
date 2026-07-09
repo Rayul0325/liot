@@ -28,6 +28,13 @@ from liot.app import LiotApp
 from liot.core.clock import Clock
 from liot.core.scoped_repo import ScopedRepo
 from liot.layers.l2_context.feedback_store import InMemoryFeedbackStore
+from liot.layers.l2_context.feature_vector import (
+    apply_decay,
+    apply_signal,
+    cell_key,
+    load_cells,
+    save_cells,
+)
 from liot.layers.l2_context.preference_store import PreferenceStore
 from liot.layers.l4_execution.executor import (
     ExecDecision,
@@ -128,6 +135,9 @@ class LiotService:
         self._policy = policy or ExecutionPolicy(enabled=False)
         self._prior: dict[str, dict[str, Any]] = {}  # pid → 실행 전 상태(되돌리기)
         self._awaiting_second: set[str] = set()  # 이중확인 1차 통과 대기 pid
+        # 개인화 루프(Phase3): 제안 → 선호 셀 키(맥락+행동), 신호 중복 방지.
+        self._prop_cell: dict[str, str] = {}  # proposal_id → cell_key
+        self._pref_signaled: set[str] = set()  # 이미 신호 반영된 proposal_id
 
     # ------------------------------------------------------------------
     # 발화 컨텍스트
@@ -277,12 +287,58 @@ class LiotService:
         영속한다 — 어떤 후보들이 점수화됐고 왜 그 선택이었는지가 남는다.
         """
         await self.proposals.expire_due()
+        await self._apply_expired_signals()  # 만료 = 약한 비선호 신호
         await self._refresh_feedback()
+        await self._load_pref_cells()  # 영속 선호 셀 → 임베더(개인화 반영)
         proposal = await self.app.tick()
         await self._record_evaluation()
         if proposal is None:
             return None
+        self._remember_proposal_cell(proposal)  # 해소 시 신호 반영용 맥락 기억
         return await self.dispatch(proposal)
+
+    # ------------------------------------------------------------------
+    # 개인화 루프(Phase3) — 알림 응답 → 선호 임베딩 갱신(유튜브식)
+    # ------------------------------------------------------------------
+    async def _load_pref_cells(self) -> None:
+        """영속 선호 셀맵을 임베더에 로드한다(다음 틱 선택이 개인화)."""
+        cells = await load_cells(self.prefs)
+        self.app.set_preference_cells(cells)
+
+    def _remember_proposal_cell(self, proposal: "Proposal") -> None:
+        """제안이 만들어진 맥락+행동의 셀 키를 기억한다(해소 시 신호 반영용)."""
+        facts = self.app.last_facts
+        if not facts:
+            return
+        self._prop_cell[proposal.proposal_id] = cell_key(
+            str(facts.get("time_bucket", "")),
+            str(facts.get("occupancy", "")),
+            proposal.action,
+        )
+
+    async def _apply_pref_signal(self, proposal_id: str, signal: str) -> None:
+        """해소된 제안의 셀에 알림 응답 신호를 온라인 EMA 로 반영·영속한다(1회만).
+
+        갱신 시 다른 셀은 한 스텝 시간감쇠(유튜브식 망각). 임베딩은 evaluator
+        의 PREF 항만 움직이며 safety_risk(catalog)는 불변이다.
+        """
+        key = self._prop_cell.get(proposal_id)
+        if key is None or proposal_id in self._pref_signaled:
+            return
+        cells = await load_cells(self.prefs)
+        cells = apply_decay(cells, steps=1, exclude=frozenset({key}))
+        cells = apply_signal(cells, key, signal)
+        await save_cells(self.prefs, cells, updated_at=self.clock.now_utc())
+        self._pref_signaled.add(proposal_id)
+
+    async def _apply_expired_signals(self) -> None:
+        """방금 만료된(추적 중) 제안에 약한 비선호 신호를 반영한다."""
+        for pid in list(self._prop_cell):
+            if pid in self._pref_signaled:
+                continue
+            p = await self.proposals.get(pid)
+            if p is not None and (p.state or "").lower() == "expired":
+                await self._apply_pref_signal(pid, "expired")
 
     async def _refresh_feedback(self) -> None:
         """DB 의 거절/수용 이력을 동기 스냅샷으로 빚어 앱에 주입한다.
@@ -424,4 +480,10 @@ class LiotService:
         note = ""
         if key in ("accept", "accepted"):
             note = await self._on_approved(proposal)
+        # 개인화: 수락/거부를 선호 셀에 반영(유튜브식 온라인 갱신).
+        st = (proposal.state or "").lower()
+        if st == "accepted":
+            await self._apply_pref_signal(proposal.proposal_id, "accepted")
+        elif st in ("dismissed", "rejected"):
+            await self._apply_pref_signal(proposal.proposal_id, "dismissed")
         return "200 OK", f"ok: {proposal.state}{note}"
