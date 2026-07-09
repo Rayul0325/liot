@@ -128,8 +128,9 @@
           >
         </h1>
         <p class="d3-sub">
-          화면을 <b>클릭</b>해 1인칭으로 들어가 <b>WASD</b>로 걷고, 기기를 조준해
-          <b>E</b>로 조작하세요. 시간대를 바꾸면 하늘과 빛이 낮·밤으로 바뀝니다.
+          화면을 <b>클릭</b>해 1인칭으로 들어가 <b>WASD</b>로 걷고, 기기를
+          조준해 <b>E</b>로 조작하세요. 시간대를 바꾸면 하늘과 빛이 낮·밤으로
+          바뀝니다.
         </p>
       </div>
 
@@ -187,6 +188,16 @@
               이벤트 발생
             </button>
           </div>
+        </div>
+        <div class="dock-chat">
+          <input
+            id="dirInput"
+            type="text"
+            placeholder="자연어 지시… 예: 오늘 밤은 불 계속 켜놔줘"
+            aria-label="자연어 지시"
+          />
+          <button class="btn btn-ghost" id="dirSend">지시</button>
+          <span class="dir-active" id="dirActive" hidden></span>
         </div>
         <div class="dock-cfg">
           <div class="seg" id="cond" role="group" aria-label="개입 조건">

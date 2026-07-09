@@ -820,6 +820,10 @@ var CODE = {
   ArrowRight: "d",
 };
 document.addEventListener("keydown", function (e) {
+  // 텍스트 입력(자연어 지시) 중엔 WASD/단축키를 가로채지 않는다.
+  var t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable))
+    return;
   if (CODE[e.code]) {
     keys[CODE[e.code]] = true;
     if (locked) e.preventDefault();
@@ -870,7 +874,7 @@ function setTargeted(id) {
           ? "끄기"
           : "켜기";
     prompt.innerHTML =
-      '<b>E</b> · ' + esc(d.label) + " " + esc(verb) + " <b>클릭</b>";
+      "<b>E</b> · " + esc(d.label) + " " + esc(verb) + " <b>클릭</b>";
     prompt.hidden = false;
   } else {
     cross.classList.remove("is-active");
@@ -1100,6 +1104,66 @@ function renderTrace(d) {
         )
       : chip("LLM off", "muted")) +
     "</div>";
+  // ① 트리거 감지
+  if (d.trigger)
+    html += tstage(
+      "① 트리거 감지",
+      d.trigger.source === "llm" ? "LLM 옵트인" : "규칙 상시",
+      chip(esc(d.trigger.kind || "")) +
+        (d.trigger.origin
+          ? '<div class="tsub mono">' + esc(d.trigger.origin) + "</div>"
+          : ""),
+    );
+  // 자연어 지시(활성) — 자율 제안 억제
+  if (d.directives && d.directives.active && d.directives.active.length) {
+    var dv = d.directives.active
+      .map(function (x) {
+        return chip(esc(x.raw_text || x.capability + " " + x.constraint), "warn");
+      })
+      .join("");
+    html += tstage("🗣 자연어 지시", "자율 제안 억제(안전 제외)", dv);
+  }
+  // ② 선호 임베딩(개인화)
+  if (d.embedding)
+    html += tstage(
+      "② 선호 임베딩",
+      "맥락별 개인화 (유튜브식)",
+      chip("선호 " + Number(d.embedding.preference).toFixed(2)) +
+        '<div class="tsub mono">' +
+        esc(d.embedding.cell) +
+        "</div><div class=\"tsub\">" +
+        esc(d.embedding.note) +
+        "</div>",
+    );
+  // ③ 2갈래 제안 (Line A · ML / Line B · LLM)
+  if (d.lines && (d.lines.line_a.length || d.lines.line_b.length)) {
+    var lineRow = function (label, arr, cls) {
+      var inner = !arr || !arr.length
+        ? "—"
+        : arr
+            .map(function (x) {
+              return (
+                '<span class="tlbl">' +
+                esc(x.label) +
+                " · " +
+                (x.line_confidence != null
+                  ? Number(x.line_confidence).toFixed(2)
+                  : "") +
+                "</span>"
+              );
+            })
+            .join("");
+      return (
+        '<div class="tline t-' + cls + '"><b>' + label + "</b>" + inner + "</div>"
+      );
+    };
+    html += tstage(
+      "③ 2갈래 제안",
+      "ML · LLM 라인이 각각 제안",
+      lineRow("Line A · ML", d.lines.line_a, "a") +
+        lineRow("Line B · LLM", d.lines.line_b, "b"),
+    );
+  }
   if (d.candidates && d.candidates.length) {
     var rows = d.candidates
       .map(function (c) {
@@ -1123,11 +1187,14 @@ function renderTrace(d) {
       })
       .join("");
     html += tstage(
-      "L2 · 후보 평가",
-      "여러 행동을 점수로 겨룸",
+      "④ 아비터 · 융합",
+      "결정론 가중합으로 최종 1개 선택",
       '<div class="cand-wrap">' +
         rows +
         "</div>" +
+        (d.arbiter && d.arbiter.origin
+          ? '<p class="tsub mono">합의: ' + esc(d.arbiter.origin) + "</p>"
+          : "") +
         (d.evaluation
           ? '<p class="tsub">' + esc(d.evaluation.rationale) + "</p>"
           : ""),
@@ -1366,8 +1433,72 @@ $("reset").addEventListener("click", function () {
   setAlarm(false);
   resetRoomLight();
   closePhone();
+  clearDirectives();
   $("traceBody").innerHTML =
     '<div class="trace-idle"><p>기기를 겨눠 조작하고 <b>실행</b>하면<br />여기에 실제 판단 과정이 내려옵니다.</p></div>';
+});
+
+/* ===== 자연어 지시(대화형 오버라이드) ===== */
+/**
+ * 활성 지시를 도크에 칩으로 표시한다(해제 버튼 포함).
+ * @param {Array<object>} active 활성 지시 목록
+ */
+function renderDirectives(active) {
+  var el = $("dirActive");
+  if (!active || !active.length) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  el.hidden = false;
+  el.innerHTML =
+    active
+      .map(function (d) {
+        return (
+          '<span class="dir-chip">' +
+          esc(d.raw_text || d.capability + " " + d.constraint) +
+          "</span>"
+        );
+      })
+      .join("") + '<button class="dir-clear" id="dirClear">해제</button>';
+  $("dirClear").addEventListener("click", clearDirectives);
+}
+/** 입력한 자연어 지시를 서버에 보내고 활성 목록을 갱신한다. */
+function sendDirective() {
+  var txt = $("dirInput").value.trim();
+  if (!txt) return;
+  fetch("/api/directive", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: txt }),
+  })
+    .then(function (r) {
+      return r.json();
+    })
+    .then(function (d) {
+      $("dirInput").value = "";
+      renderDirectives(d.active || []);
+    })
+    .catch(function () {});
+}
+/** 활성 지시를 모두 해제한다. */
+function clearDirectives() {
+  fetch("/api/directive", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reset: true }),
+  })
+    .then(function () {
+      renderDirectives([]);
+    })
+    .catch(function () {});
+}
+$("dirSend").addEventListener("click", sendDirective);
+$("dirInput").addEventListener("keydown", function (e) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    sendDirective();
+  }
 });
 
 /* ===== 시작 ===== */

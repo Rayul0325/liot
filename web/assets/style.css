@@ -3791,3 +3791,94 @@ input[type="range"]:focus-visible {
     animation: none;
   }
 }
+
+/* ============================================================
+   3D 랩 — 자연어 지시 채팅 + 2갈래 제안 트레이스 (Phase 6)
+   ============================================================ */
+
+/* 도크 자연어 지시 입력 행 */
+.dock-chat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dock-chat #dirInput {
+  flex: 1 1 260px;
+  min-width: 200px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(243, 239, 233, 0.14);
+  background: rgba(13, 10, 9, 0.6);
+  color: #f3efe9;
+  font-size: 13px;
+  font-family: inherit;
+}
+.dock-chat #dirInput::placeholder {
+  color: #7d7468;
+}
+.dock-chat #dirInput:focus-visible {
+  outline: 2px solid #ff5c38;
+  outline-offset: 1px;
+}
+.dir-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.dir-active[hidden] {
+  display: none;
+}
+.dir-chip {
+  font-size: 11.5px;
+  color: #ffd0a0;
+  background: rgba(255, 92, 56, 0.16);
+  border: 1px solid rgba(255, 92, 56, 0.4);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.dir-clear {
+  font-size: 11px;
+  color: #9a9186;
+  background: none;
+  border: 1px solid rgba(243, 239, 233, 0.16);
+  border-radius: 999px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+.dir-clear:hover {
+  color: #f3efe9;
+  border-color: #ff5c38;
+}
+
+/* 2갈래 제안(Line A / Line B) 트레이스 행 */
+.tline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  padding: 5px 0;
+  color: #c9c0b4;
+}
+.tline b {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.tline.t-a b {
+  color: #e8b44f;
+  background: rgba(232, 180, 79, 0.14);
+}
+.tline.t-b b {
+  color: #7fb0d6;
+  background: rgba(127, 176, 214, 0.14);
+}
+.tline .tlbl {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: #c9c0b4;
+}

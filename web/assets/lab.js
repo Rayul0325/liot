@@ -450,15 +450,82 @@
       );
     }
 
-    // 후보 + 평가 (tick)
+    // ① 트리거 감지
+    if (d.trigger) {
+      html += stage(
+        "① 트리거 감지",
+        d.trigger.source === "llm" ? "LLM 옵트인" : "규칙 상시",
+        chip(d.trigger.kind || "") +
+          (d.trigger.origin
+            ? '<span class="thash">' + esc(d.trigger.origin) + "</span>"
+            : ""),
+      );
+    }
+    // 자연어 지시(활성)
+    if (d.directives && d.directives.active && d.directives.active.length) {
+      html += stage(
+        "🗣 자연어 지시",
+        "자율 제안 억제(안전 제외)",
+        d.directives.active
+          .map(function (x) {
+            return chip(x.raw_text || x.capability + " " + x.constraint, "warn");
+          })
+          .join(""),
+      );
+    }
+    // ② 선호 임베딩
+    if (d.embedding) {
+      html += stage(
+        "② 선호 임베딩",
+        "맥락별 개인화 (유튜브식)",
+        chip("선호 " + Number(d.embedding.preference).toFixed(2)) +
+          '<span class="thash">' +
+          esc(d.embedding.cell) +
+          "</span><p class=\"tsub\">" +
+          esc(d.embedding.note) +
+          "</p>",
+      );
+    }
+    // ③ 2갈래 제안 (Line A · ML / Line B · LLM)
+    if (d.lines && (d.lines.line_a.length || d.lines.line_b.length)) {
+      var lr = function (label, arr, cls) {
+        var inner = !arr || !arr.length
+          ? "—"
+          : arr
+              .map(function (x) {
+                return (
+                  '<span class="tlbl">' +
+                  esc(x.label) +
+                  " · " +
+                  (x.line_confidence != null
+                    ? Number(x.line_confidence).toFixed(2)
+                    : "") +
+                  "</span>"
+                );
+              })
+              .join("");
+        return '<div class="tline t-' + cls + '"><b>' + label + "</b>" + inner + "</div>";
+      };
+      html += stage(
+        "③ 2갈래 제안",
+        "ML · LLM 라인이 각각 제안",
+        lr("Line A · ML", d.lines.line_a, "a") +
+          lr("Line B · LLM", d.lines.line_b, "b"),
+      );
+    }
+    // ④ 아비터 · 융합 (후보 + 평가)
     if (d.candidates && d.candidates.length) {
+      var arbline =
+        d.arbiter && d.arbiter.origin
+          ? '<p class="tsub thash">합의: ' + esc(d.arbiter.origin) + "</p>"
+          : "";
       var evline = d.evaluation
         ? '<p class="tsub">' + esc(d.evaluation.rationale) + "</p>"
         : "";
       html += stage(
-        "Layer 2 · 후보 생성·평가",
-        "여러 행동을 점수로 겨룸",
-        candBoard(d.candidates) + evline,
+        "④ 아비터 · 융합",
+        "결정론 가중합으로 최종 1개 선택",
+        candBoard(d.candidates) + arbline + evline,
       );
     }
 
