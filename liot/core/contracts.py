@@ -258,7 +258,10 @@ class ActionCandidate(BaseModel):
     safety_risk: float = 0.0
     final_score: float = 0.0
     reason: str = ""
-    origin: str = ""  # "rule:<id>" | "llm" | "noop"
+    origin: str = ""  # "rule:<id>" | "line_a:ml" | "line_b:llm" | "llm" | "noop"
+    # 제안 라인이 실은 자신감(0~1). v1 은 텔레메트리/타이브레이크 전용이며
+    # final_score 에 개입하지 않는다(결정론 아비터 = evaluator 무변경 유지).
+    line_confidence: float = 0.0
 
 
 class CandidateSet(BaseModel):

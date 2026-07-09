@@ -110,6 +110,42 @@ class DeviceCatalog:
             return RiskTier.EMBER  # tier 누락 -> default-deny
         return RiskTier.from_str(base)
 
+    # ------------------------------------------------------------------
+    # 조작 가능한 행동 열거 (LLM 제안 라인 입력)
+    # ------------------------------------------------------------------
+    def available_actions(self) -> list[dict[str, Any]]:
+        """조작 가능한 (entity_id, capability, action, tier) 목록을 열거한다.
+
+        LLM 제안 라인(Line B)이 '무엇을 어떻게 조작할 수 있는지' 알도록 기계
+        판독 가능한 행동 목록을 만든다. 등록된 디바이스(_devices) × 그 capability
+        의 액션(_capabilities)을 교차한 결정론적 결과다.
+
+        위험도(tier)는 ``risk_for`` 가 유일 권위 — 여기서 새로 정하지 않는다.
+        이 목록은 후보 '생성 상한'일 뿐이며, 최종 안전 판정은 여전히
+        ``validate_proactive_candidate``/Gate1 이 한다(이 목록은 권위가 아니라
+        필터 입력이다).
+        """
+        out: list[dict[str, Any]] = []
+        for eid in sorted(self._devices):
+            cap = self._devices[eid].get("capability")
+            if not cap:
+                continue
+            cap_map = self._capabilities.get(cap)
+            if not isinstance(cap_map, dict):
+                continue
+            for action in sorted(cap_map):
+                tier = self.risk_for(str(cap), str(action), {})
+                out.append(
+                    {
+                        "entity_id": eid,
+                        "capability": str(cap),
+                        "action": str(action),
+                        "category": self._devices[eid].get("category"),
+                        "tier": tier.name.lower(),
+                    }
+                )
+        return out
+
     @staticmethod
     def _infer_direction(
         action: str,
