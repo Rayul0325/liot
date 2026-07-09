@@ -3,8 +3,12 @@
 (function () {
   "use strict";
 
-  var $ = function (id) { return document.getElementById(id); };
-  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var $ = function (id) {
+    return document.getElementById(id);
+  };
+  var reduceMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
 
   /**
    * HTML 특수문자를 이스케이프한다(innerHTML 삽입 전 XSS 방지).
@@ -13,7 +17,9 @@
    */
   function esc(s) {
     return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
   }
 
@@ -28,7 +34,9 @@
     box.addEventListener("click", function (e) {
       var b = e.target.closest("button");
       if (!b) return;
-      box.querySelectorAll("button").forEach(function (x) { x.classList.remove("on"); });
+      box.querySelectorAll("button").forEach(function (x) {
+        x.classList.remove("on");
+      });
       b.classList.add("on");
     });
     return function () {
@@ -47,14 +55,26 @@
    * @param {(v: string) => string} fmt 표시 포맷터
    */
   function bind(id, vid, fmt) {
-    var el = $(id), out = $(vid);
-    var upd = function () { out.textContent = fmt(el.value); };
-    el.addEventListener("input", upd); upd();
+    var el = $(id),
+      out = $(vid);
+    var upd = function () {
+      out.textContent = fmt(el.value);
+    };
+    el.addEventListener("input", upd);
+    upd();
   }
-  bind("s_temp", "s_temp_v", function (v) { return v + "°C"; });
-  bind("s_hum", "s_hum_v", function (v) { return v + "%"; });
-  bind("ext_temp", "ext_temp_v", function (v) { return v + "°C"; });
-  bind("ext_aqi", "ext_aqi_v", function (v) { return v; });
+  bind("s_temp", "s_temp_v", function (v) {
+    return v + "°C";
+  });
+  bind("s_hum", "s_hum_v", function (v) {
+    return v + "%";
+  });
+  bind("ext_temp", "ext_temp_v", function (v) {
+    return v + "°C";
+  });
+  bind("ext_aqi", "ext_aqi_v", function (v) {
+    return v;
+  });
 
   /* ---------- 외기 토글 → 슬라이더 표시 ---------- */
   $("ext_on").addEventListener("change", function () {
@@ -65,10 +85,44 @@
 
   /* ---------- 프리셋 ---------- */
   var PRESETS = {
-    vacant: { motion: false, light: true, gas: false, smoke: false, leak: false, temp: 22, time: "evening" },
-    gas:    { motion: true,  light: true, gas: true,  smoke: false, leak: false, temp: 21, time: "night" },
-    cold:   { motion: true,  light: true, gas: false, smoke: false, leak: false, temp: 16, time: "evening", ext: true, extTemp: 1 },
-    occupied:{ motion: true, light: true, gas: false, smoke: false, leak: false, temp: 23, time: "day" },
+    vacant: {
+      motion: false,
+      light: true,
+      gas: false,
+      smoke: false,
+      leak: false,
+      temp: 22,
+      time: "evening",
+    },
+    gas: {
+      motion: true,
+      light: true,
+      gas: true,
+      smoke: false,
+      leak: false,
+      temp: 21,
+      time: "night",
+    },
+    cold: {
+      motion: true,
+      light: true,
+      gas: false,
+      smoke: false,
+      leak: false,
+      temp: 16,
+      time: "evening",
+      ext: true,
+      extTemp: 1,
+    },
+    occupied: {
+      motion: true,
+      light: true,
+      gas: false,
+      smoke: false,
+      leak: false,
+      temp: 23,
+      time: "day",
+    },
   };
   /**
    * 세그먼트 그룹의 선택 상태를 프로그램적으로 지정한다(프리셋 적용용).
@@ -82,17 +136,31 @@
     });
   }
   $("presets").addEventListener("click", function (e) {
-    var b = e.target.closest(".preset"); if (!b) return;
-    var p = PRESETS[b.getAttribute("data-preset")]; if (!p) return;
-    $("s_motion").checked = p.motion; $("s_light").checked = p.light;
-    $("s_gas").checked = p.gas; $("s_smoke").checked = p.smoke; $("s_leak").checked = p.leak;
-    $("s_temp").value = p.temp; $("s_temp").dispatchEvent(new Event("input"));
+    var b = e.target.closest(".preset");
+    if (!b) return;
+    var p = PRESETS[b.getAttribute("data-preset")];
+    if (!p) return;
+    $("s_motion").checked = p.motion;
+    $("s_light").checked = p.light;
+    $("s_gas").checked = p.gas;
+    $("s_smoke").checked = p.smoke;
+    $("s_leak").checked = p.leak;
+    $("s_temp").value = p.temp;
+    $("s_temp").dispatchEvent(new Event("input"));
     setSeg("time", p.time);
-    if (p.ext) { $("ext_on").checked = true; $("ext_temp").value = p.extTemp; }
-    else { $("ext_on").checked = false; }
+    if (p.ext) {
+      $("ext_on").checked = true;
+      $("ext_temp").value = p.extTemp;
+    } else {
+      $("ext_on").checked = false;
+    }
     $("ext_on").dispatchEvent(new Event("change"));
     $("ext_temp").dispatchEvent(new Event("input"));
-    $("presets").querySelectorAll(".preset").forEach(function (x) { x.classList.remove("on"); });
+    $("presets")
+      .querySelectorAll(".preset")
+      .forEach(function (x) {
+        x.classList.remove("on");
+      });
     b.classList.add("on");
   });
 
@@ -124,7 +192,10 @@
       },
     };
     if ($("ext_on").checked) {
-      body.outdoor = { temp_c: parseFloat($("ext_temp").value), aqi: parseInt($("ext_aqi").value, 10) };
+      body.outdoor = {
+        temp_c: parseFloat($("ext_temp").value),
+        aqi: parseInt($("ext_aqi").value, 10),
+      };
     }
     if (event) body.event = event;
     return body;
@@ -140,8 +211,17 @@
    */
   function tierPill(t) {
     if (!t) return "";
-    return '<span class="tierpill is-' + esc(t.name) + '">' + esc(t.glyph) + " " + esc(t.ko) +
-      " · " + esc(t.name.toUpperCase()) + "</span>";
+    return (
+      '<span class="tierpill is-' +
+      esc(t.name) +
+      '">' +
+      esc(t.glyph) +
+      " " +
+      esc(t.ko) +
+      " · " +
+      esc(t.name.toUpperCase()) +
+      "</span>"
+    );
   }
 
   /**
@@ -153,10 +233,20 @@
    * @returns {string} 단계 HTML
    */
   function stage(layer, title, inner, cls) {
-    return '<div class="tstage ' + (cls || "") + '">' +
-      '<div class="tstage-head"><span class="tstage-layer">' + esc(layer) + "</span>" +
-      '<h4>' + esc(title) + "</h4></div>" +
-      '<div class="tstage-body">' + inner + "</div></div>";
+    return (
+      '<div class="tstage ' +
+      (cls || "") +
+      '">' +
+      '<div class="tstage-head"><span class="tstage-layer">' +
+      esc(layer) +
+      "</span>" +
+      "<h4>" +
+      esc(title) +
+      "</h4></div>" +
+      '<div class="tstage-body">' +
+      inner +
+      "</div></div>"
+    );
   }
 
   /**
@@ -165,7 +255,9 @@
    * @param {string} [cls] 톤 클래스(ok/warn/danger/muted/llm)
    * @returns {string} 칩 HTML
    */
-  function chip(txt, cls) { return '<span class="tchip ' + (cls || "") + '">' + esc(txt) + "</span>"; }
+  function chip(txt, cls) {
+    return '<span class="tchip ' + (cls || "") + '">' + esc(txt) + "</span>";
+  }
 
   /**
    * 후보 점수판(각 후보의 final_score 막대 + 세부 지표)을 렌더한다.
@@ -174,20 +266,41 @@
    */
   function candBoard(cands) {
     if (!cands || !cands.length) return "";
-    var rows = cands.map(function (c) {
-      var w = Math.max(0, Math.min(1, c.final_score)) * 100;
-      var name = c.is_noop ? "아무것도 하지 않기" : (c.capability + "." + c.action);
-      var cls = c.is_selected ? "is-picked" : (c.is_noop ? "is-noop" : "");
-      return '<div class="cand-row ' + cls + '">' +
-        '<div class="cand-head"><span class="cand-name">' + esc(name) + "</span>" +
-        '<span class="cand-origin">' + esc(c.origin || "") + "</span></div>" +
-        '<div class="cand-track"><i class="cand-fill" style="width:' + w.toFixed(1) + '%"></i>' +
-        '<b class="cand-score">' + c.final_score.toFixed(2) + "</b></div>" +
-        '<div class="cand-mini">효과 ' + c.expected_effect.toFixed(2) +
-        " · 선호 " + c.user_preference_fit.toFixed(2) +
-        " · 에너지 " + c.energy_cost.toFixed(2) +
-        " · 안전위험 " + c.safety_risk.toFixed(2) + "</div></div>";
-    }).join("");
+    var rows = cands
+      .map(function (c) {
+        var w = Math.max(0, Math.min(1, c.final_score)) * 100;
+        var name = c.is_noop
+          ? "아무것도 하지 않기"
+          : c.capability + "." + c.action;
+        var cls = c.is_selected ? "is-picked" : c.is_noop ? "is-noop" : "";
+        return (
+          '<div class="cand-row ' +
+          cls +
+          '">' +
+          '<div class="cand-head"><span class="cand-name">' +
+          esc(name) +
+          "</span>" +
+          '<span class="cand-origin">' +
+          esc(c.origin || "") +
+          "</span></div>" +
+          '<div class="cand-track"><i class="cand-fill" style="width:' +
+          w.toFixed(1) +
+          '%"></i>' +
+          '<b class="cand-score">' +
+          c.final_score.toFixed(2) +
+          "</b></div>" +
+          '<div class="cand-mini">효과 ' +
+          c.expected_effect.toFixed(2) +
+          " · 선호 " +
+          c.user_preference_fit.toFixed(2) +
+          " · 에너지 " +
+          c.energy_cost.toFixed(2) +
+          " · 안전위험 " +
+          c.safety_risk.toFixed(2) +
+          "</div></div>"
+        );
+      })
+      .join("");
     return '<div class="cand-wrap">' + rows + "</div>";
   }
 
@@ -199,19 +312,56 @@
    */
   function notiCard(p, iv) {
     var t = p.tier;
-    var conf = { none: "확인 없이 알림", light: "가벼운 터치 확인", explicit: "명시적 확인", double: "이중 확인" };
-    var execTxt = { auto: "자동 실행", confirm: "단일 확인 후 실행", double_confirm: "이중 확인 후 실행", notify_only: "알림만(실행 안 함)" };
-    return '<div class="result-card tone-' + esc(t.name) + '">' +
-      '<div class="rc-top">' + tierPill(t) +
-      '<span class="rc-origin">' + esc(p.origin || "") + "</span></div>" +
-      '<p class="rc-action">' + esc(p.capability + "." + p.action) + " → <b>" + esc(p.entity_id) + "</b></p>" +
-      '<p class="rc-rationale">' + esc(p.rationale) + "</p>" +
+    var conf = {
+      none: "확인 없이 알림",
+      light: "가벼운 터치 확인",
+      explicit: "명시적 확인",
+      double: "이중 확인",
+    };
+    var execTxt = {
+      auto: "자동 실행",
+      confirm: "단일 확인 후 실행",
+      double_confirm: "이중 확인 후 실행",
+      notify_only: "알림만(실행 안 함)",
+    };
+    return (
+      '<div class="result-card tone-' +
+      esc(t.name) +
+      '">' +
+      '<div class="rc-top">' +
+      tierPill(t) +
+      '<span class="rc-origin">' +
+      esc(p.origin || "") +
+      "</span></div>" +
+      '<p class="rc-action">' +
+      esc(p.capability + "." + p.action) +
+      " → <b>" +
+      esc(p.entity_id) +
+      "</b></p>" +
+      '<p class="rc-rationale">' +
+      esc(p.rationale) +
+      "</p>" +
       '<div class="rc-foot">' +
-      chip("개입 " + (iv ? iv.condition : "") + " · " + (conf[p.required_confirmation] || p.required_confirmation), "") +
-      (iv ? chip("실행 판정: " + (execTxt[iv.execution_decision] || iv.execution_decision) +
-        (iv.execution_enabled ? "" : " (옵트인 OFF)"), "") : "") +
-      (p.expires_at ? chip("만료 " + esc(p.expires_at.slice(11, 16)), "muted") : "") +
-      "</div></div>";
+      chip(
+        "개입 " +
+          (iv ? iv.condition : "") +
+          " · " +
+          (conf[p.required_confirmation] || p.required_confirmation),
+        "",
+      ) +
+      (iv
+        ? chip(
+            "실행 판정: " +
+              (execTxt[iv.execution_decision] || iv.execution_decision) +
+              (iv.execution_enabled ? "" : " (옵트인 OFF)"),
+            "",
+          )
+        : "") +
+      (p.expires_at
+        ? chip("만료 " + esc(p.expires_at.slice(11, 16)), "muted")
+        : "") +
+      "</div></div>"
+    );
   }
 
   /**
@@ -220,10 +370,14 @@
    * @returns {string} 침묵 카드 HTML
    */
   function silenceCard(reason) {
-    return '<div class="result-card tone-silent">' +
+    return (
+      '<div class="result-card tone-silent">' +
       '<div class="rc-top"><span class="tierpill is-silent">◌ 침묵</span></div>' +
-      '<p class="rc-rationale">' + esc(reason) + "</p>" +
-      '<p class="rc-note">아무것도 도착하지 않았습니다 — 그리고 그것이 정답일 수 있습니다.</p></div>';
+      '<p class="rc-rationale">' +
+      esc(reason) +
+      "</p>" +
+      '<p class="rc-note">아무것도 도착하지 않았습니다 — 그리고 그것이 정답일 수 있습니다.</p></div>'
+    );
   }
 
   /* ---------- 메인 렌더 ---------- */
@@ -234,83 +388,156 @@
   function render(d) {
     var badges = $("traceBadges");
     if (!d.ok) {
-      $("traceBody").innerHTML = '<div class="trace-err">파이프라인 오류: ' + esc(d.error) + "</div>";
+      $("traceBody").innerHTML =
+        '<div class="trace-err">파이프라인 오류: ' + esc(d.error) + "</div>";
       badges.innerHTML = "";
       return;
     }
     var inp = d.input || {};
     badges.innerHTML =
-      chip((inp.time_bucket || "") + " · " + (inp.occupancy === "vacant" ? "비어있음" : "재실"), "") +
+      chip(
+        (inp.time_bucket || "") +
+          " · " +
+          (inp.occupancy === "vacant" ? "비어있음" : "재실"),
+        "",
+      ) +
       chip("조건 " + inp.condition, "") +
       (inp.llm && inp.llm.enabled
-        ? chip("LLM " + inp.llm.model + " · " + (d.timing_ms ? d.timing_ms.pipeline_and_llm + "ms" : ""), "llm")
+        ? chip(
+            "LLM " +
+              inp.llm.model +
+              " · " +
+              (d.timing_ms ? d.timing_ms.pipeline_and_llm + "ms" : ""),
+            "llm",
+          )
         : chip("LLM off (FakeLLM)", "muted"));
 
     var html = "";
 
     // L1
-    var stChips = Object.keys(inp.state || {}).map(function (k) {
-      var v = inp.state[k]; var lbl = k.split(".").pop();
-      return chip(lbl + "=" + (typeof v === "boolean" ? (v ? "on" : "off") : v), "");
-    }).join("");
-    html += stage("Layer 1 · 감지", "센서 상태 정규화",
-      stChips + (inp.outdoor ? '<div class="tsub">외기: ' + esc(JSON.stringify(inp.outdoor)) + "</div>" : ""));
+    var stChips = Object.keys(inp.state || {})
+      .map(function (k) {
+        var v = inp.state[k];
+        var lbl = k.split(".").pop();
+        return chip(
+          lbl + "=" + (typeof v === "boolean" ? (v ? "on" : "off") : v),
+          "",
+        );
+      })
+      .join("");
+    html += stage(
+      "Layer 1 · 감지",
+      "센서 상태 정규화",
+      stChips +
+        (inp.outdoor
+          ? '<div class="tsub">외기: ' +
+            esc(JSON.stringify(inp.outdoor)) +
+            "</div>"
+          : ""),
+    );
 
     // L2 snapshot
     if (d.snapshot) {
-      html += stage("Layer 2 · 맥락", "스냅샷 고정",
-        '<p class="tsub">' + esc(d.snapshot.nl_summary || "(요약 없음)") + "</p>" +
-        '<span class="thash">hash ' + esc(d.snapshot.snapshot_hash) + "…</span>");
+      html += stage(
+        "Layer 2 · 맥락",
+        "스냅샷 고정",
+        '<p class="tsub">' +
+          esc(d.snapshot.nl_summary || "(요약 없음)") +
+          "</p>" +
+          '<span class="thash">hash ' +
+          esc(d.snapshot.snapshot_hash) +
+          "…</span>",
+      );
     }
 
     // 후보 + 평가 (tick)
     if (d.candidates && d.candidates.length) {
       var evline = d.evaluation
-        ? '<p class="tsub">' + esc(d.evaluation.rationale) + "</p>" : "";
-      html += stage("Layer 2 · 후보 생성·평가", "여러 행동을 점수로 겨룸",
-        candBoard(d.candidates) + evline);
+        ? '<p class="tsub">' + esc(d.evaluation.rationale) + "</p>"
+        : "";
+      html += stage(
+        "Layer 2 · 후보 생성·평가",
+        "여러 행동을 점수로 겨룸",
+        candBoard(d.candidates) + evline,
+      );
     }
 
     // Gate1
     if (d.gate1) {
-      html += stage("Layer 3 · Gate 1", "결정론적 안전 게이트",
-        tierPill(d.gate1.floor_tier) + " 하한 부여 " +
-        (d.gate1.safety_critical ? chip("SAFETY-CRITICAL", "danger") : "") +
-        (d.gate1.blocked ? chip("BLOCKED", "danger") : "") +
-        '<div class="tsub mono">' + esc(d.gate1.verdict) + "</div>");
+      html += stage(
+        "Layer 3 · Gate 1",
+        "결정론적 안전 게이트",
+        tierPill(d.gate1.floor_tier) +
+          " 하한 부여 " +
+          (d.gate1.safety_critical ? chip("SAFETY-CRITICAL", "danger") : "") +
+          (d.gate1.blocked ? chip("BLOCKED", "danger") : "") +
+          '<div class="tsub mono">' +
+          esc(d.gate1.verdict) +
+          "</div>",
+      );
     }
 
     // Gate2 LLM
     if (d.gate2) {
-      var vmap = { concur: "동의(승격 없음)", injection_suspect: "인젝션 의심 — 무시", degraded_fail_safe: "LLM 비가용 → 보수적 강등", escalated: "위험도 승격" };
-      var vcls = d.gate2.degraded ? "warn" : (d.gate2.verdict === "injection_suspect" ? "danger" : "ok");
-      html += stage("Layer 3 · Gate 2", "로컬 LLM 교차 검증 (승격만 가능)",
+      var vmap = {
+        concur: "동의(승격 없음)",
+        injection_suspect: "인젝션 의심 — 무시",
+        degraded_fail_safe: "LLM 비가용 → 보수적 강등",
+        escalated: "위험도 승격",
+      };
+      var vcls = d.gate2.degraded
+        ? "warn"
+        : d.gate2.verdict === "injection_suspect"
+          ? "danger"
+          : "ok";
+      html += stage(
+        "Layer 3 · Gate 2",
+        "로컬 LLM 교차 검증 (승격만 가능)",
         chip(vmap[d.gate2.verdict] || d.gate2.verdict, vcls) +
-        chip("conf " + d.gate2.confidence, "") +
-        '<div class="tsub mono">' + esc(d.gate2.model_id) + (d.gate2.degraded ? " · degraded" : "") + "</div>");
+          chip("conf " + d.gate2.confidence, "") +
+          '<div class="tsub mono">' +
+          esc(d.gate2.model_id) +
+          (d.gate2.degraded ? " · degraded" : "") +
+          "</div>",
+      );
     }
 
     // 판정
     if (d.judgment) {
-      html += stage("Layer 3 · 판정", "최종 위험도 = max(Gate1, Gate2)",
+      html += stage(
+        "Layer 3 · 판정",
+        "최종 위험도 = max(Gate1, Gate2)",
         tierPill(d.judgment.risk_tier) +
-        '<p class="tsub">' + esc(d.judgment.rationale) + "</p>");
+          '<p class="tsub">' +
+          esc(d.judgment.rationale) +
+          "</p>",
+      );
     }
 
     // 결과
-    html += '<div class="tstage result">' +
+    html +=
+      '<div class="tstage result">' +
       '<div class="tstage-head"><span class="tstage-layer">Layer 4 · 개입</span><h4>' +
-      (d.silence ? "침묵" : "휴대폰 알림 도착") + "</h4></div><div class=\"tstage-body\">" +
-      (d.silence ? silenceCard(d.silence_reason) : notiCard(d.proposal, d.intervention)) +
+      (d.silence ? "침묵" : "휴대폰 알림 도착") +
+      '</h4></div><div class="tstage-body">' +
+      (d.silence
+        ? silenceCard(d.silence_reason)
+        : notiCard(d.proposal, d.intervention)) +
       "</div></div>";
 
     $("traceBody").innerHTML = html;
 
     if (!reduceMotion) {
       requestAnimationFrame(function () {
-        $("traceBody").querySelectorAll(".cand-fill").forEach(function (el) {
-          var w = el.style.width; el.style.width = "0"; requestAnimationFrame(function () { el.style.width = w; });
-        });
+        $("traceBody")
+          .querySelectorAll(".cand-fill")
+          .forEach(function (el) {
+            var w = el.style.width;
+            el.style.width = "0";
+            requestAnimationFrame(function () {
+              el.style.width = w;
+            });
+          });
       });
     }
   }
@@ -326,32 +553,46 @@
     if (busy) return;
     busy = true;
     $("liveTag").hidden = false;
-    document.querySelectorAll(".lab-run").forEach(function (b) { b.disabled = true; });
+    document.querySelectorAll(".lab-run").forEach(function (b) {
+      b.disabled = true;
+    });
     fetch("/api/simulate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(readBody(mode, event)),
     })
-      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        return r.json();
+      })
       .then(render)
       .catch(function (e) {
-        $("traceBody").innerHTML = '<div class="trace-err">요청 실패: ' + esc(e.message) +
+        $("traceBody").innerHTML =
+          '<div class="trace-err">요청 실패: ' +
+          esc(e.message) +
           '<br /><span class="tsub">데모 서버가 켜져 있나요? <code>python -m liot.demo_server</code></span></div>';
       })
       .finally(function () {
         busy = false;
         $("liveTag").hidden = true;
-        document.querySelectorAll(".lab-run").forEach(function (b) { b.disabled = false; });
+        document.querySelectorAll(".lab-run").forEach(function (b) {
+          b.disabled = false;
+        });
       });
   }
 
-  $("runTick").addEventListener("click", function () { run("tick"); });
+  $("runTick").addEventListener("click", function () {
+    run("tick");
+  });
   $("runEvent").addEventListener("click", function () {
     var v = $("eventEntity").value;
     var ev;
     if (v.indexOf(":") >= 0) {
       var parts = v.split(":");
-      ev = { entity: parts[0], value: parts[1] === "turn_on", action: parts[1] };
+      ev = {
+        entity: parts[0],
+        value: parts[1] === "turn_on",
+        action: parts[1],
+      };
     } else {
       ev = { entity: v, value: true };
     }
