@@ -72,10 +72,17 @@ sun.shadow.camera.right = 10;
 sun.shadow.camera.top = 10;
 sun.shadow.camera.bottom = -10;
 scene.add(sun);
-/* 천장 조명이 켜졌을 때의 실내 포인트 라이트 */
-var roomLight = new THREE.PointLight(0xffc98a, 0, 20, 2);
+/* 천장 조명이 켜졌을 때의 실내 포인트 라이트.
+   decay 를 낮추고(1.3) 도달거리를 늘려(26) 방 전체가 따뜻하게 차도록 한다. */
+var ROOM_LIGHT_ON = 6.0; // 조명 ON 시 포인트 라이트 세기(따뜻한 빛 웅덩이)
+var roomLight = new THREE.PointLight(0xffc98a, 0, 26, 1.3);
 roomLight.position.set(0, 3.6, 0);
 scene.add(roomLight);
+/* 조명 ON 시 켜지는 따뜻한 실내 필 조명 — 낮밤 앰비언트(밤엔 어두운 남색)만으론
+   세기를 올려도 방이 어둡게 보이므로, 균일한 따뜻한 백색으로 방 전체를 들어올린다. */
+var roomFill = new THREE.AmbientLight(0xffdcae, 0);
+scene.add(roomFill);
+var ROOM_FILL_ON = 0.7;
 
 /* ===== 헬퍼 ===== */
 /**
@@ -252,7 +259,9 @@ function stepDaylight(dt) {
   scene.fog.far = dl.fogF;
   amb.color.copy(dl.skyHemi);
   amb.groundColor.copy(dl.groundHemi);
-  amb.intensity = dl.ambInt + (devices.light && devices.light.on ? 0.32 : 0);
+  var lightOn = devices.light && devices.light.on;
+  amb.intensity = dl.ambInt + (lightOn ? 0.3 : 0);
+  roomFill.intensity = lightOn ? ROOM_FILL_ON : 0;
   sun.color.copy(dl.sunCol);
   sun.intensity = dl.sunInt;
   sun.position.set(dl.sunPos[0], dl.sunPos[1], dl.sunPos[2]);
@@ -439,7 +448,7 @@ function reg(id, label, sensorKey, group, anchor, setter, opts) {
       bulb.material.emissive.setHex(on ? 0xffd39a : 0x000000);
       bulb.material.emissiveIntensity = on ? 1.5 : 0;
       bulb.material.color.setHex(on ? 0xfff1d8 : 0x3a352e);
-      roomLight.intensity = on ? 1.5 : 0.0;
+      roomLight.intensity = on ? ROOM_LIGHT_ON : 0.0;
     },
     { on: true },
   );
@@ -822,7 +831,10 @@ var CODE = {
 document.addEventListener("keydown", function (e) {
   // 텍스트 입력(자연어 지시) 중엔 WASD/단축키를 가로채지 않는다.
   var t = e.target;
-  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable))
+  if (
+    t &&
+    (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)
+  )
     return;
   if (CODE[e.code]) {
     keys[CODE[e.code]] = true;
@@ -1118,7 +1130,10 @@ function renderTrace(d) {
   if (d.directives && d.directives.active && d.directives.active.length) {
     var dv = d.directives.active
       .map(function (x) {
-        return chip(esc(x.raw_text || x.capability + " " + x.constraint), "warn");
+        return chip(
+          esc(x.raw_text || x.capability + " " + x.constraint),
+          "warn",
+        );
       })
       .join("");
     html += tstage("🗣 자연어 지시", "자율 제안 억제(안전 제외)", dv);
@@ -1131,30 +1146,37 @@ function renderTrace(d) {
       chip("선호 " + Number(d.embedding.preference).toFixed(2)) +
         '<div class="tsub mono">' +
         esc(d.embedding.cell) +
-        "</div><div class=\"tsub\">" +
+        '</div><div class="tsub">' +
         esc(d.embedding.note) +
         "</div>",
     );
   // ③ 2갈래 제안 (Line A · ML / Line B · LLM)
   if (d.lines && (d.lines.line_a.length || d.lines.line_b.length)) {
     var lineRow = function (label, arr, cls) {
-      var inner = !arr || !arr.length
-        ? "—"
-        : arr
-            .map(function (x) {
-              return (
-                '<span class="tlbl">' +
-                esc(x.label) +
-                " · " +
-                (x.line_confidence != null
-                  ? Number(x.line_confidence).toFixed(2)
-                  : "") +
-                "</span>"
-              );
-            })
-            .join("");
+      var inner =
+        !arr || !arr.length
+          ? "—"
+          : arr
+              .map(function (x) {
+                return (
+                  '<span class="tlbl">' +
+                  esc(x.label) +
+                  " · " +
+                  (x.line_confidence != null
+                    ? Number(x.line_confidence).toFixed(2)
+                    : "") +
+                  "</span>"
+                );
+              })
+              .join("");
       return (
-        '<div class="tline t-' + cls + '"><b>' + label + "</b>" + inner + "</div>"
+        '<div class="tline t-' +
+        cls +
+        '"><b>' +
+        label +
+        "</b>" +
+        inner +
+        "</div>"
       );
     };
     html += tstage(
@@ -1341,7 +1363,7 @@ function closePhone() {
 }
 function resetRoomLight() {
   roomLight.color.setHex(0xffc98a);
-  roomLight.intensity = devices.light.on ? 1.5 : 0;
+  roomLight.intensity = devices.light.on ? ROOM_LIGHT_ON : 0;
 }
 /**
  * 수락된 제안을 3D 집에 실제로 반영한다(예: 조명 끄기 → 3D 조명 off).
