@@ -135,6 +135,9 @@ class LiotApp:
         # 최근 틱의 후보 평가 결과(무행동 선택 포함). 앱은 네트워크/DB 를 만지지
         # 않으므로 여기 노출만 하고, 영속(candidate_evaluations)은 서비스 계층이 한다.
         self.last_candidate_evaluation: dict[str, Any] | None = None
+        # 최근 process_reading/tick 의 단계별 산출물 스냅샷(관찰/데모용). stash 는
+        # 완료 시 pop 되므로, pop 직전에 여기로 복사해 외부에서 트레이스를 읽게 한다.
+        self.last_trace: dict[str, Any] | None = None
 
         # 한 번의 process_reading 동안 단계 산출물을 잇기 위한 trace-stash.
         self._stash: dict[str, dict[str, Any]] = {}
@@ -260,6 +263,9 @@ class LiotApp:
             is_safety = category in SAFETY_CRITICAL_CATEGORIES
             if explicit_action is None and not is_safety:
                 stash["proposal"] = None  # 관찰 → 맥락만, 제안 없음
+                stash["silence_reason"] = (
+                    "관찰(observation) — 명시 action 없음 + 비안전 카테고리 → 맥락만 갱신, 침묵"
+                )
                 return
 
             capability = self._capability_of(reading.entity_id, category)
@@ -282,6 +288,7 @@ class LiotApp:
         stash["candidate"] = candidate
 
         gate1 = self.guardrail.evaluate(candidate, snapshot)
+        stash["gate1"] = gate1  # 트레이스용(가드레일 하한/평결)
         # ── 불변식 7: 능동 제안의 BREATH 상한(판단 전 차단) ───────────────
         # 게이트가 능동 후보를 DUSK 이상으로 보거나 차단하면 그 제안은
         # '컴포트'가 아니다 → 표출하지 않는다(억제 = 침묵. 위험도 강등이
@@ -290,6 +297,10 @@ class LiotApp:
             gate1.blocked or gate1.floor_tier > PROACTIVE_TIER_CEILING
         ):
             stash["proposal"] = None
+            stash["silence_reason"] = (
+                f"능동 상한(불변식 7): 가드레일 floor={gate1.floor_tier.name}"
+                f"{' · blocked' if gate1.blocked else ''} > BREATH → 침묵"
+            )
             return
 
         judgment = self.judge.judge(
@@ -304,6 +315,10 @@ class LiotApp:
         # 인젝션된 LLM 의 최악 결과 = 침묵(fail-closed).
         if decision is not None and judgment.risk_tier > PROACTIVE_TIER_CEILING:
             stash["proposal"] = None
+            stash["judgment"] = judgment
+            stash["silence_reason"] = (
+                f"능동 상한(불변식 7): LLM(Gate2) 판정 {judgment.risk_tier.name} > BREATH → 침묵"
+            )
             return
         stash["judgment"] = judgment
 
@@ -468,6 +483,7 @@ class LiotApp:
                     ts=self.clock.now_utc(),
                 )
             )
+            self.last_trace = dict(self._stash[trace_id])
             return self._stash[trace_id].get("proposal")
         finally:
             self._stash.pop(trace_id, None)
@@ -524,6 +540,7 @@ class LiotApp:
                     ts=self.clock.now_utc(),
                 )
             )
+            self.last_trace = dict(self._stash[trace_id])
             return self._stash[trace_id].get("proposal")
         finally:
             self._stash.pop(trace_id, None)

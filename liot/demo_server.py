@@ -1,0 +1,367 @@
+"""LIOT 데모 랩 서버 — 브라우저에서 센서 값을 세팅하면 *실제* 파이프라인을 탄다.
+
+가짜 시뮬(web/assets/demo.js)이 아니라, 매 요청마다 진짜 ``LiotApp`` 을 만들어
+L1 정규화 → L2 맥락/후보생성/평가 → L3 Gate1(가드레일)+Gate2(로컬 LLM) →
+L4 개입까지 실제로 돌리고, 각 단계 산출물을 JSON 트레이스로 돌려준다.
+
+  python -m liot.demo_server           # http://127.0.0.1:8765 (기본 gemma3:4b)
+
+의존성: 표준 라이브러리만. LLM 은 로컬 ollama(HTTP :11434)의 gemma3:4b 기본.
+정적 UI(web/lab.html 등)와 API(/api/simulate)를 같은 포트로 서빙(동일 출처).
+데모 서버는 절대 액추에이터를 호출하지 않는다(제안-만; 실행 옵트인도 판정만 표시).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+
+from liot.app import LiotApp
+from liot.core.clock import Clock
+from liot.core.contracts import SensorReading
+from liot.core.risk import RiskTier
+from liot.layers.l1_sensing.normalizer import normalize
+from liot.layers.l2_context.context_builder import derive_occupancy
+from liot.layers.l2_context.external_provider import FakeExternalProvider
+from liot.layers.l3_judgment.llm_judge import FakeLLM
+from liot.layers.l3_judgment.ollama_backend import HTTPOllamaTransport, OllamaBackend
+from liot.layers.l4_execution.executor import ExecDecision, ExecutionPolicy
+
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# 데모 주택의 엔티티 → LIOT 카테고리. 안전 임계(gas/smoke/leak/lock)는 코어가 EMBER.
+CATEGORIES: dict[str, str] = {
+    "sensor.living_temperature": "temperature",
+    "sensor.living_humidity": "humidity",
+    "binary_sensor.living_motion": "motion",
+    "light.living_room": "light",
+    "climate.living_room": "climate",
+    "cover.living_room": "curtain",
+    "binary_sensor.kitchen_gas": "gas",
+    "binary_sensor.hall_smoke": "smoke",
+    "binary_sensor.bath_leak": "leak",
+    "lock.front_door": "lock",
+}
+
+# 시간대(UI) → 대표 UTC 시각(clock.time_bucket 기준: 06-11 morning / 11-17 day /
+# 17-22 evening / 그 외 night). 능동 규칙의 time_bucket 매칭에 쓰인다.
+_TIME_HOUR = {"morning": "08", "day": "13", "evening": "19", "night": "23"}
+
+_BOOL_SENSORS = {
+    "binary_sensor.living_motion",
+    "binary_sensor.kitchen_gas",
+    "binary_sensor.hall_smoke",
+    "binary_sensor.bath_leak",
+    "light.living_room",
+}
+
+
+def _raw_for(entity_id: str, value: Any) -> Any:
+    """UI 값 → SensorReading.raw_value. 불리언 센서는 on/off 문자열로."""
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    if entity_id in _BOOL_SENSORS and isinstance(value, (int, float)):
+        return "on" if value else "off"
+    if entity_id == "lock.front_door" and isinstance(value, bool):
+        return "locked" if value else "unlocked"
+    return value
+
+
+def _reading(entity_id: str, value: Any, ts: str) -> SensorReading:
+    raw = _raw_for(entity_id, value)
+    return SensorReading(
+        entity_id=entity_id,
+        source="lab",
+        raw_value=raw,
+        norm_value=normalize(raw),
+        ts_utc=ts,
+        home_id="singleton",
+    )
+
+
+def _tier_view(tier: RiskTier) -> dict[str, Any]:
+    return {"name": tier.name.lower(), "ko": tier.label_ko, "glyph": tier.glyph, "level": int(tier)}
+
+
+def _build_backend(cfg: dict[str, Any]):
+    """LLM 백엔드 구성. llm_enabled=false 면 결정론 FakeLLM(비교용)."""
+    if not cfg.get("llm_enabled", True):
+        return FakeLLM(), None
+    model = str(cfg.get("llm_model") or "gemma3:4b")
+    url = str(cfg.get("llm_url") or "http://127.0.0.1:11434")
+    timeout = float(cfg.get("llm_timeout") or 60)
+    be = OllamaBackend(model, HTTPOllamaTransport(url), timeout_s=timeout)
+    return be, model
+
+
+def _candidate_rows(cand_eval: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """last_candidate_evaluation → UI 후보 점수판."""
+    if not cand_eval:
+        return []
+    ev = cand_eval.get("evaluation")
+    if ev is None:
+        return []
+    sel = ev.selected_index
+    rows = []
+    for i, ac in enumerate(ev.scored):
+        c = ac.candidate
+        rows.append(
+            {
+                "capability": c.capability,
+                "action": c.action,
+                "entity_id": c.entity_id,
+                "origin": ac.origin,
+                "is_noop": c.capability == "noop",
+                "is_selected": i == sel,
+                "expected_effect": round(ac.expected_effect, 3),
+                "user_preference_fit": round(ac.user_preference_fit, 3),
+                "energy_cost": round(ac.energy_cost, 3),
+                "disturbance": round(ac.disturbance, 3),
+                "safety_risk": round(ac.safety_risk, 3),
+                "final_score": round(ac.final_score, 4),
+                "reason": ac.reason,
+            }
+        )
+    return rows
+
+
+async def _run(body: dict[str, Any]) -> dict[str, Any]:
+    sensors: dict[str, Any] = dict(body.get("sensors") or {})
+    cfg: dict[str, Any] = dict(body.get("config") or {})
+    outdoor: dict[str, Any] | None = body.get("outdoor")
+    mode: str = body.get("mode") or "tick"
+    tod: str = str(cfg.get("time") or "evening")
+
+    hour = _TIME_HOUR.get(tod, "19")
+    ts = f"2026-06-02T{hour}:00:00+00:00"
+    clock = Clock(fixed=ts)
+
+    backend, model = _build_backend(cfg)
+    external = None
+    if outdoor and (outdoor.get("temp_c") is not None or outdoor.get("aqi") is not None):
+        external = FakeExternalProvider(
+            clock=clock,
+            outdoor_temp_c=outdoor.get("temp_c"),
+            outdoor_aqi=outdoor.get("aqi"),
+        )
+
+    app = LiotApp(
+        clock=clock,
+        categories=CATEGORIES,
+        llm_backend=backend,
+        condition=str(cfg.get("condition") or "B"),
+        external_provider=external,
+    )
+
+    # 1) 모든 센서를 관찰로 주입(맥락/캐시 갱신, 대개 침묵).
+    for eid, val in sensors.items():
+        if eid not in CATEGORIES:
+            continue
+        await app.process_reading(_reading(eid, val, ts), force_snapshot=False)
+
+    # seeding 관찰들이 남긴 last_trace 를 비운다 — tick 이 무행동(NoOp)으로
+    # 조기 종료하면 last_trace 를 안 채우므로, 비우지 않으면 마지막 seed 트레이스가
+    # stale 로 표시된다. 이렇게 해야 침묵 틱은 후보/평가만 보이고 stale 스냅샷은 안 뜬다.
+    app.last_trace = None
+    llm_ms: float | None = None
+    t0 = time.time()
+
+    if mode == "event":
+        ev = dict(body.get("event") or {})
+        eid = ev.get("entity")
+        if not eid or eid not in CATEGORIES:
+            return {"ok": False, "error": f"unknown event entity: {eid!r}"}
+        val = ev.get("value", sensors.get(eid))
+        action = ev.get("action")  # None → 카테고리 기본(안전=alert)
+        proposal = await app.process_reading(
+            _reading(eid, val, ts), action=action, force_snapshot=True
+        )
+    else:  # proactive tick
+        proposal = await app.tick()
+
+    llm_ms = round((time.time() - t0) * 1000)
+
+    trace: dict[str, Any] = app.last_trace or {}
+    cand_eval = app.last_candidate_evaluation
+    cur = app.state_cache.norm_values()
+
+    # ── 응답 조립 ──────────────────────────────────────────────────────
+    out: dict[str, Any] = {
+        "ok": True,
+        "mode": mode,
+        "input": {
+            "time_bucket": clock.time_bucket(),
+            "occupancy": derive_occupancy(cur, CATEGORIES),
+            "condition": app.condition,
+            "execution_enabled": bool(cfg.get("execution_enabled", False)),
+            "llm": {"enabled": bool(cfg.get("llm_enabled", True)), "model": model},
+            "outdoor": outdoor if external is not None else None,
+            "state": {k: cur.get(k) for k in sensors if k in CATEGORIES},
+        },
+        "candidates": _candidate_rows(cand_eval),
+        "timing_ms": {"pipeline_and_llm": llm_ms},
+    }
+
+    # 평가(무행동 선택 포함)
+    if cand_eval and cand_eval.get("evaluation") is not None:
+        ev = cand_eval["evaluation"]
+        out["evaluation"] = {
+            "selected": f"{ev.selected_action().capability}.{ev.selected_action().action}",
+            "is_noop": ev.selected_is_noop(),
+            "rationale": ev.rationale,
+        }
+
+    # 스냅샷
+    snap = trace.get("snapshot")
+    if snap is not None:
+        out["snapshot"] = {
+            "nl_summary": getattr(snap, "nl_summary", ""),
+            "snapshot_hash": getattr(snap, "snapshot_hash", "")[:16],
+        }
+
+    # Gate1(가드레일)
+    g1 = trace.get("gate1")
+    if g1 is not None:
+        out["gate1"] = {
+            "floor_tier": _tier_view(g1.floor_tier),
+            "verdict": g1.gate1_verdict,
+            "blocked": g1.blocked,
+            "safety_critical": g1.safety_critical,
+            "matched_rules": list(g1.matched_rule_ids),
+        }
+
+    # Gate2(LLM) + 최종 판단
+    jd = trace.get("judgment")
+    if jd is not None:
+        out["gate2"] = {
+            "verdict": jd.gate2_verdict,
+            "model_id": jd.model_id,
+            "degraded": jd.degraded,
+            "confidence": round(float(jd.confidence), 3),
+        }
+        out["judgment"] = {
+            "risk_tier": _tier_view(jd.risk_tier),
+            "rationale": jd.rationale,
+            "gate1_verdict": jd.gate1_verdict,
+            "gate2_verdict": jd.gate2_verdict,
+            "degraded": jd.degraded,
+        }
+
+    # 최종 제안 or 침묵
+    if proposal is not None:
+        tier = RiskTier.from_str(proposal.risk_tier)
+        exec_policy = ExecutionPolicy(enabled=bool(cfg.get("execution_enabled", False)))
+        decision = exec_policy.decide(proposal.action, tier)
+        out["proposal"] = {
+            "tier": _tier_view(tier),
+            "capability": proposal.action.capability,
+            "action": proposal.action.action,
+            "entity_id": proposal.action.entity_id,
+            "category": proposal.action.category,
+            "required_confirmation": proposal.required_confirmation,
+            "rationale": proposal.rationale,
+            "expires_at": proposal.expires_at,
+            "origin": proposal.action.params.get("__origin__"),
+        }
+        out["intervention"] = {
+            "condition": app.condition,
+            "required_confirmation": proposal.required_confirmation,
+            "execution_decision": decision.value,
+            "execution_enabled": exec_policy.enabled,
+        }
+        out["silence"] = False
+    else:
+        out["silence"] = True
+        out["silence_reason"] = trace.get("silence_reason") or (
+            "무행동(NoOp) 선택 — 어떤 행동도 무행동 기준선을 넘지 못함 → 침묵"
+            if (cand_eval and cand_eval.get("evaluation") is not None
+                and cand_eval["evaluation"].selected_is_noop())
+            else "제안 조건 미충족(관찰/쿨다운/예산/무매칭) → 침묵"
+        )
+
+    return out
+
+
+# ==========================================================================
+# HTTP
+# ==========================================================================
+_STATIC_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".json": "application/json; charset=utf-8",
+}
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "LiotDemoLab/1.0"
+
+    def log_message(self, *a: Any) -> None:  # quiet
+        pass
+
+    def _send(self, code: int, body: bytes, ctype: str) -> None:
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _json(self, code: int, obj: dict[str, Any]) -> None:
+        self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), _STATIC_TYPES[".json"])
+
+    def do_GET(self) -> None:
+        path = self.path.split("?", 1)[0]
+        if path in ("/", "/lab", "/lab.html"):
+            path = "/lab.html"
+        rel = path.lstrip("/")
+        target = (WEB_DIR / rel).resolve()
+        if not str(target).startswith(str(WEB_DIR)) or not target.is_file():
+            self._send(404, b"not found", "text/plain; charset=utf-8")
+            return
+        ctype = _STATIC_TYPES.get(target.suffix, "application/octet-stream")
+        self._send(200, target.read_bytes(), ctype)
+
+    def do_POST(self) -> None:
+        if self.path.split("?", 1)[0] != "/api/simulate":
+            self._send(404, b"not found", "text/plain; charset=utf-8")
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+        except (ValueError, TypeError) as exc:
+            self._json(400, {"ok": False, "error": f"bad json: {exc}"})
+            return
+        try:
+            result = asyncio.run(_run(body))
+        except Exception as exc:  # noqa: BLE001 - 데모: 어떤 실패도 화면에 노출
+            self._json(200, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+            return
+        self._json(200, result)
+
+
+def main() -> None:
+    host = os.environ.get("LIOT_LAB_HOST", "127.0.0.1")
+    port = int(os.environ.get("LIOT_LAB_PORT", "8765") or "8765")
+    os.chdir(REPO_ROOT)  # config/proactive 등 상대경로 로딩 보장
+    httpd = ThreadingHTTPServer((host, port), Handler)
+    print(f"LIOT 데모 랩: http://{host}:{port}/  (Ctrl+C 로 종료)")
+    print(f"  정적 UI={WEB_DIR}  · 파이프라인=실제 LiotApp · Gate2=로컬 ollama")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        httpd.server_close()
+
+
+if __name__ == "__main__":
+    main()
