@@ -131,6 +131,72 @@ def _candidate_rows(cand_eval: dict[str, Any] | None) -> list[dict[str, Any]]:
     return rows
 
 
+def _lines_view(cand_eval: dict[str, Any] | None) -> dict[str, Any]:
+    """scored 후보의 origin 으로 Line A(규칙/ML) vs Line B(LLM) 제안을 분리."""
+    empty = {"line_a": [], "line_b": []}
+    if not cand_eval or cand_eval.get("evaluation") is None:
+        return empty
+    a: list[dict[str, Any]] = []
+    b: list[dict[str, Any]] = []
+    for ac in cand_eval["evaluation"].scored:
+        c = ac.candidate
+        if c.capability == "noop":
+            continue
+        origins = ac.origin.split("+")
+        entry = {
+            "label": f"{c.capability}.{c.action}",
+            "entity_id": c.entity_id,
+            "line_confidence": round(float(ac.line_confidence), 3),
+        }
+        if any(o.startswith("rule:") or o.startswith("line_a") for o in origins):
+            a.append(entry)
+        if any(o.startswith("line_b") for o in origins):
+            b.append(dict(entry))
+    return {"line_a": a, "line_b": b}
+
+
+def _arbiter_view(cand_eval: dict[str, Any] | None) -> dict[str, Any] | None:
+    """두 라인 후보를 융합해 최종 1개를 고르는 결정론 아비터(=CandidateEvaluator)."""
+    if not cand_eval or cand_eval.get("evaluation") is None:
+        return None
+    ev = cand_eval["evaluation"]
+    sel = ev.scored[ev.selected_index]
+    return {
+        "method": "deterministic-weighted",
+        "selected": f"{sel.candidate.capability}.{sel.candidate.action}",
+        "is_noop": ev.selected_is_noop(),
+        "final_score": round(float(sel.final_score), 4),
+        "origin": sel.origin,  # 어떤 소스(규칙/ML/LLM)들이 이 행동에 동의했나
+        "rationale": ev.rationale,
+    }
+
+
+def _embedding_view(
+    cand_eval: dict[str, Any] | None, facts: dict[str, Any]
+) -> dict[str, Any] | None:
+    """선택 후보의 선호 임베딩 셀 값(Phase3 개인화 전 = 중립 0.5)."""
+    from liot.layers.l2_context.feature_vector import (
+        NEUTRAL_PREF,
+        FakePreferenceEmbedder,
+        cell_key,
+    )
+
+    if not cand_eval or cand_eval.get("evaluation") is None:
+        return None
+    ev = cand_eval["evaluation"]
+    sel = ev.scored[ev.selected_index].candidate
+    if sel.capability == "noop":
+        return None
+    pref = FakePreferenceEmbedder().preference_for(sel, facts)
+    return {
+        "cell": cell_key(
+            str(facts.get("time_bucket", "")), str(facts.get("occupancy", "")), sel
+        ),
+        "preference": round(float(pref), 3),
+        "note": "개인화 이력 없음 → 중립" if pref == NEUTRAL_PREF else "개인화 반영",
+    }
+
+
 async def _run(body: dict[str, Any]) -> dict[str, Any]:
     sensors: dict[str, Any] = dict(body.get("sensors") or {})
     cfg: dict[str, Any] = dict(body.get("config") or {})
@@ -216,6 +282,29 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
             "is_noop": ev.selected_is_noop(),
             "rationale": ev.rationale,
         }
+
+    # ── 능동 파이프라인 확장 트레이스: 트리거 · 2라인 · 임베딩 · 아비터 ──
+    _facts = {
+        "time_bucket": clock.time_bucket(),
+        "occupancy": derive_occupancy(cur, CATEGORIES),
+    }
+    _pro = trace.get("proactive")
+    out["trigger"] = {
+        "kind": mode,
+        "source": "rule" if mode == "tick" else "event",
+        "origin": (
+            getattr(_pro, "origin", None)
+            if _pro is not None
+            else (body.get("event") or {}).get("entity")
+        ),
+    }
+    out["lines"] = _lines_view(cand_eval)
+    emb = _embedding_view(cand_eval, _facts)
+    if emb is not None:
+        out["embedding"] = emb
+    arb = _arbiter_view(cand_eval)
+    if arb is not None:
+        out["arbiter"] = arb
 
     # 스냅샷
     snap = trace.get("snapshot")
