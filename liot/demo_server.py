@@ -30,7 +30,21 @@ from liot.layers.l2_context.context_builder import derive_occupancy
 from liot.layers.l2_context.external_provider import FakeExternalProvider
 from liot.layers.l3_judgment.llm_judge import FakeLLM
 from liot.layers.l3_judgment.ollama_backend import HTTPOllamaTransport, OllamaBackend
+from liot.layers.l2_context.nl_directive import DirectiveStore, UserDirective
 from liot.layers.l4_execution.executor import ExecDecision, ExecutionPolicy
+
+# 활성 자연어 지시(세션 스코프). /api/directive 로 추가·초기화, /api/simulate tick 에 반영.
+_DIRECTIVES = DirectiveStore()
+
+
+def _directive_view(d: UserDirective) -> dict[str, Any]:
+    return {
+        "capability": d.capability,
+        "constraint": d.constraint,
+        "entity_id": d.entity_id,
+        "source": d.source,
+        "raw_text": d.raw_text,
+    }
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -234,6 +248,9 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
     # seeding 관찰들이 남긴 last_trace 를 비운다 — tick 이 무행동(NoOp)으로
     # 조기 종료하면 last_trace 를 안 채우므로, 비우지 않으면 마지막 seed 트레이스가
     # stale 로 표시된다. 이렇게 해야 침묵 틱은 후보/평가만 보이고 stale 스냅샷은 안 뜬다.
+    # 활성 자연어 지시를 앱에 반영(tick 의 comfort 후보 억제; 안전은 억제 불가).
+    app.set_directives(_DIRECTIVES.active())
+
     app.last_trace = None
     llm_ms: float | None = None
     t0 = time.time()
@@ -299,6 +316,10 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
         ),
     }
     out["lines"] = _lines_view(cand_eval)
+    if _DIRECTIVES.active():
+        out["directives"] = {
+            "active": [_directive_view(d) for d in _DIRECTIVES.active()]
+        }
     emb = _embedding_view(cand_eval, _facts)
     if emb is not None:
         out["embedding"] = emb
@@ -419,15 +440,41 @@ class Handler(BaseHTTPRequestHandler):
         ctype = _STATIC_TYPES.get(target.suffix, "application/octet-stream")
         self._send(200, target.read_bytes(), ctype)
 
-    def do_POST(self) -> None:
-        if self.path.split("?", 1)[0] != "/api/simulate":
-            self._send(404, b"not found", "text/plain; charset=utf-8")
-            return
+    def _read_json(self) -> dict[str, Any] | None:
         try:
             length = int(self.headers.get("Content-Length", "0") or "0")
-            body = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+            return json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
         except (ValueError, TypeError) as exc:
             self._json(400, {"ok": False, "error": f"bad json: {exc}"})
+            return None
+
+    def do_POST(self) -> None:
+        path = self.path.split("?", 1)[0]
+        if path == "/api/directive":
+            body = self._read_json()
+            if body is None:
+                return
+            if body.get("reset"):
+                _DIRECTIVES.clear()
+                self._json(200, {"ok": True, "parsed": [], "active": []})
+                return
+            parsed = _DIRECTIVES.add_text(
+                str(body.get("text") or ""), source=str(body.get("source") or "chat")
+            )
+            self._json(
+                200,
+                {
+                    "ok": True,
+                    "parsed": [_directive_view(d) for d in parsed],
+                    "active": [_directive_view(d) for d in _DIRECTIVES.active()],
+                },
+            )
+            return
+        if path != "/api/simulate":
+            self._send(404, b"not found", "text/plain; charset=utf-8")
+            return
+        body = self._read_json()
+        if body is None:
             return
         try:
             result = asyncio.run(_run(body))

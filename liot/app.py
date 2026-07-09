@@ -50,6 +50,7 @@ from liot.layers.l2_context.feature_vector import (
     PreferenceEmbedder,
 )
 from liot.layers.l2_context.feedback_store import FeedbackStore
+from liot.layers.l2_context.nl_directive import UserDirective, apply_directives
 from liot.layers.l2_context.proposal_lines import (
     LLMProposalLine,
     MLProposalLine,
@@ -156,6 +157,9 @@ class LiotApp:
         self._event_detector: EventDetector = (
             event_detector if event_detector is not None else build_event_detector()
         )
+        # 자연어 지시(오버라이드). 활성 지시는 comfort 후보를 억제한다 —
+        # 안전 카테고리·EMBER 는 억제 불가(사용자 지시가 안전을 못 낮춤).
+        self._directives: list[UserDirective] = []
         # 외부 데이터(옵션). 미설정이면 외기 미반영(외부 맥락 없음).
         self.external_provider = external_provider
         # 선호 신호(옵션). 미설정이면 중립.
@@ -410,6 +414,10 @@ class LiotApp:
     # ------------------------------------------------------------------
     # 공개 API
     # ------------------------------------------------------------------
+    def set_directives(self, directives: list[UserDirective]) -> None:
+        """활성 자연어 지시를 설정한다(다음 틱부터 comfort 후보 억제에 반영)."""
+        self._directives = list(directives)
+
     def set_preference_cells(self, cells: dict[str, float]) -> None:
         """선호 임베딩 셀맵을 주입한다(서비스가 영속 셀을 로드해 매 틱 갱신).
 
@@ -466,6 +474,10 @@ class LiotApp:
             embedder=self._embedder,
             available_actions=self.catalog.available_actions(),
         )
+        # 자연어 지시 오버라이드: 활성 지시로 억제되는 comfort 후보를 제거한다
+        # (안전은 억제 불가). 전부 억제되면 NoOp 만 남아 침묵.
+        if self._directives:
+            candidate_set = apply_directives(candidate_set, self._directives)
         external = await self._fetch_external()
         # 선호 임베딩이 evaluator 의 선호 신호(user_preference_fit)를 구동 →
         # 선택이 개인화된다(맥락별 셀). base(거절 이력)의 강한 거절은 우선하고,
