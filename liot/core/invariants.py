@@ -154,6 +154,8 @@ def assert_execution_gated() -> None:
       3) '여는 방향'(lock.unlock, valve open)은 어떤 실행 화이트리스트에도 없다.
       4) 개입 정책(조건 A/B)은 어떤 티어에서도 기준선보다 약한 확인을 못 낸다
          (개입 하한) — 실험 조건이 안전 확인 강도를 무르게 만들 수 없다.
+      5) 카탈로그 파생 확장분(extra_executable)을 주입해도 FORBIDDEN_OPEN 은 어떤
+         실효 실행집합에도 없고, 안전 카테고리는 확장 주입 상태에서도 AUTO 가 아니다.
     """
     from .contracts import CandidateAction
     from .risk import safety_categories
@@ -161,9 +163,11 @@ def assert_execution_gated() -> None:
     try:
         from ..layers.l4_execution.executor import (  # 지연 임포트(순환 회피)
             COMFORT_EXECUTABLE,
+            FORBIDDEN_OPEN,
             SAFETY_EXECUTABLE,
             ExecDecision,
             ExecutionPolicy,
+            effective_comfort,
         )
     except ModuleNotFoundError:
         return  # 실행기 모듈이 아직 없으면 검증할 것 없음
@@ -212,6 +216,39 @@ def assert_execution_gated() -> None:
                 raise InvariantError(
                     f"개입 정책(조건 {intervention.condition})이 {tier.name} 기준선"
                     f"({tier.required_confirmation})보다 약한 확인({conf})을 냄 — 개입 하한 위반"
+                )
+
+    # (5) 확장 허용목록을 주입해도 금지 open 은 어떤 실효 실행집합에도 없고,
+    #     안전 카테고리는 확장 주입 상태에서도 AUTO 가 아니다(데모 파생분 방어심층).
+    probe_extra = FORBIDDEN_OPEN | {("light", "turn_on"), ("valve", "close"), ("lock", "lock")}
+    eff = effective_comfort(probe_extra)
+    leaked = eff & FORBIDDEN_OPEN
+    if leaked:
+        raise InvariantError(
+            f"금지 open 동작이 확장 주입된 실효 컴포트 집합에 있음: {sorted(leaked)}"
+        )
+    pol_extra = ExecutionPolicy(enabled=True, extra_executable=probe_extra)
+    # 5a) 금지 open 을 비안전 카테고리로 위장해 주입해도 절대 AUTO 가 아니다(제거됨).
+    for cap, act in sorted(FORBIDDEN_OPEN):
+        probe = CandidateAction(
+            capability=cap, action=act, category="light",  # 비안전 위장
+            entity_id=f"{cap}.probe", params={},
+        )
+        for tier in RiskTier:
+            if pol_extra.decide(probe, tier) == ExecDecision.AUTO:
+                raise InvariantError(
+                    f"금지 open {cap}.{act} 가 확장 주입 상태 {tier.name} 에서 AUTO — 위반"
+                )
+    # 5b) 안전 카테고리는 확장 주입 상태에서도 어떤 티어에서도 AUTO 가 아니다.
+    for cat in sorted(safety_categories()):
+        safe_probe = CandidateAction(
+            capability="valve", action="close", category=cat,
+            entity_id="valve.probe", params={},
+        )
+        for tier in RiskTier:
+            if pol_extra.decide(safe_probe, tier) == ExecDecision.AUTO:
+                raise InvariantError(
+                    f"안전 카테고리 {cat!r} 가 확장 주입 상태 {tier.name} 에서 AUTO — 위반"
                 )
 
 

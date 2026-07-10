@@ -38,6 +38,7 @@ from liot.core.risk import (
     is_safety_category,
     register_safety_category,
 )
+from liot.layers.l2_context.proactive_rules import derive_proactive_allowed
 from liot.layers.l3_judgment.guardrail import category_floor, register_category_floor
 from liot.layers.l4_execution.device_catalog import DeviceCatalog, load_device_catalog
 
@@ -154,6 +155,22 @@ class RuntimeRegistry:
     def sensors_meta(self) -> list[dict[str, Any]]:
         """센서 보드용 메타 목록(등록 순서 보존)."""
         return [dict(m) for m in self._sensors.values()]
+
+    def proactive_allowed(self) -> frozenset[tuple[str, str]]:
+        """레지스트리 병합 카탈로그에서 파생한 능동 허용목록(단일 원천).
+
+        tier ≤ breath 로 등록된 비-안전-액추에이터 (capability, action) 만 담긴다.
+        새 등록 행동은 이 집합에 들어오면 능동 제안 대상이 된다.
+        """
+        return derive_proactive_allowed(self.to_catalog())
+
+    def executable_extras(self) -> frozenset[tuple[str, str]]:
+        """실행기(executor)에 주입할 카탈로그 파생 실행 확장분.
+
+        능동 허용목록과 동일 집합 — breath 이하·비안전 액추에이터. executor 가
+        ``FORBIDDEN_OPEN`` 을 다시 빼므로 여는 방향은 여기 있어도 실행 불가.
+        """
+        return self.proactive_allowed()
 
     def device_name(self, entity_id: str) -> str:
         """기기 표시 이름(없으면 entity_id)."""

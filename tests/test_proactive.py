@@ -32,8 +32,10 @@ from liot.layers.l2_context.proactive import (
 )
 from liot.layers.l2_context.proactive_rules import (
     ProactiveRuleError,
+    derive_proactive_allowed,
     load_proactive_ruleset,
 )
+from liot.registry import RuntimeRegistry
 from liot.layers.l3_judgment.llm_judge import LLMResult
 from liot.layers.l3_judgment.ollama_backend import OllamaBackend
 from liot.layers.l4_execution.device_catalog import load_device_catalog
@@ -101,7 +103,7 @@ rules:
     match: {{occupancy: vacant}}
     propose: {{target: x.y, capability: {cap}, action: {act}}}
 """
-    with pytest.raises(ProactiveRuleError, match="PROACTIVE_ALLOWED"):
+    with pytest.raises(ProactiveRuleError, match="proactive-allowed"):
         _ruleset(tmp_path, text)
 
 
@@ -561,3 +563,76 @@ def test_occupancy_lands_in_gate1_facts() -> None:
     )
     facts = Guardrail()._facts(cand, ctx)
     assert facts["occupancy"] == "vacant"  # occupancy 매치 키가 이제 살아있다
+
+
+# ==========================================================================
+# 6) 카탈로그 파생 허용목록 (P4) — 구 고정 6튜플 허용목록과 동치 봉인
+# ==========================================================================
+def test_derive_proactive_allowed_equals_shipped_six_tuples() -> None:
+    # THE SEAL: 출하 YAML 파생 == 구 고정 6튜플 허용목록. 리팩터의 의미
+    # 동일성을 원샷 회귀로 봉인한다(P4 최대 정합성 리스크).
+    assert derive_proactive_allowed(load_device_catalog()) == {
+        ("light", "turn_on"),
+        ("light", "turn_off"),
+        ("light", "set_brightness"),
+        ("climate", "set_temperature"),
+        ("cover", "close"),
+        ("notify", "send"),
+    }
+
+
+def test_runtime_breath_action_becomes_proposable() -> None:
+    # breath 로 등록한 새 행동은 레지스트리 파생 허용목록에 등장(= 능동 제안 가능).
+    reg = RuntimeRegistry()
+    reg.add_device(
+        entity_id="vacuum.robot", name="로봇청소기", capability="vacuum",
+        category="appliance", actions=[{"action": "start", "tier": "breath"}],
+    )
+    allowed = derive_proactive_allowed(reg.to_catalog())
+    assert ("vacuum", "start") in allowed
+    assert allowed == reg.proactive_allowed()  # 레지스트리 helper 도 동일 집합
+
+
+def test_runtime_ember_action_stays_out() -> None:
+    # 같은 행동을 ember 로 등록하면 상한(breath)을 넘어 허용목록 밖.
+    reg = RuntimeRegistry()
+    reg.add_device(
+        entity_id="siren.attic", name="다락 사이렌", capability="siren",
+        category="appliance", actions=[{"action": "blast", "tier": "ember"}],
+    )
+    assert ("siren", "blast") not in derive_proactive_allowed(reg.to_catalog())
+
+
+def test_safety_actuator_capability_never_enters_regardless_of_tier() -> None:
+    # lock/valve/oven capability action 은 breath 로 등록해도 능동 허용목록 밖 —
+    # 안전 액추에이터는 코드 수정으로만 확장(데이터로 못 넓힘).
+    reg = RuntimeRegistry()
+    reg.add_device(
+        entity_id="oven.kitchen", name="오븐", capability="oven",
+        category="appliance", actions=[{"action": "preheat", "tier": "breath"}],
+    )
+    allowed = derive_proactive_allowed(reg.to_catalog())
+    assert ("oven", "preheat") not in allowed  # 신규 등록 oven.preheat(breath) 도 제외
+    assert ("lock", "lock") not in allowed  # 출하 lock.lock(breath) 도 제외
+    assert ("valve", "close") not in allowed  # 출하 valve.close(breath) 도 제외
+
+
+def test_loader_accepts_runtime_action_with_injected_allowed(tmp_path) -> None:
+    # 로더 allowed 파라미터: 기본(출하)으론 거부, 레지스트리 파생 주입 시 통과.
+    reg = RuntimeRegistry()
+    reg.add_device(
+        entity_id="vacuum.robot", name="로봇청소기", capability="vacuum",
+        category="appliance", actions=[{"action": "start", "tier": "breath"}],
+    )
+    text = """
+rules:
+  - id: clean
+    match: {occupancy: vacant}
+    propose: {target: vacuum.robot, capability: vacuum, action: start}
+"""
+    p = tmp_path / "r.yaml"
+    p.write_text(text, encoding="utf-8")
+    with pytest.raises(ProactiveRuleError, match="proactive-allowed"):
+        load_proactive_ruleset(p)  # 출하 허용목록엔 (vacuum,start) 없음
+    rs = load_proactive_ruleset(p, allowed=reg.proactive_allowed())  # 파생 주입 → 통과
+    assert rs.rules[0].capability == "vacuum" and rs.rules[0].action == "start"

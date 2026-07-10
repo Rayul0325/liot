@@ -146,6 +146,24 @@ class DeviceCatalog:
                 )
         return out
 
+    def capability_actions(self) -> list[tuple[str, str]]:
+        """raw ``capabilities:`` 맵의 모든 (capability, action) 쌍을 열거한다.
+
+        ``available_actions()`` 와 달리 기기(_devices)와 조인하지 않는다 — capability
+        선언 자체를 훑으므로 기기 인스턴스가 없는 capability(예: ``notify``)의 action 도
+        포함된다. 능동 허용목록 파생(derive_proactive_allowed)이 기기 유무와 무관한
+        순수 capability 집합을 봐야 하기 때문이다(available_actions 로 파생하면
+        notify.send 가 탈락해 동치가 깨진다).
+        """
+        out: list[tuple[str, str]] = []
+        for cap in sorted(self._capabilities):
+            cap_map = self._capabilities[cap]
+            if not isinstance(cap_map, dict):
+                continue
+            for action in sorted(cap_map):
+                out.append((str(cap), str(action)))
+        return out
+
     @staticmethod
     def _infer_direction(
         action: str,

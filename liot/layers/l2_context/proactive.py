@@ -11,7 +11,7 @@
     예산초과/검증실패 → 제안 없음). 같은 fail-closed, 반대 방향.
 
 불변식 7 (능동 제안 = 컴포트 전용 + BREATH 상한) 의 3중 강제 지점:
-  1) 로드: proactive_rules 로더가 PROACTIVE_ALLOWED 밖 선언을 거부.
+  1) 로드: proactive_rules 로더가 카탈로그 파생 허용목록 밖 선언을 거부.
   2) 생성: validate_proactive_candidate — 허용 목록 + 안전 카테고리 타깃
      거부 + catalog.risk_for <= BREATH (카탈로그가 단일 위험 원천).
   3) 판단 후: app 이 게이트/LLM 이 BREATH 위로 승격시킨 능동 제안을
@@ -24,6 +24,7 @@ trigger 로 삼아 snapshot_hash 가 판단된 후보를 고정한다.
 
 from __future__ import annotations
 
+import weakref
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Mapping
@@ -42,10 +43,10 @@ from liot.core.risk import RiskTier, is_safety_category
 from .candidate_llm import LLMCandidateBackend, parse_llm_candidates
 from .context_builder import derive_occupancy
 from .proactive_rules import (
-    PROACTIVE_ALLOWED,
     ProactiveLimits,
     ProactiveRule,
     ProactiveRuleSet,
+    derive_proactive_allowed,
     load_proactive_rulesets,
 )
 
@@ -65,6 +66,36 @@ __all__ = [
 # 능동 제안의 위험도 상한. 컴포트 제안이 explicit/double 확인을 요구하면
 # 그것은 컴포트가 아니라 잔소리다(수용률 붕괴) — DUSK 이상은 침묵.
 PROACTIVE_TIER_CEILING = RiskTier.BREATH
+
+
+# 카탈로그 인스턴스별 파생 허용목록 메모(약한 참조 키 — 카탈로그가 GC 되면 자동 제거).
+# 데모는 요청마다 새 DeviceCatalog(registry.to_catalog())를 만들지만, 한 생성기의
+# 수명 안에선 같은 catalog 로 후보 검증이 반복되므로 재파생을 피한다.
+_ALLOWED_MEMO: "weakref.WeakKeyDictionary[DeviceCatalog, frozenset[tuple[str, str]]]" = (
+    weakref.WeakKeyDictionary()
+)
+# catalog=None 경로(카탈로그 미주입 생성기)의 출하 기본 허용목록(첫 사용 시 1회 파생).
+_DEFAULT_ALLOWED: frozenset[tuple[str, str]] | None = None
+
+
+def _proactive_allowed(catalog: "DeviceCatalog | None") -> frozenset[tuple[str, str]]:
+    """catalog 에서 파생한 능동 허용목록(인스턴스별 메모). catalog=None → 출하 기본.
+
+    catalog 가 없으면 출하 ``load_device_catalog()`` 파생분(=구 고정 6튜플 허용목록)
+    을 쓴다 — 구 상수 기반 검증과 동치를 보존한다.
+    """
+    global _DEFAULT_ALLOWED
+    if catalog is None:
+        if _DEFAULT_ALLOWED is None:
+            from liot.layers.l4_execution.device_catalog import load_device_catalog
+
+            _DEFAULT_ALLOWED = derive_proactive_allowed(load_device_catalog())
+        return _DEFAULT_ALLOWED
+    cached = _ALLOWED_MEMO.get(catalog)
+    if cached is None:
+        cached = derive_proactive_allowed(catalog)
+        _ALLOWED_MEMO[catalog] = cached
+    return cached
 
 
 def resolve_category(
@@ -97,7 +128,8 @@ def validate_proactive_candidate(
     """능동 후보의 금지 사유를 반환한다(None = 통과). deny-by-default.
 
     검사 순서(모두 통과해야 발의 가능):
-      1) (capability, action) ∈ PROACTIVE_ALLOWED — 허용 목록.
+      1) (capability, action) ∈ 카탈로그 파생 허용목록(derive_proactive_allowed) —
+         catalog 미주입 시 출하 기본 파생분(구 고정 허용목록과 동치).
       2) category ∉ SAFETY_CRITICAL_CATEGORIES — 컴포트 생성기는 안전
          액추에이터(가스밸브/잠금/오븐/고온계...)를 건드릴 자격이 없다.
          안전 이벤트는 안전 경로(Safety-Never-Silent)가 소유한다.
@@ -114,7 +146,7 @@ def validate_proactive_candidate(
          반환하므로 자동 거부된다. climate 내리기(dusk) 등 방향 비대칭도
          여기서 걸린다.
     """
-    if (candidate.capability, candidate.action) not in PROACTIVE_ALLOWED:
+    if (candidate.capability, candidate.action) not in _proactive_allowed(catalog):
         return "not_allowed"
     if is_safety_category(candidate.category):
         return "safety_target"

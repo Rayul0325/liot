@@ -7,6 +7,8 @@ import pytest
 from liot.core.contracts import CandidateAction
 from liot.core.risk import RiskTier
 from liot.layers.l4_execution.executor import (
+    COMFORT_EXECUTABLE,
+    FORBIDDEN_OPEN,
     ExecDecision,
     ExecutionDenied,
     ExecutionError,
@@ -14,6 +16,7 @@ from liot.layers.l4_execution.executor import (
     FakeExecutor,
     HAExecutor,
     build_execution_policy,
+    effective_comfort,
 )
 
 
@@ -157,6 +160,56 @@ async def test_fake_executor_fail_mode():
     fx = FakeExecutor(fail=True)
     with pytest.raises(ExecutionError):
         await fx.execute(_act("light", "turn_off", "light"))
+
+
+# ── 확장 실행 허용목록(extra_executable) — P4 ──────────────────────────
+def test_effective_comfort_default_equals_baked():
+    # 기본(None)/빈값 → 내장 그대로(COMFORT 은 금지 open 과 서로소라 뺄셈이 no-op).
+    assert effective_comfort() == COMFORT_EXECUTABLE
+    assert effective_comfort(None) == COMFORT_EXECUTABLE
+    assert effective_comfort(frozenset()) == COMFORT_EXECUTABLE
+
+
+def test_extra_executable_makes_new_action_auto():
+    # 카탈로그 파생 확장분 주입 → 새 (cap,action) 이 컴포트 티어 매핑을 탄다.
+    pol = ExecutionPolicy(enabled=True, extra_executable=frozenset({("vacuum", "start")}))
+    assert pol.decide(_act("vacuum", "start", "appliance"), RiskTier.BREATH) == ExecDecision.AUTO
+    assert pol.decide(_act("vacuum", "start", "appliance"), RiskTier.DUSK) == ExecDecision.CONFIRM
+    # 확장 없이 기본이면 여전히 NOTIFY_ONLY(기존 동작 불변).
+    base = ExecutionPolicy(enabled=True)
+    assert base.decide(_act("vacuum", "start", "appliance"), RiskTier.BREATH) == ExecDecision.NOTIFY_ONLY
+
+
+def test_forbidden_open_never_executable_even_if_injected():
+    # 금지 open 을 확장분으로 억지 주입 + 비안전 카테고리로 위장해도 실행 불가.
+    pol = ExecutionPolicy(enabled=True, extra_executable=FORBIDDEN_OPEN)
+    for cap, act in FORBIDDEN_OPEN:
+        for tier in RiskTier:
+            assert pol.decide(_act(cap, act, "light"), tier) == ExecDecision.NOTIFY_ONLY
+    # effective_comfort 도 금지 open 을 항상 제거한다.
+    assert not (effective_comfort(FORBIDDEN_OPEN) & FORBIDDEN_OPEN)
+
+
+async def test_fake_executor_respects_extra_but_blocks_forbidden_open():
+    fx = FakeExecutor(extra_executable=frozenset({("vacuum", "start"), ("lock", "unlock")}))
+    await fx.execute(_act("vacuum", "start", "appliance"))
+    assert len(fx.executed) == 1
+    with pytest.raises(ExecutionDenied):
+        await fx.execute(_act("lock", "unlock", "lock"))  # 금지 open → 확장분에서 제거됨
+
+
+async def test_haexecutor_extra_executable_allows_new_action():
+    calls = []
+
+    async def call(d, s, e, data):
+        calls.append((d, s, e, data))
+
+    ex = HAExecutor(call_service=call, extra_executable=frozenset({("switch", "toggle")}))
+    await ex.execute(_act("switch", "toggle", "appliance"))
+    assert calls[0][0] == "switch" and calls[0][1] == "toggle"
+    # 확장 없이 기본 실행기는 switch.toggle 을 화이트리스트 밖으로 거부.
+    with pytest.raises(ExecutionDenied):
+        await HAExecutor(call_service=call).execute(_act("switch", "toggle", "appliance"))
 
 
 # ── env 빌더 ───────────────────────────────────────────────────────────

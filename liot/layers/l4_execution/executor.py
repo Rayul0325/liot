@@ -41,6 +41,8 @@ __all__ = [
     "ExecutionError",
     "COMFORT_EXECUTABLE",
     "SAFETY_EXECUTABLE",
+    "FORBIDDEN_OPEN",
+    "effective_comfort",
 ]
 
 
@@ -89,6 +91,31 @@ SAFETY_EXECUTABLE: frozenset[tuple[str, str]] = frozenset(
     }
 )
 
+# '여는 방향' 금지 상수(불변) — 카탈로그 파생 확장분(extra_executable)으로도 절대 실행
+# 화이트리스트에 들어갈 수 없다. AI 가 집·밸브를 여는 일은 없다(하드 블록리스트).
+# cover.open 은 컴포트로 합법 등록돼 있으므로(COMFORT_EXECUTABLE) 여기 넣지 않는다.
+FORBIDDEN_OPEN: frozenset[tuple[str, str]] = frozenset(
+    {("lock", "unlock"), ("valve", "open")}
+)
+
+
+def effective_comfort(
+    extra: frozenset[tuple[str, str]] | None = None,
+) -> frozenset[tuple[str, str]]:
+    """실효 컴포트 화이트리스트 = 내장 ``COMFORT_EXECUTABLE`` ∪ 확장분 − 금지 open.
+
+    ``extra`` 미지정/빈값 → 내장 set 그대로(COMFORT_EXECUTABLE 은 금지 open 과
+    서로소라 뺄셈이 no-op → 기존 정책·실행기 동작 불변). 데모가 카탈로그 파생분을
+    주입해도 ``FORBIDDEN_OPEN`` 은 언제나 제거되어 어떤 실효 실행집합에도 없다.
+    확장분은 소문자로 정규화한다(카탈로그 파생분과 _key 정규화 정합).
+    """
+    if not extra:
+        return COMFORT_EXECUTABLE - FORBIDDEN_OPEN
+    norm = frozenset(
+        (str(cap).strip().lower(), str(act).strip().lower()) for cap, act in extra
+    )
+    return (COMFORT_EXECUTABLE | norm) - FORBIDDEN_OPEN
+
 
 def _key(action: CandidateAction) -> tuple[str, str]:
     return ((action.capability or "").strip().lower(), (action.action or "").strip().lower())
@@ -104,8 +131,15 @@ class ExecutionPolicy:
     enabled=False(기본) 면 항상 NOTIFY_ONLY → 옵트인 전엔 한 줄도 실행 안 함.
     """
 
-    def __init__(self, *, enabled: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        enabled: bool = False,
+        extra_executable: frozenset[tuple[str, str]] | None = None,
+    ) -> None:
         self.enabled = enabled
+        # 실효 컴포트 = 내장 ∪ 확장분 − 금지 open. 기본(None) → 내장 set 그대로.
+        self._comfort = effective_comfort(extra_executable)
 
     def decide(self, action: CandidateAction, tier: RiskTier | str | int) -> ExecDecision:
         if not self.enabled:
@@ -117,7 +151,7 @@ class ExecutionPolicy:
             # 안전 임계: 자동 절대 금지. 화이트리스트(차단/잠금)면 이중확인, 아니면 알림만.
             return ExecDecision.DOUBLE_CONFIRM if key in SAFETY_EXECUTABLE else ExecDecision.NOTIFY_ONLY
 
-        if key not in COMFORT_EXECUTABLE:
+        if key not in self._comfort:
             return ExecDecision.NOTIFY_ONLY  # 조작 대상이 아님 → 알림만
 
         if tier_t <= RiskTier.BREATH:
@@ -181,15 +215,17 @@ class HAExecutor:
         self,
         call_service: Callable[[str, str, str, dict[str, Any]], Any],
         get_state: Callable[[str], Any] | None = None,
+        *,
+        extra_executable: frozenset[tuple[str, str]] | None = None,
     ) -> None:
         # call_service/get_state 는 async 콜러블(awaitable 반환). HABridge 메서드 연결.
         self._call = call_service
         self._get_state = get_state
+        self._comfort = effective_comfort(extra_executable)
 
-    @staticmethod
-    def _allowed(action: CandidateAction) -> bool:
+    def _allowed(self, action: CandidateAction) -> bool:
         key = _key(action)
-        return key in COMFORT_EXECUTABLE or key in SAFETY_EXECUTABLE
+        return key in self._comfort or key in SAFETY_EXECUTABLE
 
     def _service_for(self, action: CandidateAction) -> tuple[str, str]:
         cap, act = _key(action)
@@ -250,14 +286,20 @@ class HAExecutor:
 class FakeExecutor:
     """테스트용 실행기. execute/undo 호출을 기록한다. fail=True 면 ExecutionError."""
 
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail: bool = False,
+        extra_executable: frozenset[tuple[str, str]] | None = None,
+    ) -> None:
         self.executed: list[CandidateAction] = []
         self.undone: list[CandidateAction] = []
         self.fail = fail
+        self._comfort = effective_comfort(extra_executable)
 
     async def execute(self, action: CandidateAction) -> ExecutionResult:
         key = _key(action)
-        if key not in COMFORT_EXECUTABLE and key not in SAFETY_EXECUTABLE:
+        if key not in self._comfort and key not in SAFETY_EXECUTABLE:
             raise ExecutionDenied(f"action not in allowlist: {key}")
         if self.fail:
             raise ExecutionError("fake executor forced failure")

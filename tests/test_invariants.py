@@ -170,6 +170,16 @@ def test_invariant8_execution_is_gated() -> None:
     assert assert_execution_gated() is None
 
 
+def test_forbidden_open_absent_from_effective_comfort_with_extras() -> None:
+    # P4: 카탈로그 파생 확장분(extra_executable)을 주입해도 FORBIDDEN_OPEN 은 어떤
+    # 실효 컴포트 집합에도 없다(assert_execution_gated 의 (5) 프로브가 강제).
+    from liot.layers.l4_execution.executor import FORBIDDEN_OPEN, effective_comfort
+
+    injected = FORBIDDEN_OPEN | {("light", "turn_on"), ("valve", "close")}
+    assert not (effective_comfort(injected) & FORBIDDEN_OPEN)
+    assert assert_execution_gated() is None  # 확장 주입 프로브 포함 통과
+
+
 # --------------------------------------------------------------------------
 # (4) 재현 가능한 판단
 # --------------------------------------------------------------------------

@@ -7,9 +7,11 @@ Gate1 규칙은 위험도 *하한 승격* 만 하고, 능동 규칙은 *후보 �
 "스칼라 동등만" 규율이 무너진다. 두 로더는 서로를 오염시키지 않는다.
 
 로드 시 deny-by-default 강제(불변식 7 의 1차 방어선):
-  - ``propose.(capability, action)`` 이 ``PROACTIVE_ALLOWED`` 에 없으면 즉시
-    거부. lock.unlock / valve.open / cover.open / oven.* 같은 금지 방향은
-    **선언 자체가 불가능**하다(rules_loader 가 강등 키를 거부하는 철학과 동일).
+  - ``propose.(capability, action)`` 이 카탈로그 파생 허용목록
+    (``derive_proactive_allowed``)에 없으면 즉시 거부. lock.unlock / valve.open /
+    cover.open / oven.* 같은 금지 방향·안전 액추에이터는 **선언 자체가 불가능**하다
+    (rules_loader 가 강등 키를 거부하는 철학과 동일). 허용목록은 출하 카탈로그에서
+    구 고정 6튜플 허용목록과 동일하게 파생된다(동치 회귀 테스트로 봉인).
   - 술어 ``op`` 가 닫힌 어휘(``ALLOWED_PREDICATE_OPS``) 밖이면 거부.
   - match/state 값에 dict/list/표현식 불가 — 스칼라만(스크립트 표면 차단).
 
@@ -23,12 +25,19 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 import yaml
 
+from liot.core.risk import RiskTier
+from liot.layers.l4_execution.device_catalog import load_device_catalog
+
+if TYPE_CHECKING:  # pragma: no cover
+    from liot.layers.l4_execution.device_catalog import DeviceCatalog
+
 __all__ = [
-    "PROACTIVE_ALLOWED",
+    "SAFETY_ACTUATOR_CAPABILITIES",
+    "derive_proactive_allowed",
     "ALLOWED_PROACTIVE_MATCH_KEYS",
     "ALLOWED_PREDICATE_OPS",
     "ProactiveRuleError",
@@ -46,21 +55,37 @@ class ProactiveRuleError(ValueError):
     """능동 규칙 정의가 deny-by-default/데이터-주도 제약을 어겼을 때."""
 
 
-# 능동적으로 발의할 수 있는 (capability, action) 허용 목록 — 단일 원천.
-# 컴포트/편의 행동만. 안전 액추에이터의 위험 방향(lock.unlock / valve.open /
-# cover.open / oven.*)은 여기 없으므로 로드·생성·판단 어디서도 통과 불가.
-# 주의: 허용 목록 통과 후에도 catalog.risk_for <= BREATH 상한(생성 시)과
-# 안전 카테고리 타깃 거부가 별도로 적용된다(3중 deny-by-default).
-PROACTIVE_ALLOWED: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("light", "turn_on"),
-        ("light", "turn_off"),
-        ("light", "set_brightness"),
-        ("climate", "set_temperature"),  # 방향은 catalog 가 판정(lower=dusk → 상한 거부)
-        ("cover", "close"),  # close=breath 만. open 은 목록에 없음(dusk/위험 방향)
-        ("notify", "send"),
-    }
-)
+# 능동 발의에서 영구 제외할 안전 액추에이터 capability(불변 상수, 코드 수정으로만
+# 확장). 카탈로그에 이 capability 의 저위험(breath 이하) action 이 있어도 능동
+# 허용목록에서 뺀다 — 안전 액추에이터(잠금/밸브/오븐)는 컴포트 생성기의 손이 닿지
+# 않는다. 데이터(카탈로그 등록)로는 절대 넓힐 수 없는 하드 블록리스트다.
+SAFETY_ACTUATOR_CAPABILITIES: frozenset[str] = frozenset({"lock", "valve", "oven"})
+
+
+def derive_proactive_allowed(catalog: "DeviceCatalog") -> frozenset[tuple[str, str]]:
+    """카탈로그 raw capabilities 맵에서 능동 허용목록을 파생한다(단일 원천).
+
+    (capability, action) 을 포함하는 조건(둘 다 충족):
+      * ``catalog.risk_for(cap, action, {}) <= RiskTier.BREATH`` — 컴포트 상한.
+        미지·고위험·위험 방향은 카탈로그가 DUSK/EMBER 로 판정해 자동 제외된다.
+      * ``cap not in SAFETY_ACTUATOR_CAPABILITIES`` — 안전 액추에이터 제외.
+
+    열거원은 ``capability_actions()``(raw 맵)이지 ``available_actions()`` 가 아니다 —
+    후자는 기기 조인이라 ``notify.send`` 처럼 기기 인스턴스 없는 action 이 탈락해
+    출하 6튜플 동치가 깨진다. 출하 카탈로그에 적용하면 정확히 다음 6개다:
+    (light,turn_on/turn_off/set_brightness)·(climate,set_temperature)·
+    (cover,close)·(notify,send) — 구 고정 6튜플 허용목록과 동일(회귀 테스트로 봉인).
+
+    새 등록 행동은 tier ≤ breath 선언만으로 이 집합에 들어온다(안전 액추에이터
+    capability 는 제외). 허용목록 통과 후에도 안전 카테고리 타깃 거부·capability
+    일치·상한 재검이 별도로 적용된다(다중 deny-by-default).
+    """
+    return frozenset(
+        (cap, action)
+        for cap, action in catalog.capability_actions()
+        if cap not in SAFETY_ACTUATOR_CAPABILITIES
+        and catalog.risk_for(cap, action, {}) <= RiskTier.BREATH
+    )
 
 # match 에 허용되는 enum 성격 키(맥락 facts). 그 외 키는 거부.
 ALLOWED_PROACTIVE_MATCH_KEYS: frozenset[str] = frozenset({"time_bucket", "occupancy"})
@@ -199,7 +224,11 @@ def _parse_predicate(raw: Any, rule_id: str, idx: int) -> StatePredicate:
     return StatePredicate(entity_id=entity, op=op, value=value)
 
 
-def _parse_rule(raw: dict[str, Any], idx: int) -> ProactiveRule:
+def _parse_rule(
+    raw: dict[str, Any], idx: int, *, allowed: frozenset[tuple[str, str]] | None = None
+) -> ProactiveRule:
+    if allowed is None:
+        allowed = derive_proactive_allowed(load_device_catalog())
     if not isinstance(raw, dict):
         raise ProactiveRuleError(f"rule #{idx} is not a mapping")
     rule_id = str(raw.get("id") or raw.get("rule_id") or f"proactive_{idx}")
@@ -245,11 +274,12 @@ def _parse_rule(raw: dict[str, Any], idx: int) -> ProactiveRule:
         raise ProactiveRuleError(
             f"rule {rule_id!r}: propose requires capability/action/target"
         )
-    if (capability, action) not in PROACTIVE_ALLOWED:
+    if (capability, action) not in allowed:
         raise ProactiveRuleError(
-            f"rule {rule_id!r}: ({capability!r}, {action!r}) is not in "
-            "PROACTIVE_ALLOWED — proactive rules may only declare comfort "
-            "actions (deny-by-default; unsafe directions are undeclarable)"
+            f"rule {rule_id!r}: ({capability!r}, {action!r}) is not in the "
+            "catalog-derived proactive-allowed set — proactive rules may only "
+            "declare comfort actions (deny-by-default; unsafe directions and "
+            "safety actuators are undeclarable)"
         )
     params_raw = prop.get("params", {}) or {}
     if not isinstance(params_raw, dict):
@@ -324,8 +354,16 @@ def _compute_hash(name: str, version: str, rules: tuple[ProactiveRule, ...]) -> 
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def load_proactive_ruleset(path: str | Path) -> ProactiveRuleSet:
-    """단일 YAML 능동 규칙셋을 로드·검증한다(deny-by-default)."""
+def load_proactive_ruleset(
+    path: str | Path, *, allowed: frozenset[tuple[str, str]] | None = None
+) -> ProactiveRuleSet:
+    """단일 YAML 능동 규칙셋을 로드·검증한다(deny-by-default).
+
+    ``allowed`` 미지정 → 출하 카탈로그 파생 허용목록으로 검증(기존 호출부는
+    인자 없이 그대로 유효). 데모는 레지스트리 파생 허용목록을 주입할 수 있다.
+    """
+    if allowed is None:
+        allowed = derive_proactive_allowed(load_device_catalog())
     p = Path(path)
     with p.open("r", encoding="utf-8") as fh:
         doc = yaml.safe_load(fh) or {}
@@ -336,7 +374,7 @@ def load_proactive_ruleset(path: str | Path) -> ProactiveRuleSet:
     raw_rules = doc.get("rules", [])
     if not isinstance(raw_rules, list):
         raise ProactiveRuleError(f"{p}: 'rules' must be a list")
-    rules = tuple(_parse_rule(r, i) for i, r in enumerate(raw_rules))
+    rules = tuple(_parse_rule(r, i, allowed=allowed) for i, r in enumerate(raw_rules))
     limits = _parse_limits(doc.get("limits"))
     return ProactiveRuleSet(
         name=name,
@@ -348,12 +386,19 @@ def load_proactive_ruleset(path: str | Path) -> ProactiveRuleSet:
     )
 
 
-def load_proactive_rulesets(rules_dir: str | Path | None = None) -> ProactiveRuleSet:
+def load_proactive_rulesets(
+    rules_dir: str | Path | None = None,
+    *,
+    allowed: frozenset[tuple[str, str]] | None = None,
+) -> ProactiveRuleSet:
     """디렉터리의 모든 ``*.yaml`` 을 파일명 순으로 합쳐 하나의 규칙셋으로.
 
     디렉터리가 없으면 빈 규칙셋(능동 제안 없음 — 안전한 기본값)을 반환한다.
-    limits 는 첫 번째(파일명 순) 명시 limits 를 채택한다.
+    limits 는 첫 번째(파일명 순) 명시 limits 를 채택한다. ``allowed`` 는 파생
+    허용목록을 한 번만 계산해 하위 로드에 넘긴다(파일마다 재파생 방지).
     """
+    if allowed is None:
+        allowed = derive_proactive_allowed(load_device_catalog())
     base = Path(rules_dir) if rules_dir is not None else DEFAULT_PROACTIVE_DIR
     if not base.exists():
         return ProactiveRuleSet(
@@ -370,7 +415,7 @@ def load_proactive_rulesets(rules_dir: str | Path | None = None) -> ProactiveRul
             seen.add(f)
             ordered.append(f)
 
-    sub = [load_proactive_ruleset(f) for f in ordered]
+    sub = [load_proactive_ruleset(f, allowed=allowed) for f in ordered]
     all_rules: tuple[ProactiveRule, ...] = tuple(r for rs in sub for r in rs.rules)
     version = "+".join(f"{rs.name}:{rs.ruleset_version}" for rs in sub) or "empty:0.0.0"
     # tighter-wins 병합: 파일을 추가해도 알림 throttle 은 절대 느슨해질 수
