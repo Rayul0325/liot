@@ -84,6 +84,81 @@ def _apply_feedback(cell: Any, signal: Any) -> dict[str, Any]:
     return {"ok": True, "cell": cell, "signal": signal, "before": before, "after": after}
 
 
+# 프리셋 번들 적용 단계 → 실패 사유의 한글 접두사(어느 항목에서 막혔는지).
+_PRESET_STAGE_KO = {"sensor": "센서", "device": "기기", "rule": "규칙"}
+
+
+def _apply_preset(payload: Any) -> tuple[dict[str, Any], int]:
+    """프리셋(등록 번들)을 서버측에서 **원자적으로** 적용한다(``/api/registry/preset``).
+
+    payload = ``{name?, reset?, sensors:[...], devices:[...], rules:[...], values:{...}}``.
+    ``reset`` 이 참이면 레지스트리를 먼저 초기화하고, 이어서 sensors → devices →
+    rules 를 **기존 add_* 검증 경로 그대로** 등록한다(우회 없음 — 폼으로 못 넣는
+    것은 프리셋으로도 못 넣는다). 한 항목이라도 거부되면 프리셋 이전 상태로
+    롤백하고(레지스트리 스냅샷/복원 + 선호 셀맵 복원) 어느 단계에서 막혔는지
+    한글 사유를 반환한다(서버가 HTTP 400). 성공하면 적용 개수와 ``values`` 를
+    돌려준다 — ``values`` 는 클라이언트가 보드 컨트롤 상태로 반영한다.
+
+    반환은 ``(응답 dict, HTTP 상태)``. 엔드포인트와 테스트가 공유하는 코어다.
+
+    프로세스 전역 안전 확장(안전 카테고리·카테고리 하한)은 롤백하지 않는다 —
+    확장 전용(escalate만)이라 남겨도 안전을 낮추지 않으며, 되돌리는 것이 오히려
+    확장-전용 불변식을 깨기 때문이다. 프리셋 ``reset`` 도 안전 확장은 건드리지
+    않는다(전체 초기화는 ``/api/registry/reset`` 이 담당). 출하 프리셋 4종은
+    안전 카테고리를 등록하지 않으므로 실무상 확장이 생기지 않는다.
+    """
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "프리셋 정의가 올바르지 않습니다."}, 400
+
+    sensors = list(payload.get("sensors") or [])
+    devices = list(payload.get("devices") or [])
+    rules = list(payload.get("rules") or [])
+    values = dict(payload.get("values") or {})
+    reset = bool(payload.get("reset"))
+
+    snap = _REGISTRY.snapshot()
+    pref_snap = dict(_PREF_CELLS)
+    applied = {"sensors": 0, "devices": 0, "rules": 0}
+    stage = ""
+    try:
+        if reset:
+            _REGISTRY.reset()
+            _PREF_CELLS.clear()
+        stage = "sensor"
+        for s in sensors:
+            _REGISTRY.add_sensor(dict(s))
+            applied["sensors"] += 1
+        stage = "device"
+        for d in devices:
+            d = dict(d)
+            _REGISTRY.add_device(
+                entity_id=d.get("entity_id", ""),
+                name=d.get("name", ""),
+                capability=d.get("capability", ""),
+                category=d.get("category", ""),
+                actions=d.get("actions") or [],
+                safety_critical=d.get("safety_critical", False),
+                floor=d.get("floor"),
+            )
+            applied["devices"] += 1
+        stage = "rule"
+        for r in rules:
+            _REGISTRY.add_rule(dict(r))
+            applied["rules"] += 1
+    except RegistryError as exc:
+        # 원자 롤백: 프리셋이 건드린 등록 상태·선호 셀맵을 이전으로 되돌린다.
+        _REGISTRY.restore(snap)
+        _PREF_CELLS.clear()
+        _PREF_CELLS.update(pref_snap)
+        where = _PRESET_STAGE_KO.get(stage, stage)
+        return {
+            "ok": False,
+            "error": f"프리셋 적용 실패({where}): {exc.message}",
+            "field": exc.field,
+        }, 400
+    return {"ok": True, "applied": applied, "values": values}, 200
+
+
 def _directive_view(d: UserDirective) -> dict[str, Any]:
     return {
         "capability": d.capability,
@@ -592,6 +667,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         body = self._read_json()
         if body is None:
+            return
+        if path == "/api/registry/preset":
+            result, code = _apply_preset(body)
+            self._json(code, result)
             return
         try:
             if path == "/api/registry/sensor":

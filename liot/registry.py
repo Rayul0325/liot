@@ -158,6 +158,32 @@ class RuntimeRegistry:
         """병합된 raw 로 ``DeviceCatalog`` 를 만든다(생성자 무변경 재사용)."""
         return DeviceCatalog(copy.deepcopy(self._raw))
 
+    def snapshot(self) -> dict[str, Any]:
+        """현재 등록 상태의 격리된 스냅샷을 돌려준다(프리셋 원자 적용의 롤백 지점).
+
+        ``restore`` 로 정확히 이 상태로 되돌릴 수 있다 — 프리셋(P7)이 센서·기기·
+        규칙 번들을 순차 등록하다 한 항목이라도 거부되면 이 스냅샷으로 복원해
+        "실패하면 아무것도 안 남는다"(원자성)를 보장한다. 프로세스 전역 안전 확장
+        (``register_safety_category``/``register_category_floor``)은 확장 전용이라
+        스냅샷에 담지 않는다 — 되돌리는 것 자체가 안전 하한을 낮추는 셈이 되고,
+        확장은 절대 안전을 낮추지 않으므로(escalate만) 남겨도 무해하다.
+        """
+        return {
+            "raw": copy.deepcopy(self._raw),
+            "sensors": {k: dict(v) for k, v in self._sensors.items()},
+            "device_names": dict(self._device_names),
+            "device_categories": dict(self._device_categories),
+            "rules": list(self._rules),
+        }
+
+    def restore(self, snap: dict[str, Any]) -> None:
+        """``snapshot`` 이 만든 상태로 되돌린다(프리셋 적용 실패 시 원자 롤백)."""
+        self._raw = copy.deepcopy(snap["raw"])
+        self._sensors = {k: dict(v) for k, v in snap["sensors"].items()}
+        self._device_names = dict(snap["device_names"])
+        self._device_categories = dict(snap["device_categories"])
+        self._rules = list(snap["rules"])
+
     def categories(self) -> dict[str, str]:
         """entity_id -> category. 센서 시드 + add_device 등록분."""
         cats = {eid: meta["category"] for eid, meta in self._sensors.items()}

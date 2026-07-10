@@ -494,6 +494,61 @@ input[type="range"]:focus-visible {
   gap: var(--s2);
 }
 
+/* ── 시나리오 프리셋 ──────────────────────────────────────────────── */
+.presets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding-bottom: var(--s3);
+  border-bottom: 1px solid var(--line-soft);
+}
+.presets-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+.presets-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.preset-btn {
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--ink-dim);
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+.preset-btn:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: var(--accent-glow);
+}
+.preset-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+/* 프리셋이 새로 등록한 카드 → 잠깐 액센트 펄스(등록된 걸 눈으로 확인). */
+.card.is-new {
+  animation: card-pulse 1.1s ease-out;
+}
+@keyframes card-pulse {
+  0% {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 0 16px -2px var(--accent-glow);
+  }
+  100% {
+    border-color: var(--line-soft);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
 /* ── 등록 버튼 ────────────────────────────────────────────────────── */
 .btn-add {
   display: inline-flex;

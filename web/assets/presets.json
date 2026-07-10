@@ -1,0 +1,97 @@
+[
+  {
+    "id": "vacant-lights-off",
+    "name": "빈집 소등",
+    "description": "아무도 없는데 거실 불이 켜져 있으면 끄자고 제안합니다.",
+    "reset": true,
+    "time": "evening",
+    "sensors": [],
+    "devices": [],
+    "rules": [],
+    "values": {
+      "binary_sensor.living_motion": false,
+      "light.living_room": true
+    }
+  },
+  {
+    "id": "gas-safety-path",
+    "name": "가스 누출 안전 경로",
+    "description": "가스가 감지되면 LLM 없이도 즉시 최고 위험(불씨) 경보로 대응합니다.",
+    "reset": true,
+    "time": "night",
+    "sensors": [],
+    "devices": [],
+    "rules": [],
+    "values": {
+      "binary_sensor.kitchen_gas": true,
+      "binary_sensor.living_motion": true
+    },
+    "run": {
+      "mode": "event",
+      "event": { "entity": "binary_sensor.kitchen_gas", "value": "on" }
+    }
+  },
+  {
+    "id": "live-registration",
+    "name": "라이브 등록 시연",
+    "description": "토양 센서·로봇청소기·규칙을 한 번에 등록해 새 행동이 파이프라인에 흐르는 걸 보여줍니다.",
+    "reset": true,
+    "time": "day",
+    "sensors": [
+      {
+        "entity_id": "sensor.soil_moisture",
+        "name": "토양 수분",
+        "category": "moisture",
+        "kind": "number",
+        "unit": "%",
+        "min": 0,
+        "max": 100
+      }
+    ],
+    "devices": [
+      {
+        "entity_id": "vacuum.robot",
+        "name": "로봇청소기",
+        "capability": "vacuum",
+        "category": "appliance",
+        "actions": [
+          { "action": "start", "tier": "breath" },
+          { "action": "stop", "tier": "ambient" }
+        ]
+      }
+    ],
+    "rules": [
+      {
+        "name": "soil-dry-clean",
+        "match": {},
+        "state": [
+          { "entity": "sensor.soil_moisture", "op": "lt", "value": 30 }
+        ],
+        "propose": {
+          "entity_id": "vacuum.robot",
+          "capability": "vacuum",
+          "action": "start"
+        }
+      }
+    ],
+    "values": {
+      "sensor.soil_moisture": 22,
+      "binary_sensor.living_motion": true
+    }
+  },
+  {
+    "id": "outdoor-heating",
+    "name": "외기·난방",
+    "description": "바깥이 춥고 거실 기온이 낮으면 저녁 난방을 올리자고 제안합니다.",
+    "reset": true,
+    "time": "evening",
+    "outdoor": { "temp_c": -3 },
+    "sensors": [],
+    "devices": [],
+    "rules": [],
+    "values": {
+      "sensor.living_temperature": 16,
+      "binary_sensor.living_motion": true
+    }
+  }
+]

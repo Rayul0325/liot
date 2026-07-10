@@ -127,3 +127,125 @@ def test_feedback_rejects_unknown_signal() -> None:
 def test_feedback_requires_cell() -> None:
     out = ds._apply_feedback("", "accepted")
     assert out["ok"] is False and out["field"] == "cell", out
+
+
+# ── P7: 프리셋(등록 번들) 원자 적용 ──────────────────────────────────────
+
+# 프리셋 ③ 「라이브 등록 시연」 = 센서 + 기기 + 규칙을 한 번에 등록하는 번들.
+_LIVE_PRESET = {
+    "reset": True,
+    "sensors": [
+        {"entity_id": "sensor.soil_moisture", "name": "토양 수분",
+         "category": "moisture", "kind": "number", "unit": "%", "min": 0, "max": 100}
+    ],
+    "devices": [
+        {"entity_id": "vacuum.robot", "name": "로봇청소기", "capability": "vacuum",
+         "category": "appliance",
+         "actions": [{"action": "start", "tier": "breath"},
+                     {"action": "stop", "tier": "ambient"}]}
+    ],
+    "rules": [
+        {"name": "soil-dry-clean", "match": {},
+         "state": [{"entity": "sensor.soil_moisture", "op": "lt", "value": 30}],
+         "propose": {"entity_id": "vacuum.robot", "capability": "vacuum",
+                     "action": "start"}}
+    ],
+    "values": {"sensor.soil_moisture": 22, "binary_sensor.living_motion": True},
+}
+
+
+def _catalog_ids() -> tuple[set[str], set[str]]:
+    """(센서 entity_id 집합, 기기 entity_id 집합) — 원자성 대조용 스냅샷."""
+    view = ds._catalog_view()
+    return (
+        {s["entity_id"] for s in view["sensors"]},
+        {d["entity_id"] for d in view["devices"]},
+    )
+
+
+def _seed_device() -> None:
+    """비-seed 마커 기기 하나를 등록(롤백/리셋이 실제로 이걸 다루는지 확인용)."""
+    _REGISTRY.add_device(
+        entity_id="fan.study", name="서재 선풍기", capability="fan",
+        category="appliance", actions=[{"action": "turn_on", "tier": "breath"}],
+    )
+
+
+def test_preset_registers_all_three_kinds() -> None:
+    result, code = ds._apply_preset(_LIVE_PRESET)
+    assert code == 200 and result["ok"] is True, result
+    assert result["applied"] == {"sensors": 1, "devices": 1, "rules": 1}, result
+    assert result["values"] == _LIVE_PRESET["values"], result
+    sensors, devices = _catalog_ids()
+    assert "sensor.soil_moisture" in sensors  # 센서 등록됨
+    assert "vacuum.robot" in devices  # 기기 등록됨
+    assert any(  # 규칙 등록됨(대상 = vacuum.robot)
+        r["target"] == "vacuum.robot" for r in _REGISTRY.rules_meta()
+    ), _REGISTRY.rules_meta()
+
+
+def test_preset_apply_then_simulate_surfaces_registered_candidate() -> None:
+    # 프리셋 적용 → 등록한 행동(vacuum.start)이 다음 simulate 후보로 등장(일반화 도달).
+    result, code = ds._apply_preset(_LIVE_PRESET)
+    assert code == 200 and result["ok"] is True, result
+    body = {
+        "mode": "tick",
+        "config": {"time": "day", "llm_enabled": False},
+        "sensors": {"sensor.soil_moisture": 22, "binary_sensor.living_motion": "on"},
+    }
+    r = _simulate(body)
+    assert r["ok"] is True, r
+    assert ("vacuum", "start", "vacuum.robot") in _keys(r), _keys(r)
+
+
+def test_preset_invalid_rule_rolls_back_atomically() -> None:
+    # 비-seed 기기를 먼저 등록해 둔다 — reset:True 프리셋이 실패하면 이 상태로
+    # 완전 복원돼야 한다(reset 조차 롤백 = 진짜 원자성).
+    _seed_device()
+    before_sensors, before_devices = _catalog_ids()
+    before_rules = len(_REGISTRY.rules_meta())
+
+    broken = {
+        "reset": True,
+        "sensors": [{"entity_id": "sensor.x", "name": "X", "category": "moisture",
+                     "kind": "number", "min": 0, "max": 100}],
+        "devices": [{"entity_id": "vacuum.robot", "name": "청소기",
+                     "capability": "vacuum", "category": "appliance",
+                     "actions": [{"action": "start", "tier": "breath"}]}],
+        # lock.unlock 은 파생 허용목록 밖(여는 방향·안전 액추에이터) → 규칙 거부.
+        "rules": [{"name": "bad", "match": {},
+                   "state": [{"entity": "sensor.x", "op": "lt", "value": 5}],
+                   "propose": {"entity_id": "lock.front_door", "capability": "lock",
+                               "action": "unlock"}}],
+        "values": {},
+    }
+    result, code = ds._apply_preset(broken)
+    assert code == 400 and result["ok"] is False, result
+    assert "규칙" in result["error"], result  # 어느 단계에서 막혔는지 한글 사유
+
+    # 원자성: 센서·기기·규칙 전부 프리셋 이전과 동일(부분 등록 잔재도, reset 흔적도 없음).
+    after_sensors, after_devices = _catalog_ids()
+    assert after_sensors == before_sensors, (after_sensors, before_sensors)
+    assert after_devices == before_devices, (after_devices, before_devices)
+    assert "fan.study" in after_devices  # reset 도 롤백됨(비-seed 기기 생존)
+    assert "sensor.x" not in after_sensors  # 부분 등록 잔재 없음
+    assert len(_REGISTRY.rules_meta()) == before_rules
+
+
+def test_preset_reset_flag_clears_then_preserves() -> None:
+    # reset:True → 이전 등록 폐기(seed 복귀).
+    _seed_device()
+    assert "fan.study" in _catalog_ids()[1]
+    result, code = ds._apply_preset(
+        {"reset": True, "sensors": [], "devices": [], "rules": [], "values": {}}
+    )
+    assert code == 200 and result["ok"] is True, result
+    assert "fan.study" not in _catalog_ids()[1]  # reset 이 이전 등록을 지움
+
+    # reset:False → 이전 등록 보존(추가만).
+    _seed_device()
+    result2, code2 = ds._apply_preset(
+        {"reset": False, "sensors": [], "devices": [], "rules": [], "values": {}}
+    )
+    assert code2 == 200 and result2["ok"] is True, result2
+    assert "fan.study" in _catalog_ids()[1]  # reset:False 는 보존

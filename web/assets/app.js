@@ -65,6 +65,17 @@ const OCC_LABELS = { occupied: "재실", vacant: "부재", unknown: "미상" };
 /** 마지막 카탈로그 응답(규칙 모달이 센서·기기 목록을 재사용). @type {object} */
 let lastCatalog = {};
 
+/** 로드된 시나리오 프리셋 목록(presets.json). @type {object[]} */
+let presets = [];
+
+/**
+ * 실행 씬(수동 실행이 이어받는 맥락). 프리셋이 time·outdoor 를 세팅하고,
+ * 이후 「능동 점검 실행」 버튼도 이 씬으로 돈다. 이벤트 트리거(가스 등)는 씬에
+ * 남기지 않고 프리셋 자동 실행 한 번에만 쓴다(수동 재실행은 항상 tick).
+ * @type {{time: string, outdoor: object|null}}
+ */
+let scene = { time: "evening", outdoor: null };
+
 /**
  * 요소 생성 헬퍼.
  * @param {string} tag 태그명
@@ -708,10 +719,12 @@ function factRows(key, data) {
 // ── 실행 ──────────────────────────────────────────────────────────────
 /**
  * 렌더된 센서 보드 상태에서 simulate 요청 body 를 만든다
- * (하드코딩 ID 목록이 아니라 DOM 이 원천).
- * @returns {{sensors: Record<string, number|boolean>, config: {time: string}, mode: string}}
+ * (하드코딩 ID 목록이 아니라 DOM 이 원천). 시간대·외기는 씬(scene)에서,
+ * 트리거 모드·이벤트는 프리셋 자동 실행이 넘긴 runOverride 에서 가져온다.
+ * @param {{mode?:string, event?:object}} [runOverride] 프리셋 자동 실행용 트리거(수동 실행은 없음 → tick)
+ * @returns {{sensors: Record<string, number|boolean>, config: {time: string}, mode: string, event?:object, outdoor?:object}}
  */
-function readBody() {
+function readBody(runOverride) {
   const sensors = {};
   document.querySelectorAll("#sensorBoard [data-entity]").forEach((card) => {
     const eid = card.dataset.entity;
@@ -726,15 +739,20 @@ function readBody() {
     const cb = card.querySelector("input[type=checkbox]");
     if (cb) sensors[card.dataset.entity] = cb.checked;
   });
-  return { sensors, config: { time: "evening" }, mode: "tick" };
+  const ro = runOverride || {};
+  const body = { sensors, config: { time: scene.time || "evening" }, mode: ro.mode || "tick" };
+  if (ro.event) body.event = ro.event;
+  if (scene.outdoor) body.outdoor = scene.outdoor;
+  return body;
 }
 
 /**
  * 능동 점검 1틱 실행: 보드 값 → POST /api/simulate → 파이프라인 애니메이션.
  * 실행 중엔 버튼을 잠그고, 스테이지가 좌→우로 점등되며 데이터가 흐른다.
+ * @param {{mode?:string, event?:object}} [runOverride] 프리셋 자동 실행용 트리거(수동 실행은 없음)
  * @returns {Promise<void>}
  */
-async function runTick() {
+async function runTick(runOverride) {
   const btn = document.getElementById("runBtn");
   btn.disabled = true;
   setStatus("running", "실행 중…");
@@ -747,7 +765,7 @@ async function runTick() {
     const res = await fetch("/api/simulate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(readBody()),
+      body: JSON.stringify(readBody(runOverride)),
     });
     data = await res.json();
   } catch (err) {
@@ -1123,6 +1141,126 @@ async function reloadCatalog() {
   applyCatalog(await res.json());
 }
 
+// ── 시나리오 프리셋 (등록 번들) ────────────────────────────────────────
+/**
+ * presets.json 을 불러와 프리셋 버튼 행을 렌더한다. 실패해도 앱은 계속 동작한다.
+ * @returns {Promise<void>}
+ */
+async function loadPresets() {
+  try {
+    const res = await fetch("assets/presets.json");
+    const data = await res.json();
+    presets = Array.isArray(data) ? data : [];
+  } catch (_) {
+    presets = [];
+  }
+  renderPresets();
+}
+
+/** 프리셋 버튼 행을 그린다(이름 = 버튼, 한 줄 설명 = 툴팁). */
+function renderPresets() {
+  const row = document.getElementById("presetRow");
+  if (!row) return;
+  row.replaceChildren(
+    ...presets.map((p) => {
+      const b = el("button", "preset-btn", p.name);
+      b.type = "button";
+      if (p.description) b.title = p.description;
+      b.addEventListener("click", () => applyPreset(p));
+      return b;
+    }),
+  );
+}
+
+/**
+ * 프리셋 값(true/"on"/1 → 켜짐)을 불리언으로 정규화한다.
+ * @param {*} v
+ * @returns {boolean}
+ */
+function coercePresetBool(v) {
+  return v === true || v === 1 || v === "on" || v === "true";
+}
+
+/**
+ * 프리셋 값 맵을 보드 컨트롤에 반영한다(센서 슬라이더/토글 + 기기 상태 토글).
+ * DOM 이벤트를 발생시켜 값 표시(슬라이더 숫자·토글 텍스트)도 함께 갱신한다.
+ * @param {Record<string, number|boolean|string>} values
+ * @returns {void}
+ */
+function applyPresetValues(values) {
+  for (const [eid, val] of Object.entries(values || {})) {
+    // 센서 보드가 상태를 소유(센서로도 표현되는 기기 포함) → 우선 조회, 없으면 기기 토글.
+    const card =
+      document.querySelector('#sensorBoard [data-entity="' + eid + '"]') ||
+      document.querySelector('#deviceBoard [data-entity="' + eid + '"][data-stateful="true"]');
+    if (!card) continue;
+    if (card.dataset.kind === "number") {
+      const range = card.querySelector("input[type=range]");
+      if (range) {
+        range.value = String(Number(val));
+        range.dispatchEvent(new Event("input"));
+      }
+    } else {
+      const cb = card.querySelector("input[type=checkbox]");
+      if (cb) {
+        cb.checked = coercePresetBool(val);
+        cb.dispatchEvent(new Event("change"));
+      }
+    }
+  }
+}
+
+/**
+ * 직전 카탈로그에 없던(=이번 프리셋이 새로 등록한) 카드에 하이라이트 펄스를 준다.
+ * reduced-motion 이면 애니메이션 없이 넘어간다(CSS 가 처리).
+ * @param {Set<string>} knownBefore 프리셋 적용 전 보드에 있던 entity_id 집합
+ * @returns {void}
+ */
+function highlightNewCards(knownBefore) {
+  document.querySelectorAll(".board [data-entity]").forEach((card) => {
+    if (!knownBefore.has(card.dataset.entity)) {
+      card.classList.add("is-new");
+      card.addEventListener(
+        "animationend",
+        () => card.classList.remove("is-new"),
+        { once: true },
+      );
+    }
+  });
+}
+
+/**
+ * 프리셋(등록 번들)을 적용한다: 서버측 원자 등록 → 보드 재렌더(새 카드 펄스) →
+ * 값 반영 → 파이프라인 1회 자동 실행. 등록 실패 시 상태 배지에 사유를 띄운다.
+ * @param {object} preset presets.json 항목
+ * @returns {Promise<void>}
+ */
+async function applyPreset(preset) {
+  setStatus("running", "프리셋 적용 중… · " + preset.name);
+  const { status, data } = await postJson("/api/registry/preset", {
+    reset: preset.reset,
+    sensors: preset.sensors || [],
+    devices: preset.devices || [],
+    rules: preset.rules || [],
+    values: preset.values || {},
+  });
+  if (status !== 200 || data.ok === false) {
+    setStatus("error", "프리셋 실패 · " + (data.error || "등록 거부"));
+    document.getElementById("runHint").textContent = data.error || "프리셋 등록 실패";
+    return;
+  }
+
+  // 자동 실행이 이어받을 씬(시간대·외기). 이벤트 트리거는 씬에 남기지 않는다.
+  scene = { time: preset.time || "evening", outdoor: preset.outdoor || null };
+
+  const knownBefore = new Set(entityNames.keys());
+  await reloadCatalog();
+  highlightNewCards(knownBefore);
+  applyPresetValues(data.values || preset.values || {});
+
+  await runTick(preset.run);
+}
+
 // ── 부트스트랩 ────────────────────────────────────────────────────────
 /**
  * 카탈로그를 불러와 보드·레전드·파이프라인을 렌더하고 버튼을 활성화한다.
@@ -1136,7 +1274,9 @@ async function init() {
 
     const btn = document.getElementById("runBtn");
     btn.disabled = false;
-    btn.addEventListener("click", runTick);
+    btn.addEventListener("click", () => runTick());
+
+    await loadPresets();
 
     document
       .getElementById("addSensorBtn")
