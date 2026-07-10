@@ -468,7 +468,10 @@
         "자율 제안 억제(안전 제외)",
         d.directives.active
           .map(function (x) {
-            return chip(x.raw_text || x.capability + " " + x.constraint, "warn");
+            return chip(
+              x.raw_text || x.capability + " " + x.constraint,
+              "warn",
+            );
           })
           .join(""),
       );
@@ -481,7 +484,7 @@
         chip("선호 " + Number(d.embedding.preference).toFixed(2)) +
           '<span class="thash">' +
           esc(d.embedding.cell) +
-          "</span><p class=\"tsub\">" +
+          '</span><p class="tsub">' +
           esc(d.embedding.note) +
           "</p>",
       );
@@ -489,22 +492,31 @@
     // ③ 2갈래 제안 (Line A · ML / Line B · LLM)
     if (d.lines && (d.lines.line_a.length || d.lines.line_b.length)) {
       var lr = function (label, arr, cls) {
-        var inner = !arr || !arr.length
-          ? "—"
-          : arr
-              .map(function (x) {
-                return (
-                  '<span class="tlbl">' +
-                  esc(x.label) +
-                  " · " +
-                  (x.line_confidence != null
-                    ? Number(x.line_confidence).toFixed(2)
-                    : "") +
-                  "</span>"
-                );
-              })
-              .join("");
-        return '<div class="tline t-' + cls + '"><b>' + label + "</b>" + inner + "</div>";
+        var inner =
+          !arr || !arr.length
+            ? "—"
+            : arr
+                .map(function (x) {
+                  return (
+                    '<span class="tlbl">' +
+                    esc(x.label) +
+                    " · " +
+                    (x.line_confidence != null
+                      ? Number(x.line_confidence).toFixed(2)
+                      : "") +
+                    "</span>"
+                  );
+                })
+                .join("");
+        return (
+          '<div class="tline t-' +
+          cls +
+          '"><b>' +
+          label +
+          "</b>" +
+          inner +
+          "</div>"
+        );
       };
       html += stage(
         "③ 2갈래 제안",
