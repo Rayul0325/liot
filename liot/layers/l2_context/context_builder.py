@@ -27,7 +27,7 @@ from typing import Any, Mapping
 from liot.core.clock import Clock
 from liot.core.contracts import ContextSnapshot
 from liot.core.egress_gate import AliasMap
-from liot.core.risk import SAFETY_CRITICAL_CATEGORIES
+from liot.core.risk import is_safety_category
 
 __all__ = [
     "ContextBuilder",
@@ -66,7 +66,7 @@ def _category_of(entity_id: str, categories: Mapping[str, str] | None) -> str | 
 
 
 def _is_safety(category: str | None) -> bool:
-    return category is not None and category in SAFETY_CRITICAL_CATEGORIES
+    return is_safety_category(category)
 
 
 # 재실(occupancy) 유도에 쓰는 카테고리. motion/presence 류만 본다.

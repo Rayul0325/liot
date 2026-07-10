@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from ...core.contracts import CandidateAction, ContextSnapshot, Judgment
-from ...core.risk import SAFETY_CRITICAL_CATEGORIES, RiskTier, escalate_only
+from ...core.risk import RiskTier, escalate_only, is_safety_category
 from .guardrail import Gate1Result
 from .prompt_registry import BundleManifest, PromptRegistry
 
@@ -94,7 +94,7 @@ class FakeLLM:
         self, candidate: CandidateAction, ctx: ContextSnapshot | None, gate1_floor: RiskTier
     ) -> LLMResult:
         category = (candidate.category or "").strip().lower()
-        if category in SAFETY_CRITICAL_CATEGORIES:
+        if is_safety_category(category):
             tier = RiskTier.EMBER
             reason = f"안전 임계 카테고리 '{category}': 즉시 확인 필요"
         else:
@@ -201,9 +201,7 @@ class LLMJudge:
         최종 risk_tier = escalate_only(gate1.floor_tier, llm_tier) (불변식 2).
         """
         gate1_floor = gate1.floor_tier
-        is_safety = gate1.safety_critical or (
-            (candidate.category or "").strip().lower() in SAFETY_CRITICAL_CATEGORIES
-        )
+        is_safety = gate1.safety_critical or is_safety_category(candidate.category)
 
         bundle = self._bundle(ruleset_version)
         trace = trace_id or ctx.trace_id

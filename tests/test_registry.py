@@ -248,3 +248,79 @@ def test_registry_instances_are_isolated() -> None:
         category="appliance", actions=[{"action": "start", "tier": "breath"}],
     )
     assert b.to_catalog().risk_for("vacuum", "start") == RiskTier.EMBER
+
+
+# ── 7) 안전 결합: safety_critical + floor 확장 전용(등록이 안전을 못 낮춤) ────────
+def test_add_sensor_safety_critical_registers_category(reg: RuntimeRegistry) -> None:
+    from liot.core.risk import is_safety_category
+
+    assert not is_safety_category("radon")
+    reg.add_sensor(
+        {
+            "entity_id": "sensor.radon", "name": "라돈", "category": "radon",
+            "kind": "number", "unit": "Bq/m³", "min": 0, "max": 1000,
+            "safety_critical": True,
+        }
+    )
+    assert is_safety_category("radon")
+
+
+def test_add_device_floor_lower_than_baked_rejected(reg: RuntimeRegistry) -> None:
+    from liot.layers.l3_judgment.guardrail import category_floor
+
+    # climate 는 내장 하한 BREATH. floor=ambient 로 낮추려는 등록은 400(RegistryError).
+    assert category_floor("climate") == RiskTier.BREATH
+    with pytest.raises(RegistryError) as exc:
+        reg.add_device(
+            entity_id="climate.x", name="x", capability="climate",
+            category="climate", actions=[{"action": "set", "tier": "breath"}],
+            floor="ambient",
+        )
+    assert exc.value.field == "floor"
+    assert category_floor("climate") == RiskTier.BREATH  # 내장 하한 불변
+    assert reg._device_index("climate.x") is None  # 원자성: 기기도 미커밋
+
+
+def test_add_device_floor_raise_applies(reg: RuntimeRegistry) -> None:
+    from liot.layers.l3_judgment.guardrail import category_floor
+
+    # climate 내장 BREATH → dusk 상향은 적용된다(확장 전용은 올리기만).
+    reg.add_device(
+        entity_id="climate.upgraded", name="냉난방", capability="climate",
+        category="climate", actions=[{"action": "set", "tier": "breath"}],
+        floor="dusk",
+    )
+    assert category_floor("climate") == RiskTier.DUSK
+
+
+def test_add_sensor_floor_unknown_category_adds_then_lower_rejected(
+    reg: RuntimeRegistry,
+) -> None:
+    from liot.layers.l3_judgment.guardrail import category_floor
+
+    # 미지 카테고리 'aq' 에 dusk 하한을 신규 설정(ADD).
+    reg.add_sensor(
+        {
+            "entity_id": "sensor.aq", "name": "공기질", "category": "aq",
+            "kind": "number", "unit": "idx", "min": 0, "max": 500, "floor": "dusk",
+        }
+    )
+    assert category_floor("aq") == RiskTier.DUSK
+    # 이후 breath 로 낮추려는 재등록은 거부(확장 전용).
+    with pytest.raises(RegistryError) as exc:
+        reg.add_device(
+            entity_id="fan.aq", name="환기팬", capability="fan",
+            category="aq", actions=[{"action": "turn_on", "tier": "ambient"}],
+            floor="breath",
+        )
+    assert exc.value.field == "floor"
+    assert category_floor("aq") == RiskTier.DUSK
+
+
+def test_add_device_bad_floor_tier_rejected(reg: RuntimeRegistry) -> None:
+    with pytest.raises(RegistryError) as exc:
+        reg.add_device(
+            entity_id="fan.x", name="팬", capability="fan", category="appliance",
+            actions=[{"action": "turn_on", "tier": "ambient"}], floor="not_a_tier",
+        )
+    assert exc.value.field == "floor"

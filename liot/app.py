@@ -36,7 +36,7 @@ from liot.core.contracts import (
 )
 from liot.core.egress_gate import AliasMap
 from liot.core.event_bus import InProcessBus
-from liot.core.risk import SAFETY_CRITICAL_CATEGORIES
+from liot.core.risk import is_safety_category
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l1_sensing.state_cache import StateCache
 from liot.layers.l2_context.context_builder import ContextBuilder, derive_occupancy
@@ -292,7 +292,7 @@ class LiotApp:
             # 그 외 읽기전용 센서·액추에이터 상태변화는 침묵.
             # (능동 제안은 센서 경로가 아니라 tick() 경로로만 들어온다.)
             explicit_action = stash.get("action_name")
-            is_safety = category in SAFETY_CRITICAL_CATEGORIES
+            is_safety = is_safety_category(category)
             if explicit_action is None and not is_safety:
                 stash["proposal"] = None  # 관찰 → 맥락만, 제안 없음
                 stash["silence_reason"] = (
@@ -404,7 +404,7 @@ class LiotApp:
     # ------------------------------------------------------------------
     def _default_action(self, category: str, reading: SensorReading) -> str:
         """카테고리/정규값으로 합리적 기본 action 이름을 고른다."""
-        if category in SAFETY_CRITICAL_CATEGORIES:
+        if is_safety_category(category):
             return "alert"
         norm = reading.norm_value
         if category in ("light", "ambient"):

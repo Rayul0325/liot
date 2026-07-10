@@ -29,6 +29,22 @@ from liot.layers.l1_sensing.fake_source import FakeSensorSource
 from liot.layers.l1_sensing.normalizer import normalize
 
 
+@pytest.fixture(autouse=True)
+def _reset_process_global_registrations():
+    """프로세스 전역 확장 등록(안전 카테고리·카테고리 하한)을 매 테스트 전에 초기화.
+
+    확장 레지스트리는 모듈 전역 상태라, 한 테스트가 등록한 안전 카테고리·하한이
+    다음 테스트로 새면 순서 의존 RED 를 만든다(기존 테스트 236개 격리 보장).
+    내장 frozenset/dict 는 건드리지 않는다 — 확장분만 비운다.
+    """
+    from liot.core.risk import _reset_safety_extensions_for_tests
+    from liot.layers.l3_judgment.guardrail import _reset_floor_extensions_for_tests
+
+    _reset_safety_extensions_for_tests()
+    _reset_floor_extensions_for_tests()
+    yield
+
+
 @pytest.fixture
 def clock() -> Clock:
     """고정 시각(낮, UTC 12시) 시계."""

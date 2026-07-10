@@ -30,7 +30,15 @@ from liot.core.invariants import (
     assert_executor_confined,
     assert_monotonic,
 )
-from liot.core.risk import RiskTier, escalate_only
+from liot.core.risk import (
+    SAFETY_CRITICAL_CATEGORIES,
+    RiskTier,
+    _reset_safety_extensions_for_tests,
+    escalate_only,
+    is_safety_category,
+    register_safety_category,
+    safety_categories,
+)
 from liot.layers.l3_judgment.guardrail import Guardrail
 from liot.layers.l3_judgment.llm_judge import LLMJudge, LLMResult, LLMUnavailable
 from liot.layers.l4_execution.risk_router import RiskRouter
@@ -235,3 +243,35 @@ async def test_invariant6_safety_never_silent_even_when_llm_fails() -> None:
     proposal = router.route(judgment, created_at="2026-06-01T12:00:00+00:00")
     assert proposal.risk_tier == RiskTier.EMBER
     assert proposal.required_confirmation == "double"
+
+
+# --------------------------------------------------------------------------
+# (6′) 런타임 확장 안전 카테고리 = extend-only (등록이 안전을 못 낮춤)
+# --------------------------------------------------------------------------
+def test_runtime_safety_category_gets_ember_floor() -> None:
+    # 런타임 등록된 안전 카테고리도 내장과 동일하게 Gate1 EMBER floor 를 받는다.
+    register_safety_category("radon")
+    assert is_safety_category("radon")
+    guardrail = Guardrail()
+    res = guardrail.evaluate(_candidate("radon", action="alert"))
+    assert res.floor_tier == RiskTier.EMBER
+    assert res.safety_critical is True
+
+
+def test_assert_execution_gated_covers_runtime_safety_category() -> None:
+    # 확장 안전 카테고리가 있어도 실행 게이트 불변식은 통과해야 한다 —
+    # 프로브 순회가 safety_categories()(내장 ∪ 확장)를 돌기 때문.
+    register_safety_category("radon")
+    assert "radon" in safety_categories()
+    assert assert_execution_gated() is None
+
+
+def test_baked_safety_frozenset_unchanged_after_register_and_reset() -> None:
+    # 내장 frozenset 은 등록·리셋을 거쳐도 객체 내용이 절대 변하지 않는다.
+    baked_before = set(SAFETY_CRITICAL_CATEGORIES)
+    register_safety_category("radon")
+    assert "radon" in safety_categories()
+    assert "radon" not in SAFETY_CRITICAL_CATEGORIES  # 내장은 불변
+    _reset_safety_extensions_for_tests()
+    assert set(SAFETY_CRITICAL_CATEGORIES) == baked_before
+    assert "radon" not in safety_categories()

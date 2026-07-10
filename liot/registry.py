@@ -17,6 +17,11 @@
   * **확장 전용(extend-only)** — 같은 (capability, action) 을 다시 선언하면
     위험 등급은 ``escalate_only`` 로 올라가기만 한다. 낮추려는 시도는 구조화된
     거부(``RegistryError``)로, 서버가 HTTP 400 으로 매핑한다. 삭제 API 는 없다.
+  * **안전 카테고리·카테고리 하한도 확장만 가능** — ``safety_critical=True`` 로
+    등록한 카테고리는 ``register_safety_category`` 로 프로세스 전역 안전 집합에
+    **추가**되고(내장 frozenset 불변, 해제 불가), ``floor`` 로 준 카테고리 하한은
+    ``register_category_floor`` 가 ``escalate_only`` 로만 반영한다. 현재 유효
+    하한보다 낮은 요청은 ``RegistryError`` → HTTP 400 으로 거부한다.
   * 위험도 자체의 권위는 여전히 ``DeviceCatalog.risk_for`` — 레지스트리는 병합된
     raw dict 만 생산하고 ``DeviceCatalog(raw)`` 생성자는 무변경으로 재사용한다.
 """
@@ -27,7 +32,13 @@ import copy
 import re
 from typing import Any
 
-from liot.core.risk import RiskTier, escalate_only
+from liot.core.risk import (
+    RiskTier,
+    escalate_only,
+    is_safety_category,
+    register_safety_category,
+)
+from liot.layers.l3_judgment.guardrail import category_floor, register_category_floor
 from liot.layers.l4_execution.device_catalog import DeviceCatalog, load_device_catalog
 
 __all__ = ["RuntimeRegistry", "RegistryError"]
@@ -210,6 +221,9 @@ class RuntimeRegistry:
                 f"이미 등록된 센서입니다: {entity_id}", field="entity_id"
             )
 
+        # 안전 결합 검증(확장 전용) — 로컬 커밋 전. 낮추기 요청은 여기서 400.
+        floor_tier = self._validate_floor(category, meta.get("floor"))
+
         rec: dict[str, Any] = {
             "entity_id": entity_id, "name": name, "category": category,
             "kind": kind, "unit": None, "min": None, "max": None,
@@ -228,6 +242,8 @@ class RuntimeRegistry:
             rec.update(unit=(str(unit).strip() or None) if unit else None, min=mn, max=mx)
 
         self._sensors[entity_id] = rec
+        # 검증 통과 후 프로세스 전역 안전 등록 반영(확장 전용, 되돌릴 수 없음).
+        self._apply_safety(category, meta.get("safety_critical"), floor_tier)
         return dict(rec)
 
     def add_device(
@@ -237,8 +253,15 @@ class RuntimeRegistry:
         capability: str,
         category: str,
         actions: list[dict[str, Any]] | None = None,
+        *,
+        safety_critical: Any = False,
+        floor: Any = None,
     ) -> dict[str, Any]:
-        """기기 1개(+행동 목록) 등록. 원자적 — 한 행동이라도 거부되면 무커밋."""
+        """기기 1개(+행동 목록) 등록. 원자적 — 한 행동이라도 거부되면 무커밋.
+
+        ``safety_critical`` 이 참이면 카테고리를 안전 집합에 추가하고, ``floor`` 가
+        주어지면 카테고리 하한을 상향한다(둘 다 확장 전용, 낮추기는 400).
+        """
         entity_id = str(entity_id or "").strip()
         name = str(name or "").strip()
         capability = str(capability or "").strip()
@@ -267,7 +290,9 @@ class RuntimeRegistry:
         if not name:
             name = entity_id
 
-        # pass 1: 모든 행동을 먼저 검증(확장 전용 위반은 여기서 거부) — 원자성.
+        # pass 1: 모든 행동 + 안전 하한을 먼저 검증(확장 전용 위반은 여기서 거부) —
+        # 원자성. 낮추기 요청은 커밋 전에 400 으로 튕긴다.
+        floor_tier = self._validate_floor(category, floor)
         resolved: list[tuple[str, RiskTier, Any]] = []
         for a in actions:
             action = str(a.get("action") or "").strip()
@@ -288,6 +313,8 @@ class RuntimeRegistry:
         )
         self._device_names[entity_id] = name
         self._device_categories[entity_id] = category
+        # 검증 통과·커밋 후 프로세스 전역 안전 등록 반영(확장 전용).
+        self._apply_safety(category, safety_critical, floor_tier)
         return {
             "entity_id": entity_id, "name": name, "capability": capability,
             "category": category,
@@ -321,6 +348,48 @@ class RuntimeRegistry:
     # ------------------------------------------------------------------
     # 내부
     # ------------------------------------------------------------------
+    def _validate_floor(self, category: str, floor: Any) -> RiskTier | None:
+        """카테고리 하한 요청을 검증한다(낮추기 거부). 미지정이면 None.
+
+        현재 유효 하한(안전 카테고리 → EMBER, 그 외 → ``category_floor``)보다 낮은
+        요청은 ``RegistryError``(확장 전용). 알 수 없는 등급도 ``RegistryError``.
+        실제 반영은 검증 통과 후 ``_apply_safety`` 가 한다.
+        """
+        if floor is None or (isinstance(floor, str) and not floor.strip()):
+            return None
+        try:
+            requested = RiskTier.from_str(floor)
+        except ValueError:
+            raise RegistryError(
+                f"알 수 없는 위험 등급입니다: {floor!r} "
+                "(ambient/breath/dusk/ember 중 하나)",
+                field="floor",
+            ) from None
+        current = (
+            RiskTier.EMBER if is_safety_category(category) else category_floor(category)
+        )
+        if current is not None and requested < current:
+            raise RegistryError(
+                f"안전 하한은 낮출 수 없습니다(확장 전용): "
+                f"기존 '{current.label_ko}' → 요청 '{requested.label_ko}' 거부",
+                field="floor",
+            )
+        return requested
+
+    def _apply_safety(
+        self, category: str, safety_critical: Any, floor_tier: RiskTier | None
+    ) -> None:
+        """검증 통과 후 프로세스 전역 안전 등록을 반영한다(확장 전용).
+
+        ``safety_critical`` 이 참이면 카테고리를 안전 집합에 추가하고, ``floor_tier``
+        가 있으면 카테고리 하한을 ``escalate_only`` 로 상향한다. 둘 다 되돌릴 수 없다
+        (제거 API 없음). 데모 ``reset`` 은 별도로 확장 set 전체를 비운다.
+        """
+        if safety_critical:
+            register_safety_category(category)
+        if floor_tier is not None:
+            register_category_floor(category, floor_tier)
+
     def _resolve_action_tier(
         self, capability: str, action: str, tier_value: Any
     ) -> RiskTier:

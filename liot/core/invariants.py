@@ -156,7 +156,7 @@ def assert_execution_gated() -> None:
          (개입 하한) — 실험 조건이 안전 확인 강도를 무르게 만들 수 없다.
     """
     from .contracts import CandidateAction
-    from .risk import SAFETY_CRITICAL_CATEGORIES
+    from .risk import safety_categories
 
     try:
         from ..layers.l4_execution.executor import (  # 지연 임포트(순환 회피)
@@ -174,7 +174,7 @@ def assert_execution_gated() -> None:
 
     # (2) 안전 카테고리는 자동 실행 금지(활성 정책으로도 AUTO 가 나오면 위반)
     pol = ExecutionPolicy(enabled=True)
-    for cat in sorted(SAFETY_CRITICAL_CATEGORIES):
+    for cat in sorted(safety_categories()):
         for cap, act in sorted(SAFETY_EXECUTABLE):
             probe = CandidateAction(
                 capability=cap, action=act, category=cat,

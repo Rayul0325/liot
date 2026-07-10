@@ -478,6 +478,30 @@ function showError(errorEl, msg) {
   errorEl.hidden = false;
 }
 
+/**
+ * 「안전 임계 카테고리로 표시」 체크박스 필드.
+ * 체크 시 등록 요청 본문에 safety_critical:true 가 실려, 서버가 이 카테고리를
+ * 프로세스 전역 안전 집합에 확장 등록한다(항상 EMBER, 해제 불가).
+ * @returns {{wrap: HTMLElement, input: HTMLInputElement}}
+ */
+function safetyField() {
+  const input = el("input", "safety-check");
+  input.type = "checkbox";
+  input.name = "safety_critical";
+  const label = el("label", "safety-field");
+  label.append(input, el("span", "safety-label", "안전 임계 카테고리로 표시"));
+  const wrap = el("div", "field");
+  wrap.append(label);
+  wrap.append(
+    el(
+      "span",
+      "field-hint",
+      "안전 카테고리는 항상 불씨(EMBER) 등급으로 취급되며 해제할 수 없습니다",
+    ),
+  );
+  return { wrap, input };
+}
+
 /** 「센서 추가」 모달을 연다. */
 function openSensorModal() {
   const form = el("form", "modal-form");
@@ -510,6 +534,8 @@ function openSensorModal() {
     numFields.hidden = kind.value !== "number";
   });
 
+  const safety = safetyField();
+
   const { error, actions } = formFooter("센서 등록");
   form.append(
     field("이름", name),
@@ -517,6 +543,7 @@ function openSensorModal() {
     field("종류", kind),
     field("카테고리", category),
     numFields,
+    safety.wrap,
     error,
     actions,
   );
@@ -528,6 +555,7 @@ function openSensorModal() {
       entity_id: eid.value.trim(),
       category: category.value.trim(),
       kind: kind.value,
+      safety_critical: safety.input.checked,
     };
     if (kind.value === "number") {
       payload.unit = unit.value.trim();
@@ -594,6 +622,8 @@ function openDeviceModal() {
   addRow.type = "button";
   addRow.addEventListener("click", () => actionsWrap.append(actionRow()));
 
+  const safety = safetyField();
+
   const { error, actions } = formFooter("기기 등록");
   form.append(
     field("이름", name),
@@ -602,6 +632,7 @@ function openDeviceModal() {
     field("카테고리", category),
     fieldGroup("행동 · 위험 등급", actionsWrap),
     addRow,
+    safety.wrap,
     error,
     actions,
   );
@@ -620,6 +651,7 @@ function openDeviceModal() {
       capability: capability.value.trim(),
       category: category.value.trim(),
       actions: acts,
+      safety_critical: safety.input.checked,
     };
     const { status, data } = await postJson("/api/registry/device", payload);
     if (status === 200 && data.ok !== false) {

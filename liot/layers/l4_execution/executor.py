@@ -28,7 +28,7 @@ from enum import Enum
 from typing import Any, Callable, Protocol, runtime_checkable
 
 from liot.core.contracts import CandidateAction
-from liot.core.risk import SAFETY_CRITICAL_CATEGORIES, RiskTier
+from liot.core.risk import RiskTier, is_safety_category
 
 __all__ = [
     "ExecDecision",
@@ -95,7 +95,7 @@ def _key(action: CandidateAction) -> tuple[str, str]:
 
 
 def _is_safety(action: CandidateAction) -> bool:
-    return (action.category or "").strip().lower() in SAFETY_CRITICAL_CATEGORIES
+    return is_safety_category(action.category)
 
 
 class ExecutionPolicy:

@@ -17,6 +17,9 @@ __all__ = [
     "RiskTier",
     "escalate_only",
     "SAFETY_CRITICAL_CATEGORIES",
+    "register_safety_category",
+    "is_safety_category",
+    "safety_categories",
 ]
 
 
@@ -112,3 +115,53 @@ SAFETY_CRITICAL_CATEGORIES: frozenset[str] = frozenset(
         "oven",
     }
 )
+
+
+# 런타임 확장 안전 카테고리(extend-only). 데모 등록으로 **추가만** 되고, 제거
+# API 는 어디에도 없다. 내장 frozenset 은 절대 변형되지 않으며, 접근자가
+# (내장 ∪ 확장) 을 노출한다 — 등록은 안전 하한을 넓힐 수만 있고 못 낮춘다.
+_SAFETY_EXTENSIONS: set[str] = set()
+
+
+def _normalize_category(cat: str | None) -> str:
+    """카테고리 문자열 정규화(소문자·양옆 공백 제거). None → 빈 문자열."""
+    return (cat or "").strip().lower()
+
+
+def register_safety_category(cat: str) -> str:
+    """런타임에 안전 임계 카테고리를 추가한다(확장 전용, 제거 불가).
+
+    정규화한 카테고리를 확장 set 에 넣는다. 내장 frozenset 은 건드리지 않는다.
+    이미 내장이거나 등록돼 있으면 no-op. 빈 문자열은 무시한다. 반환 = 정규화 값.
+    """
+    norm = _normalize_category(cat)
+    if norm and norm not in SAFETY_CRITICAL_CATEGORIES:
+        _SAFETY_EXTENSIONS.add(norm)
+    return norm
+
+
+def is_safety_category(cat: str | None) -> bool:
+    """카테고리가 안전 임계인지(내장 ∪ 런타임 확장). 정규화 후 멤버십 판정.
+
+    멤버십 콜사이트 전역이 이 접근자를 쓴다. 확장분이 비어 있으면(등록 0건)
+    결과는 ``cat in SAFETY_CRITICAL_CATEGORIES`` 와 비트 동일하다.
+    """
+    norm = _normalize_category(cat)
+    return norm in SAFETY_CRITICAL_CATEGORIES or norm in _SAFETY_EXTENSIONS
+
+
+def safety_categories() -> frozenset[str]:
+    """순회용 안전 카테고리 전체(내장 ∪ 런타임 확장).
+
+    ``for cat in sorted(...)`` 형태의 순회 사용처가 확장분까지 자동으로
+    포함하도록 union 을 돌려준다.
+    """
+    return SAFETY_CRITICAL_CATEGORIES | frozenset(_SAFETY_EXTENSIONS)
+
+
+def _reset_safety_extensions_for_tests() -> None:
+    """런타임 확장 안전 카테고리만 비운다(내장 frozenset 은 불변).
+
+    프로세스 전역 상태이므로 테스트/데모 리셋에서 격리용으로 호출한다.
+    """
+    _SAFETY_EXTENSIONS.clear()

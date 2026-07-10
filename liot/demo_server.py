@@ -32,6 +32,8 @@ from liot.layers.l3_judgment.llm_judge import FakeLLM
 from liot.layers.l3_judgment.ollama_backend import HTTPOllamaTransport, OllamaBackend
 from liot.layers.l2_context.nl_directive import DirectiveStore, UserDirective
 from liot.layers.l4_execution.executor import ExecDecision, ExecutionPolicy
+from liot.core.risk import _reset_safety_extensions_for_tests
+from liot.layers.l3_judgment.guardrail import _reset_floor_extensions_for_tests
 from liot.registry import RegistryError, RuntimeRegistry
 
 # 활성 자연어 지시(세션 스코프). /api/directive 로 추가·초기화, /api/simulate tick 에 반영.
@@ -511,7 +513,11 @@ class Handler(BaseHTTPRequestHandler):
     def _registry_post(self, path: str) -> None:
         """런타임 등록 엔드포인트(sensor·device·reset). 검증 실패는 400."""
         if path == "/api/registry/reset":
+            # 데모 리셋 = 완전 초기화. 인스턴스 등록분(_REGISTRY)에 더해 프로세스
+            # 전역 확장 안전 카테고리·카테고리 하한도 비운다(내장 set 은 불변).
             _REGISTRY.reset()
+            _reset_safety_extensions_for_tests()
+            _reset_floor_extensions_for_tests()
             self._json(200, {"ok": True})
             return
         body = self._read_json()
@@ -529,6 +535,8 @@ class Handler(BaseHTTPRequestHandler):
                     capability=body.get("capability", ""),
                     category=body.get("category", ""),
                     actions=body.get("actions") or [],
+                    safety_critical=body.get("safety_critical", False),
+                    floor=body.get("floor"),
                 )
                 self._json(200, {"ok": True, "device": rec})
                 return

@@ -37,7 +37,7 @@ from liot.core.contracts import (
     make_noop_candidate,
 )
 from liot.core.invariants import InvariantError
-from liot.core.risk import SAFETY_CRITICAL_CATEGORIES, RiskTier
+from liot.core.risk import RiskTier, is_safety_category
 
 from .candidate_llm import LLMCandidateBackend, parse_llm_candidates
 from .context_builder import derive_occupancy
@@ -116,7 +116,7 @@ def validate_proactive_candidate(
     """
     if (candidate.capability, candidate.action) not in PROACTIVE_ALLOWED:
         return "not_allowed"
-    if (candidate.category or "").strip().lower() in SAFETY_CRITICAL_CATEGORIES:
+    if is_safety_category(candidate.category):
         return "safety_target"
     if catalog is not None:
         true_cap = catalog.capability_for(candidate.entity_id)

@@ -848,6 +848,25 @@ input[type="range"]:focus-visible {
   box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
+/* 안전 임계 체크박스 (해제 불가 안내 동반) */
+.safety-field {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink);
+}
+.safety-check {
+  width: auto;
+  margin: 0;
+  accent-color: var(--tier-3, var(--accent));
+  cursor: pointer;
+}
+.safety-label {
+  user-select: none;
+}
+
 /* 수치 센서 단위/최소/최대 (한 줄 3열) */
 .field-inline {
   display: grid;

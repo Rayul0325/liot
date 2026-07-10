@@ -21,10 +21,16 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...core.contracts import CandidateAction, ContextSnapshot
-from ...core.risk import SAFETY_CRITICAL_CATEGORIES, RiskTier, escalate_only
+from ...core.risk import RiskTier, escalate_only, is_safety_category
 from .rules_loader import Rule, RuleSet, load_rulesets
 
-__all__ = ["Guardrail", "SafetyGate", "Gate1Result"]
+__all__ = [
+    "Guardrail",
+    "SafetyGate",
+    "Gate1Result",
+    "register_category_floor",
+    "category_floor",
+]
 
 # 알려진 비안전 카테고리의 기본 하한. 여기에도 없으면 deny-by-default(EMBER).
 # (안전 임계 카테고리는 이 표를 거치지 않고 무조건 EMBER 이다.)
@@ -41,6 +47,53 @@ _KNOWN_CATEGORY_FLOOR: dict[str, RiskTier] = {
     "appliance": RiskTier.DUSK,
     "power": RiskTier.DUSK,
 }
+
+# 런타임 등록된 카테고리 하한(extend-only). 내장 dict 는 절대 변형되지 않는다.
+# 내장 카테고리는 escalate_only 로 올리기만 가능하고, 미지 카테고리는 하한을
+# 신규 설정(ADD)할 수 있으나 이후로도 낮출 수 없다(재등록도 escalate_only).
+_CATEGORY_FLOOR_EXTENSIONS: dict[str, RiskTier] = {}
+
+
+def category_floor(cat: str | None) -> RiskTier | None:
+    """이 카테고리의 현재 유효 하한(내장 ∪ 확장). 미지·미등록이면 None.
+
+    안전 임계 카테고리는 이 표를 거치지 않고 항상 EMBER 이므로 여기서 다루지
+    않는다(호출자가 ``is_safety_category`` 로 먼저 판정). 확장분이 비어 있으면
+    결과는 ``_KNOWN_CATEGORY_FLOOR.get(cat)`` 과 비트 동일하다.
+    """
+    norm = (cat or "").strip().lower()
+    baked = _KNOWN_CATEGORY_FLOOR.get(norm)
+    ext = _CATEGORY_FLOOR_EXTENSIONS.get(norm)
+    if baked is None:
+        return ext
+    if ext is None:
+        return baked
+    return escalate_only(baked, ext)
+
+
+def register_category_floor(cat: str, tier: RiskTier | str | int) -> RiskTier:
+    """카테고리 위험도 하한을 등록/상향한다(확장 전용, escalate_only).
+
+    내장 카테고리: 새 하한 = ``escalate_only(현재 유효, 요청)`` — 올리기만.
+    미지 카테고리: 하한을 신규로 설정(ADD). 재등록은 현재 확장분에 escalate_only.
+    구조적으로 어떤 경우에도 낮출 수 없다(항상 max). 낮추기 요청의 명시적
+    거부(HTTP 400)는 레지스트리 계층이 ``category_floor`` 로 사전 비교해 수행한다.
+    반환 = 저장된 하한.
+    """
+    norm = (cat or "").strip().lower()
+    requested = RiskTier.from_str(tier)
+    current = category_floor(norm)
+    new = requested if current is None else escalate_only(current, requested)
+    _CATEGORY_FLOOR_EXTENSIONS[norm] = new
+    return new
+
+
+def _reset_floor_extensions_for_tests() -> None:
+    """런타임 확장 카테고리 하한만 비운다(내장 dict 는 불변).
+
+    프로세스 전역 상태이므로 테스트/데모 리셋에서 격리용으로 호출한다.
+    """
+    _CATEGORY_FLOOR_EXTENSIONS.clear()
 
 
 @dataclass(frozen=True)
@@ -105,20 +158,23 @@ class Guardrail:
           4) block 규칙이 있으면 EMBER 강제.
         """
         category = (candidate.category or "").strip().lower()
-        is_safety = category in SAFETY_CRITICAL_CATEGORIES
+        is_safety = is_safety_category(category)
 
         # 1) 카테고리 기준선. deny-by-default.
+        #    비안전 카테고리 하한은 category_floor(내장 ∪ 런타임 확장)로 조회한다.
         if is_safety:
             baseline = RiskTier.EMBER
             base_reason = f"safety-critical category '{category}' → EMBER floor"
-        elif category in _KNOWN_CATEGORY_FLOOR:
-            baseline = _KNOWN_CATEGORY_FLOOR[category]
-            base_reason = f"known category '{category}' baseline {baseline.name}"
         else:
-            baseline = RiskTier.EMBER
-            base_reason = (
-                f"deny-by-default: unspecified category {category!r} → EMBER floor"
-            )
+            registered_floor = category_floor(category)
+            if registered_floor is not None:
+                baseline = registered_floor
+                base_reason = f"known category '{category}' baseline {baseline.name}"
+            else:
+                baseline = RiskTier.EMBER
+                base_reason = (
+                    f"deny-by-default: unspecified category {category!r} → EMBER floor"
+                )
 
         floor = baseline
 

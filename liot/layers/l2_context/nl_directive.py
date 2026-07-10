@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Protocol, Sequence, runtime_checkable
 
 from liot.core.contracts import CandidateAction, CandidateSet, is_noop
-from liot.core.risk import SAFETY_CRITICAL_CATEGORIES
+from liot.core.risk import is_safety_category
 
 __all__ = [
     "UserDirective",
@@ -124,7 +124,7 @@ def is_suppressed(
 
     안전 임계 카테고리는 **절대 억제하지 않는다**(사용자 지시가 안전을 못 낮춤).
     """
-    if (candidate.category or "").strip().lower() in SAFETY_CRITICAL_CATEGORIES:
+    if is_safety_category(candidate.category):
         return None
     action = (candidate.action or "").strip().lower()
     for d in directives:
