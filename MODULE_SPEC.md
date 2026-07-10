@@ -418,3 +418,58 @@ class DeviceCatalog:
 > 스펙-우선: 이 시그니처가 목표 계약이다. Phase 1~6 구현이 이 문서를 따른다
 > (변경 시 이 문서를 먼저 갱신). Phase 0 은 스텁이라 두 제안 라인은 빈 목록,
 > 트리거는 항상 fire, 임베더는 중립 0.5 를 돌려준다(동작 무변경).
+
+> **데모 리뉴얼(2026-07-10)**: 관제실 데모(`web/app.html`·`demo_server`)가 후보
+> 생성(규칙 + 제네릭 런타임 후보) → 아비터(`CandidateEvaluator`) 융합 → 개인화
+> 피드백 루프(`/api/feedback` → 임베딩 EMA) → 자연어 지시(`/api/directive`) →
+> 시각화를 **결정론 Fake 위에서 실동작**시킨다. 여기에 런타임 등록
+> (`RuntimeRegistry`)과 카탈로그 파생 허용목록(아래 §신설)이 더해졌다. 정식
+> `proposal_lines`(Line B)·`event_detector`(트리거) 모듈 배선과 실
+> ML/LLM/임베딩 학습은 인터페이스 뒤 결정론 Fake + env 슬롯(예정)으로 남는다.
+
+---
+
+## `liot.registry` — 런타임 등록(RuntimeRegistry) · 카탈로그 파생 허용목록
+
+관제실 데모가 센서·기기·행동·규칙을 런타임에 등록하는 **단일 원천**. 앱은 생성
+시점 카탈로그 스냅샷을 쓰므로, `demo_server` 는 요청마다 `LiotApp` 을 새로 만들어
+등록 직후 반영한다.
+
+```
+# liot.registry
+class RuntimeRegistry:
+    def add_sensor(meta: dict) -> dict          # 센서 등록(정규화·검증 → coerce 규칙 확정)
+    def add_device(...) -> dict                 # 기기 + capability 등록
+    def add_action(...) -> dict                 # 기기 capability 에 action(+tier) 등록
+    def add_rule(spec: dict) -> dict            # 런타임 능동 규칙(닫힌 비교자·enum 매치만)
+    def to_catalog() -> DeviceCatalog           # 베이스라인 ∪ 등록분 병합 카탈로그
+    def proactive_allowed() -> frozenset[tuple[str,str]]     # = derive_proactive_allowed(to_catalog())
+    def executable_extras() -> frozenset[tuple[str,str]]     # = proactive_allowed(); executor 가 FORBIDDEN_OPEN 재차감
+    def proactive_ruleset() -> ProactiveRuleSet             # config 베이스라인(必) ∪ 런타임 규칙, limits 는 베이스라인 승계
+    def categories() -> dict[str,str]           # entity_id → category (LiotApp(categories=...) 주입)
+    def snapshot()/restore(snap)/reset()        # 세션 스코프 상태(프리셋 원자성·전체 초기화)
+
+# liot.layers.l2_context.proactive_rules  — 카탈로그 파생 허용목록(하드코딩 상수 제거)
+SAFETY_ACTUATOR_CAPABILITIES: frozenset[str] = {"lock","valve","oven"}  # 데이터로 못 넓히는 하드 블록리스트
+def derive_proactive_allowed(catalog) -> frozenset[tuple[str,str]]
+    # (cap,action) ∈ 허용  ⟺  cap ∉ SAFETY_ACTUATOR_CAPABILITIES  AND  catalog.risk_for(cap,action,{}) ≤ BREATH
+    # 열거원 = capability_actions()(raw 맵), NOT available_actions()(기기 조인) — 출하 6튜플 동치 유지
+
+# extend-only 안전 결합(넓히기만 가능, 내장 하한 불변)
+liot.core.risk.register_safety_category(cat: str) -> str          # 안전 카테고리 추가(제거 API 없음)
+liot.layers.l3_judgment.guardrail.register_category_floor(cat, tier) -> RiskTier   # 카테고리 하한 승격만
+```
+
+- **extend-only 불변**: 등록은 안전 하한을 **넓힐 수만** 있다. `register_safety_category`
+  는 내장 `SAFETY_CRITICAL_CATEGORIES` frozenset 을 건드리지 않고 확장 set 에만
+  더하며(is_safety_category = 내장 ∪ 확장), `register_category_floor` 는 하한을
+  올리기만 한다. 낮추거나 제거하는 경로는 존재하지 않는다(R&E 핵심).
+- **제네릭 후보 + 런타임 규칙**: `add_rule` 은 상태 술어(닫힌 비교자
+  `eq/ne/lt/le/gt/ge`) + enum 매치(`time_bucket`/`occupancy`)만 받는다(스크립트·
+  표현식 불가). tier ≤ breath 로 등록된 비-안전-액추에이터 행동은 파생 허용목록에
+  자동 진입해 능동 제안 대상이 되고, 허용목록 통과 후에도 안전 카테고리 타깃 거부·
+  capability 일치·상한 재검이 별도로 적용된다(다중 deny-by-default).
+
+검증: `tests/test_registry.py` · `tests/test_demo_flow.py`(프리셋 등록·원자적
+롤백·simulate 도달) · `tests/test_proactive.py::test_derive_proactive_allowed_equals_shipped_six_tuples`(출하 6튜플 동치) ·
+`tests/test_invariants.py`(FORBIDDEN_OPEN 은 어떤 확장에도 누출 불가).

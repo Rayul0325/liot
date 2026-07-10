@@ -86,8 +86,11 @@ tests/          불변식 / Gate1 / risk_router / egress / e2e / proactive
 # 의존성 설치 (개발 도구 포함)
 uv pip install -e ".[dev]"
 
-# 데모 실행 (light / thermostat / 가스누출 / 능동 틱 — 후보 평가 트레이스 출력)
+# CLI 데모 (light / thermostat / 가스누출 / 능동 틱 — 후보 평가 트레이스 출력)
 uv run python -m liot.demo
+
+# 관제실 웹 데모 (브라우저에서 센서 세팅 → 실제 파이프라인 → http://127.0.0.1:8765/)
+uv run python -m liot.demo_server
 
 # 테스트
 uv run python -m pytest -q
@@ -288,10 +291,100 @@ LLM 폭주 → 침묵 + 안전 경로 무손상 / egress 불출 / occupancy fact
 무시하라 해도 EMBER 를 유지한다(Safety-Never-Silent). `evaluator.py`·Gate1/Gate2/L4·
 버스 엣지 무변경.
 
-**구현 현황(2026-07-09)**: Phase 0(인터페이스 골격 + `line_confidence` +
-`available_actions()`) ✅ 완료 · Phase 1~6(제안 라인·아비터·개인화 루프·트리거·
-자연어 지시·시각화) ⏳ 진행. 실 ML/LLM/임베딩 학습은 인터페이스 뒤 결정론 Fake +
-env 슬롯(예정). 상세 계약: `MODULE_SPEC.md` §능동 파이프라인 확장.
+**구현 현황(2026-07-10)**: Phase 0(인터페이스 골격 + `line_confidence` +
+`available_actions()`) 완료에 더해, 관제실 데모 리뉴얼로 제안 라인·아비터·
+개인화 루프(`/api/feedback`)·자연어 지시(`/api/directive`)·시각화
+(`web/app.html`)가 결정론 Fake 위에서 **실동작**한다(런타임 등록·카탈로그
+파생 허용목록 포함 — 위 §런타임 등록 참고). 실 ML/LLM/임베딩 학습은 인터페이스
+뒤 결정론 Fake + env 슬롯(예정). 상세 계약: `MODULE_SPEC.md` §능동 파이프라인 확장.
+
+---
+
+## 런타임 등록 + 관제실 데모 (`web/app.html` · `demo_server`)
+
+발표·연구 시연용 단일 페이지 관제실이다. 브라우저에서 센서 값을 세팅하면
+가짜 시뮬이 아니라 매 요청마다 **진짜 `LiotApp`** 이 만들어져 L1~L4 전체
+파이프라인을 타고, 각 단계 산출물이 JSON 트레이스로 화면에 표시된다.
+
+```bash
+python -m liot.demo_server        # http://127.0.0.1:8765/  (Ctrl+C 로 종료)
+```
+
+- `/` → `web/app.html`(관제실), `/assets/*` → 정적 자산, `/api/*` → 파이프라인.
+- **프리셋 4종**(등록 번들, `/api/registry/preset`): `빈집 소등` · `가스 누출
+  안전 경로` · `라이브 등록 시연` · `외기·난방`. 한 번의 원자적 적용으로 센서·
+  기기·행동·규칙을 함께 등록한다(부분 실패 시 롤백).
+- **등록 폼**: 화면에서 센서/기기/행동/규칙을 직접 추가할 수 있고, 등록 즉시
+  카탈로그·보드가 재렌더된다(엔티티 ID 하드코딩 0 — `RuntimeRegistry` 단일 원천).
+
+### `liot.registry.RuntimeRegistry` — 센서·기기·행동·규칙 런타임 등록
+
+카탈로그의 **단일 원천**. `/api/catalog`·`/api/simulate`·`/api/registry/*` 가
+전부 한 인스턴스를 읽고 쓴다. `demo_server` 는 요청마다 `LiotApp` 을 새로 만들어
+등록 직후 자동 반영된다(앱은 생성 시점 카탈로그 스냅샷).
+
+```
+class RuntimeRegistry:
+    def add_sensor(meta) -> dict          # 센서 등록(정규화·검증, coerce 규칙 확정)
+    def add_device(...) -> dict           # 기기 + capability 등록
+    def add_action(...) -> dict           # 기기 capability 에 action(+tier) 등록
+    def add_rule(spec) -> dict            # 런타임 능동 규칙(닫힌 비교자·enum 매치만)
+    def to_catalog() -> DeviceCatalog     # 베이스라인 + 등록분 병합 카탈로그
+    def proactive_allowed() -> frozenset  # = derive_proactive_allowed(to_catalog())
+    def proactive_ruleset() -> ProactiveRuleSet  # config 베이스라인 ∪ 런타임 규칙
+    def snapshot()/restore()/reset()      # 세션 스코프 상태(프리셋 원자성·초기화)
+```
+
+- **extend-only 안전 결합**: 등록은 안전 하한을 **넓힐 수만** 있다. 새 안전
+  카테고리는 `risk.register_safety_category(cat)`(내장 frozenset 불변, 추가 전용),
+  카테고리 하한은 `guardrail.register_category_floor(cat, tier)` 로 승격만
+  가능하다 — 내장 하한을 낮추거나 제거하는 API 는 존재하지 않는다(R&E 핵심).
+- **런타임 능동 규칙**: `add_rule` 은 상태 술어(닫힌 비교자 `eq/ne/lt/le/gt/ge`)
+  + enum 매치(`time_bucket`/`occupancy`)만 받는다. 스크립트·표현식 불가.
+  `proactive_ruleset()` 이 config 베이스라인(`config/proactive/*.yaml`)을 반드시
+  포함해 병합하고, throttle limits 는 베이스라인 것을 승계한다(런타임 규칙이
+  발화 한도를 못 느슨하게).
+
+### 카탈로그 파생 허용목록 — 하드코딩 상수 제거
+
+능동 허용목록을 고정 튜플 상수로 두지 않고 **카탈로그에서 파생**한다
+(`proactive_rules.derive_proactive_allowed(catalog)`). `(capability, action)` 이
+허용에 드는 조건은 둘 다 충족:
+
+- `catalog.risk_for(cap, action, {}) <= BREATH` — 컴포트 상한. 미지·고위험·
+  여는 방향은 카탈로그가 DUSK/EMBER 로 판정해 자동 제외.
+- `cap not in SAFETY_ACTUATOR_CAPABILITIES`(`{lock, valve, oven}`) — 안전
+  액추에이터는 **데이터(등록)로 절대 넓힐 수 없는 하드 블록리스트**.
+
+출하 카탈로그에 적용하면 정확히 구 고정 6튜플과 동일하다(회귀 테스트로 봉인).
+실행 확장분(`executable_extras()`)도 같은 집합이되, 실행기가 `FORBIDDEN_OPEN`
+(`lock.unlock`·`valve.open` 등 여는 방향)을 다시 빼므로 여기 있어도 실행 불가.
+
+### 관제실 API 엔드포인트
+
+| 메서드·경로                     | 하는 일                                                          |
+| ------------------------------- | --------------------------------------------------------------- |
+| `GET /api/catalog`              | 센서·기기·행동·위험등급 전체를 한 응답으로(보드 100% 렌더 원천). |
+| `POST /api/simulate`            | 센서 세팅 → 실제 파이프라인 1틱 → 단계별 JSON 트레이스.          |
+| `POST /api/registry/{sensor,device,action,rule}` | 개별 등록.                                     |
+| `POST /api/registry/preset`     | 프리셋(등록 번들) 원자적 적용.                                   |
+| `POST /api/registry/reset`      | 세션 등록·선호 임베딩 전체 초기화.                              |
+| `POST /api/feedback`            | 폰 알림 응답(수락/거부/무시) → 선호 임베딩 EMA 갱신(개인화).     |
+| `POST /api/directive`           | 자연어 지시 파싱 → 자율 후보 억제(comfort 만, 안전 제외).        |
+
+- **선호 피드백 루프**: `/api/feedback` 가 셀맵(`(시간대,재실,cap:action)→0~1`)을
+  온라인 EMA 로 갱신하고, 다음 `/api/simulate` 가 `set_preference_cells` 로 주입해
+  선호 차원과 embedding 트레이스에 반영한다(빈 맵이면 중립 0.5).
+- **지시 채팅**: `/api/directive` 로 "오늘 밤 불 켜놔줘" 같은 지시를 구조화해
+  자율 제안을 억제하되, 안전 카테고리·EMBER 는 어떤 지시로도 못 낮춘다.
+
+> 데모 서버는 **절대 액추에이터를 호출하지 않는다**(제안-만; 실행 옵트인도 판정만
+> 표시). 실 ML/LLM 후보 생성·임베딩 학습은 인터페이스 뒤 결정론 Fake + env 슬롯
+> (예정) — 데모는 전체 파이프라인 구조·안전 불변식을 실제로 실행해 보여준다.
+
+검증: `tests/test_registry.py` · `test_demo_flow.py`(프리셋 등록·원자적 롤백) ·
+`test_proactive.py::test_derive_proactive_allowed_equals_shipped_six_tuples`
+(출하 6튜플 동치 회귀).
 
 ---
 

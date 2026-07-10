@@ -1,13 +1,14 @@
-"""LIOT 데모 랩 서버 — 브라우저에서 센서 값을 세팅하면 *실제* 파이프라인을 탄다.
+"""LIOT 데모 서버 — 브라우저에서 센서 값을 세팅하면 *실제* 파이프라인을 탄다.
 
-가짜 시뮬(web/assets/demo.js)이 아니라, 매 요청마다 진짜 ``LiotApp`` 을 만들어
+가짜 시뮬이 아니라, 매 요청마다 진짜 ``LiotApp`` 을 만들어
 L1 정규화 → L2 맥락/후보생성/평가 → L3 Gate1(가드레일)+Gate2(로컬 LLM) →
 L4 개입까지 실제로 돌리고, 각 단계 산출물을 JSON 트레이스로 돌려준다.
 
   python -m liot.demo_server           # http://127.0.0.1:8765 (기본 gemma3:4b)
 
 의존성: 표준 라이브러리만. LLM 은 로컬 ollama(HTTP :11434)의 gemma3:4b 기본.
-정적 UI(web/lab.html 등)와 API(/api/simulate)를 같은 포트로 서빙(동일 출처).
+관제실 UI(web/app.html)와 API(/api/*)를 같은 포트로 서빙(동일 출처): ``/`` 가
+app.html, ``/assets/*`` 가 정적 자산, 나머지는 WEB_DIR 안에서 정적 파일 매핑.
 데모 서버는 절대 액추에이터를 호출하지 않는다(제안-만; 실행 옵트인도 판정만 표시).
 """
 
@@ -584,8 +585,6 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/":
             path = "/app.html"  # 새 2D 단일 페이지(관제실)
-        elif path in ("/lab", "/lab.html"):
-            path = "/lab.html"  # 구 페이지는 P8 삭제 전까지 유지
         rel = path.lstrip("/")
         target = (WEB_DIR / rel).resolve()
         if not str(target).startswith(str(WEB_DIR)) or not target.is_file():
