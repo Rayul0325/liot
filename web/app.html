@@ -40,7 +40,7 @@
       <section class="rail rail-left" aria-label="센서·기기 보드">
         <div class="board-head">
           <h2 class="board-title">센서 보드</h2>
-          <button class="btn-ghost" type="button" disabled data-tip="P2에서 활성화">
+          <button class="btn-add" type="button" id="addSensorBtn">
             <span class="btn-plus" aria-hidden="true">+</span> 센서 추가
           </button>
         </div>
@@ -48,8 +48,8 @@
 
         <div class="board-head board-head--gap">
           <h2 class="board-title">기기 · 행동 보드</h2>
-          <button class="btn-ghost" type="button" disabled data-tip="P2에서 활성화">
-            <span class="btn-plus" aria-hidden="true">+</span> 기기 추가
+          <button class="btn-add" type="button" id="addDeviceBtn">
+            <span class="btn-plus" aria-hidden="true">+</span> 기기·행동 추가
           </button>
         </div>
         <div class="board" id="deviceBoard"></div>
@@ -101,6 +101,9 @@
         </div>
       </aside>
     </main>
+
+    <!-- 등록 모달(센서·기기)이 렌더되는 자리. 내용은 app.js 가 동적 구성한다. -->
+    <div id="modalRoot"></div>
 
     <script src="assets/app.js"></script>
   </body>

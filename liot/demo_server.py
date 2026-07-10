@@ -31,11 +31,16 @@ from liot.layers.l2_context.external_provider import FakeExternalProvider
 from liot.layers.l3_judgment.llm_judge import FakeLLM
 from liot.layers.l3_judgment.ollama_backend import HTTPOllamaTransport, OllamaBackend
 from liot.layers.l2_context.nl_directive import DirectiveStore, UserDirective
-from liot.layers.l4_execution.device_catalog import load_device_catalog
 from liot.layers.l4_execution.executor import ExecDecision, ExecutionPolicy
+from liot.registry import RegistryError, RuntimeRegistry
 
 # 활성 자연어 지시(세션 스코프). /api/directive 로 추가·초기화, /api/simulate tick 에 반영.
 _DIRECTIVES = DirectiveStore()
+
+# 런타임 등록 레지스트리(세션 스코프 싱글턴). 센서·기기·행동의 단일 원천 —
+# /api/catalog·/api/simulate·/api/registry/* 가 전부 이 인스턴스를 읽고 쓴다.
+# (demo_server 는 요청마다 LiotApp 을 새로 만들므로 등록 직후 자동 반영된다.)
+_REGISTRY = RuntimeRegistry()
 
 
 def _directive_view(d: UserDirective) -> dict[str, Any]:
@@ -50,70 +55,17 @@ def _directive_view(d: UserDirective) -> dict[str, Any]:
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# 데모 주택의 엔티티 → LIOT 카테고리. 안전 임계(gas/smoke/leak/lock)는 코어가 EMBER.
-CATEGORIES: dict[str, str] = {
-    "sensor.living_temperature": "temperature",
-    "sensor.living_humidity": "humidity",
-    "binary_sensor.living_motion": "motion",
-    "light.living_room": "light",
-    "climate.living_room": "climate",
-    "cover.living_room": "curtain",
-    "binary_sensor.kitchen_gas": "gas",
-    "binary_sensor.hall_smoke": "smoke",
-    "binary_sensor.bath_leak": "leak",
-    "lock.front_door": "lock",
-}
-
 # 시간대(UI) → 대표 UTC 시각(clock.time_bucket 기준: 06-11 morning / 11-17 day /
 # 17-22 evening / 그 외 night). 능동 규칙의 time_bucket 매칭에 쓰인다.
 _TIME_HOUR = {"morning": "08", "day": "13", "evening": "19", "night": "23"}
 
-_BOOL_SENSORS = {
-    "binary_sensor.living_motion",
-    "binary_sensor.kitchen_gas",
-    "binary_sensor.hall_smoke",
-    "binary_sensor.bath_leak",
-    "light.living_room",
-}
-
-# 엔티티 → 한글 표시 이름(센서·기기 공용). 데모 카탈로그 뷰의 단일 원천.
-# (JS 는 라벨을 절대 하드코딩하지 않고 /api/catalog 응답만으로 렌더한다.)
-_ENTITY_LABELS: dict[str, str] = {
-    "sensor.living_temperature": "거실 온도",
-    "sensor.living_humidity": "거실 습도",
-    "binary_sensor.living_motion": "거실 움직임",
-    "light.living_room": "거실 조명",
-    "climate.living_room": "거실 냉난방",
-    "cover.living_room": "거실 커튼",
-    "binary_sensor.kitchen_gas": "주방 가스",
-    "binary_sensor.hall_smoke": "복도 연기",
-    "binary_sensor.bath_leak": "욕실 누수",
-    "lock.front_door": "현관 잠금",
-    # device_catalog.yaml 전용 엔티티
-    "switch.gas_valve": "가스 밸브",
-    "cover.garage": "차고 문",
-}
-
-# 수치 센서의 단위·범위. 나머지 엔티티는 불리언(토글)로 취급한다.
-_NUMERIC_SENSORS: dict[str, dict[str, Any]] = {
-    "sensor.living_temperature": {"unit": "°C", "min": -10, "max": 40},
-    "sensor.living_humidity": {"unit": "%", "min": 0, "max": 100},
-}
-
-
-def _raw_for(entity_id: str, value: Any) -> Any:
-    """UI 값 → SensorReading.raw_value. 불리언 센서는 on/off 문자열로."""
-    if isinstance(value, bool):
-        return "on" if value else "off"
-    if entity_id in _BOOL_SENSORS and isinstance(value, (int, float)):
-        return "on" if value else "off"
-    if entity_id == "lock.front_door" and isinstance(value, bool):
-        return "locked" if value else "unlocked"
-    return value
-
 
 def _reading(entity_id: str, value: Any, ts: str) -> SensorReading:
-    raw = _raw_for(entity_id, value)
+    """UI 값 → SensorReading. 강제변환·미등록 거부는 레지스트리가 담당한다.
+
+    미등록 센서면 ``RegistryError`` 를 던져 서버가 HTTP 400 으로 매핑한다.
+    """
+    raw = _REGISTRY.coerce_value(entity_id, value)
     return SensorReading(
         entity_id=entity_id,
         source="lab",
@@ -131,29 +83,16 @@ def _tier_view(tier: RiskTier) -> dict[str, Any]:
 def _catalog_view() -> dict[str, Any]:
     """센서·기기·행동·위험등급을 한 응답으로 합성한다(`GET /api/catalog`).
 
-    이 합성부는 **이 함수 한 곳에만 격리**한다 — P2 에서 데이터 원천을
-    런타임 레지스트리로 바로 이 지점에서 교체한다. 지금은:
-      * 센서 = ``CATEGORIES`` + ``_NUMERIC_SENSORS`` 에서 메타 합성
-        (수치 센서는 kind="number"+단위/범위, 나머지는 kind="bool").
-      * 기기·행동 = ``load_device_catalog().available_actions()`` 를
-        entity_id 로 묶음.
+    데이터 원천은 런타임 레지스트리(``_REGISTRY``) 단일 지점 — 브라우저에서 새
+    센서·기기·행동을 등록하면 이 응답이 즉시 반영된다. JS 는 이 응답만으로
+    보드를 렌더한다(엔티티 ID·한글 라벨 하드코딩 0).
+      * 센서 = ``_REGISTRY.sensors_meta()`` (수치=number+단위/범위, 나머지=bool).
+      * 기기·행동 = ``_REGISTRY.to_catalog().available_actions()`` 를 entity_id 로 묶음.
       * 위험등급 legend = ``RiskTier.label_ko`` 단일 원천(한글 라벨 이중관리 없음).
     """
-    sensors: list[dict[str, Any]] = []
-    for eid, category in CATEGORIES.items():
-        num = _NUMERIC_SENSORS.get(eid)
-        meta: dict[str, Any] = {
-            "entity_id": eid,
-            "name": _ENTITY_LABELS.get(eid, eid),
-            "category": category,
-        }
-        if num is not None:
-            meta.update(kind="number", unit=num["unit"], min=num["min"], max=num["max"])
-        else:
-            meta.update(kind="bool", unit=None, min=None, max=None)
-        sensors.append(meta)
+    sensors = _REGISTRY.sensors_meta()
 
-    catalog = load_device_catalog()
+    catalog = _REGISTRY.to_catalog()
     grouped: dict[str, dict[str, Any]] = {}
     for act in catalog.available_actions():
         eid = str(act["entity_id"])
@@ -161,7 +100,7 @@ def _catalog_view() -> dict[str, Any]:
         if dev is None:
             dev = grouped[eid] = {
                 "entity_id": eid,
-                "name": _ENTITY_LABELS.get(eid, eid),
+                "name": _REGISTRY.device_name(eid),
                 "category": act.get("category"),
                 "capability": act.get("capability"),
                 "actions": [],
@@ -305,18 +244,19 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
             outdoor_aqi=outdoor.get("aqi"),
         )
 
+    categories = _REGISTRY.categories()
     app = LiotApp(
         clock=clock,
-        categories=CATEGORIES,
+        catalog=_REGISTRY.to_catalog(),
+        categories=categories,
         llm_backend=backend,
         condition=str(cfg.get("condition") or "B"),
         external_provider=external,
     )
 
     # 1) 모든 센서를 관찰로 주입(맥락/캐시 갱신, 대개 침묵).
+    #    미등록 센서 값이면 _reading 이 RegistryError → HTTP 400 으로 매핑된다.
     for eid, val in sensors.items():
-        if eid not in CATEGORIES:
-            continue
         await app.process_reading(_reading(eid, val, ts), force_snapshot=False)
 
     # seeding 관찰들이 남긴 last_trace 를 비운다 — tick 이 무행동(NoOp)으로
@@ -332,8 +272,8 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
     if mode == "event":
         ev = dict(body.get("event") or {})
         eid = ev.get("entity")
-        if not eid or eid not in CATEGORIES:
-            return {"ok": False, "error": f"unknown event entity: {eid!r}"}
+        if not eid:
+            return {"ok": False, "error": "event 에 entity 가 없습니다"}
         val = ev.get("value", sensors.get(eid))
         action = ev.get("action")  # None → 카테고리 기본(안전=alert)
         proposal = await app.process_reading(
@@ -354,12 +294,12 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
         "mode": mode,
         "input": {
             "time_bucket": clock.time_bucket(),
-            "occupancy": derive_occupancy(cur, CATEGORIES),
+            "occupancy": derive_occupancy(cur, categories),
             "condition": app.condition,
             "execution_enabled": bool(cfg.get("execution_enabled", False)),
             "llm": {"enabled": bool(cfg.get("llm_enabled", True)), "model": model},
             "outdoor": outdoor if external is not None else None,
-            "state": {k: cur.get(k) for k in sensors if k in CATEGORIES},
+            "state": {k: cur.get(k) for k in sensors if k in categories},
         },
         "candidates": _candidate_rows(cand_eval),
         "timing_ms": {"pipeline_and_llm": llm_ms},
@@ -377,7 +317,7 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
     # ── 능동 파이프라인 확장 트레이스: 트리거 · 2라인 · 임베딩 · 아비터 ──
     _facts = {
         "time_bucket": clock.time_bucket(),
-        "occupancy": derive_occupancy(cur, CATEGORIES),
+        "occupancy": derive_occupancy(cur, categories),
     }
     _pro = trace.get("proactive")
     out["trigger"] = {
@@ -549,6 +489,9 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
             return
+        if path.startswith("/api/registry/"):
+            self._registry_post(path)
+            return
         if path != "/api/simulate":
             self._send(404, b"not found", "text/plain; charset=utf-8")
             return
@@ -557,10 +500,42 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             result = asyncio.run(_run(body))
+        except RegistryError as exc:  # 미등록 엔티티 값 등 → 400 구조화 에러
+            self._json(400, {"ok": False, "error": exc.message, "field": exc.field})
+            return
         except Exception as exc:  # noqa: BLE001 - 데모: 어떤 실패도 화면에 노출
             self._json(200, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
             return
         self._json(200, result)
+
+    def _registry_post(self, path: str) -> None:
+        """런타임 등록 엔드포인트(sensor·device·reset). 검증 실패는 400."""
+        if path == "/api/registry/reset":
+            _REGISTRY.reset()
+            self._json(200, {"ok": True})
+            return
+        body = self._read_json()
+        if body is None:
+            return
+        try:
+            if path == "/api/registry/sensor":
+                rec = _REGISTRY.add_sensor(body)
+                self._json(200, {"ok": True, "sensor": rec})
+                return
+            if path == "/api/registry/device":
+                rec = _REGISTRY.add_device(
+                    entity_id=body.get("entity_id", ""),
+                    name=body.get("name", ""),
+                    capability=body.get("capability", ""),
+                    category=body.get("category", ""),
+                    actions=body.get("actions") or [],
+                )
+                self._json(200, {"ok": True, "device": rec})
+                return
+        except RegistryError as exc:
+            self._json(400, {"ok": False, "error": exc.message, "field": exc.field})
+            return
+        self._send(404, b"not found", "text/plain; charset=utf-8")
 
 
 def main() -> None:

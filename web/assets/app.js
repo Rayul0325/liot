@@ -268,37 +268,69 @@ function showTrace(data) {
   panel.open = true;
 }
 
+// ── 카탈로그 적용/리로드 ──────────────────────────────────────────────
+/**
+ * 등급 name→value·labelKo 사전(모달 select 옵션에도 재사용).
+ * @type {Record<string, {name:string, label_ko:string}>}
+ */
+let catalogTiers = {};
+
+/**
+ * 카탈로그 응답을 받아 등급 사전·보드·레전드를 렌더하고 상태를 갱신한다.
+ * @param {{sensors?:object[], devices?:object[], tiers?:object}} catalog
+ * @returns {void}
+ */
+function applyCatalog(catalog) {
+  catalogTiers = catalog.tiers || {};
+
+  tierByName.clear();
+  for (const [value, t] of Object.entries(catalogTiers)) {
+    tierByName.set(t.name, { value: Number(value), labelKo: t.label_ko });
+  }
+
+  document
+    .getElementById("sensorBoard")
+    .replaceChildren(...(catalog.sensors || []).map(sensorCard));
+  document
+    .getElementById("deviceBoard")
+    .replaceChildren(...(catalog.devices || []).map(deviceCard));
+  renderLegend(catalogTiers);
+
+  const n = (catalog.sensors || []).length;
+  const d = (catalog.devices || []).length;
+  setStatus("ready", "대기 · 센서 " + n + " · 기기 " + d);
+}
+
+/**
+ * 카탈로그를 다시 불러와 보드를 재렌더한다(등록 성공 후 호출).
+ * @returns {Promise<void>}
+ */
+async function reloadCatalog() {
+  const res = await fetch("/api/catalog");
+  applyCatalog(await res.json());
+}
+
 // ── 부트스트랩 ────────────────────────────────────────────────────────
 /**
- * 카탈로그를 불러와 보드·레전드·파이프라인을 렌더하고 실행 버튼을 활성화한다.
+ * 카탈로그를 불러와 보드·레전드·파이프라인을 렌더하고 버튼을 활성화한다.
  * @returns {Promise<void>}
  */
 async function init() {
   renderPipeline();
   try {
     const res = await fetch("/api/catalog");
-    const catalog = await res.json();
-
-    tierByName.clear();
-    for (const [value, t] of Object.entries(catalog.tiers || {})) {
-      tierByName.set(t.name, { value: Number(value), labelKo: t.label_ko });
-    }
-
-    const sensorBoard = document.getElementById("sensorBoard");
-    sensorBoard.replaceChildren(...(catalog.sensors || []).map(sensorCard));
-
-    const deviceBoard = document.getElementById("deviceBoard");
-    deviceBoard.replaceChildren(...(catalog.devices || []).map(deviceCard));
-
-    renderLegend(catalog.tiers || {});
+    applyCatalog(await res.json());
 
     const btn = document.getElementById("runBtn");
     btn.disabled = false;
     btn.addEventListener("click", runTick);
 
-    const n = (catalog.sensors || []).length;
-    const d = (catalog.devices || []).length;
-    setStatus("ready", "대기 · 센서 " + n + " · 기기 " + d);
+    document
+      .getElementById("addSensorBtn")
+      .addEventListener("click", openSensorModal);
+    document
+      .getElementById("addDeviceBtn")
+      .addEventListener("click", openDeviceModal);
   } catch (err) {
     setStatus("error", "카탈로그 로드 실패");
     document.getElementById("runHint").textContent = String(err);
@@ -306,3 +338,297 @@ async function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
+// ── 등록 모달 (센서 · 기기) ────────────────────────────────────────────
+/**
+ * JSON POST 헬퍼. 상태코드와 파싱된 응답을 함께 돌려준다.
+ * @param {string} url 엔드포인트
+ * @param {object} payload 본문
+ * @returns {Promise<{status:number, data:any}>}
+ */
+async function postJson(url, payload) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  let data;
+  try {
+    data = await res.json();
+  } catch (_) {
+    data = { ok: false, error: "응답 파싱 실패" };
+  }
+  return { status: res.status, data };
+}
+
+/** 열린 모달을 닫는다. */
+function closeModal() {
+  document.getElementById("modalRoot").replaceChildren();
+  document.removeEventListener("keydown", onModalKey);
+}
+
+/**
+ * Esc 로 모달 닫기.
+ * @param {KeyboardEvent} e
+ */
+function onModalKey(e) {
+  if (e.key === "Escape") closeModal();
+}
+
+/**
+ * 모달 셸을 만들어 modalRoot 에 마운트한다(오버레이 클릭·× 로 닫힘).
+ * @param {string} title 제목
+ * @param {HTMLFormElement} form 폼 요소
+ * @returns {void}
+ */
+function mountModal(title, form) {
+  const overlay = el("div", "modal-overlay");
+  const modal = el("div", "modal");
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+
+  const head = el("div", "modal-head");
+  head.append(el("h3", "modal-title", title));
+  const x = el("button", "modal-x", "×");
+  x.type = "button";
+  x.setAttribute("aria-label", "닫기");
+  x.addEventListener("click", closeModal);
+  head.append(x);
+
+  modal.append(head, form);
+  overlay.append(modal);
+  overlay.addEventListener("mousedown", (e) => {
+    if (e.target === overlay) closeModal();
+  });
+
+  document.getElementById("modalRoot").replaceChildren(overlay);
+  document.addEventListener("keydown", onModalKey);
+  const first = form.querySelector("input, select");
+  if (first) first.focus();
+}
+
+/**
+ * 라벨 + 단일 컨트롤 필드(label 요소 — 클릭 시 포커스).
+ * @param {string} labelText 라벨
+ * @param {HTMLElement} control input/select
+ * @param {string} [hint] 보조 설명
+ * @returns {HTMLElement}
+ */
+function field(labelText, control, hint) {
+  const wrap = el("label", "field");
+  wrap.append(el("span", "field-label", labelText));
+  wrap.append(control);
+  if (hint) wrap.append(el("span", "field-hint", hint));
+  return wrap;
+}
+
+/**
+ * 라벨 + 복합 컨트롤 그룹(div — label 중첩 회피).
+ * @param {string} labelText 라벨
+ * @param {HTMLElement} node 그룹 노드
+ * @returns {HTMLElement}
+ */
+function fieldGroup(labelText, node) {
+  const wrap = el("div", "field");
+  wrap.append(el("span", "field-label", labelText));
+  wrap.append(node);
+  return wrap;
+}
+
+/**
+ * input 요소 생성.
+ * @param {string} name name 속성
+ * @param {Record<string,string>} [attrs] 추가 속성
+ * @returns {HTMLInputElement}
+ */
+function makeInput(name, attrs) {
+  const i = el("input");
+  i.name = name;
+  for (const [k, v] of Object.entries(attrs || {})) i.setAttribute(k, v);
+  return i;
+}
+
+/**
+ * 폼 하단(에러 라인 + 취소/등록 버튼).
+ * @param {string} submitText 등록 버튼 문구
+ * @returns {{error: HTMLElement, actions: HTMLElement}}
+ */
+function formFooter(submitText) {
+  const error = el("p", "modal-error");
+  error.hidden = true;
+  error.setAttribute("role", "alert");
+  const actions = el("div", "modal-actions");
+  const cancel = el("button", "btn-secondary", "취소");
+  cancel.type = "button";
+  cancel.addEventListener("click", closeModal);
+  const submit = el("button", "btn-primary", submitText);
+  submit.type = "submit";
+  actions.append(cancel, submit);
+  return { error, actions };
+}
+
+/**
+ * 인라인 에러를 표시한다(서버 400 사유 그대로).
+ * @param {HTMLElement} errorEl 에러 요소
+ * @param {string} msg 문구
+ * @returns {void}
+ */
+function showError(errorEl, msg) {
+  errorEl.textContent = msg;
+  errorEl.hidden = false;
+}
+
+/** 「센서 추가」 모달을 연다. */
+function openSensorModal() {
+  const form = el("form", "modal-form");
+
+  const name = makeInput("name", { type: "text", placeholder: "예: 토양 수분" });
+  const eid = makeInput("entity_id", {
+    type: "text",
+    placeholder: "예: sensor.soil_moisture",
+  });
+  const category = makeInput("category", { type: "text", placeholder: "예: moisture" });
+
+  const kind = el("select", "field-select");
+  for (const [v, label] of [
+    ["bool", "켜짐/꺼짐 (bool)"],
+    ["number", "수치 (number)"],
+  ]) {
+    const o = el("option", null, label);
+    o.value = v;
+    kind.append(o);
+  }
+
+  const unit = makeInput("unit", { type: "text", placeholder: "예: %" });
+  const min = makeInput("min", { type: "number", value: "0" });
+  const max = makeInput("max", { type: "number", value: "100" });
+  const numFields = el("div", "field-inline");
+  numFields.append(field("단위", unit), field("최소", min), field("최대", max));
+  numFields.hidden = true; // 기본 kind = bool
+
+  kind.addEventListener("change", () => {
+    numFields.hidden = kind.value !== "number";
+  });
+
+  const { error, actions } = formFooter("센서 등록");
+  form.append(
+    field("이름", name),
+    field("entity_id", eid, "비우면 카테고리로 자동 생성됩니다"),
+    field("종류", kind),
+    field("카테고리", category),
+    numFields,
+    error,
+    actions,
+  );
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      name: name.value.trim(),
+      entity_id: eid.value.trim(),
+      category: category.value.trim(),
+      kind: kind.value,
+    };
+    if (kind.value === "number") {
+      payload.unit = unit.value.trim();
+      payload.min = min.value === "" ? null : Number(min.value);
+      payload.max = max.value === "" ? null : Number(max.value);
+    }
+    const { status, data } = await postJson("/api/registry/sensor", payload);
+    if (status === 200 && data.ok !== false) {
+      closeModal();
+      await reloadCatalog();
+    } else {
+      showError(error, data.error || "등록 실패");
+    }
+  });
+
+  mountModal("센서 추가", form);
+}
+
+/**
+ * 위험 등급 select(옵션 = /api/catalog tiers, value 오름차순).
+ * 기본 선택은 breath(능동 제안 가능한 안전한 기본).
+ * @returns {HTMLSelectElement}
+ */
+function tierSelect() {
+  const sel = el("select", "field-select tier-select");
+  Object.keys(catalogTiers)
+    .sort((a, b) => Number(a) - Number(b))
+    .forEach((value) => {
+      const t = catalogTiers[value];
+      const o = el("option", null, t.label_ko + " (" + t.name + ")");
+      o.value = t.name;
+      sel.append(o);
+    });
+  if (tierByName.has("breath")) sel.value = "breath";
+  return sel;
+}
+
+/** 기기 모달의 행동 1행(행동 이름 + 등급 + 삭제). */
+function actionRow() {
+  const row = el("div", "action-row");
+  const action = makeInput("action", { type: "text", placeholder: "행동 (예: start)" });
+  action.classList.add("action-input");
+  const tier = tierSelect();
+  const remove = el("button", "row-x", "×");
+  remove.type = "button";
+  remove.setAttribute("aria-label", "행동 삭제");
+  remove.addEventListener("click", () => row.remove());
+  row.append(action, tier, remove);
+  return row;
+}
+
+/** 「기기·행동 추가」 모달을 연다. */
+function openDeviceModal() {
+  const form = el("form", "modal-form");
+
+  const name = makeInput("name", { type: "text", placeholder: "예: 로봇청소기" });
+  const eid = makeInput("entity_id", { type: "text", placeholder: "예: vacuum.robot" });
+  const capability = makeInput("capability", { type: "text", placeholder: "예: vacuum" });
+  const category = makeInput("category", { type: "text", placeholder: "예: appliance" });
+
+  const actionsWrap = el("div", "actions-wrap");
+  actionsWrap.append(actionRow());
+  const addRow = el("button", "btn-secondary btn-add-row", "+ 행동 추가");
+  addRow.type = "button";
+  addRow.addEventListener("click", () => actionsWrap.append(actionRow()));
+
+  const { error, actions } = formFooter("기기 등록");
+  form.append(
+    field("이름", name),
+    field("entity_id", eid, "비우면 capability 로 자동 생성됩니다"),
+    field("capability", capability),
+    field("카테고리", category),
+    fieldGroup("행동 · 위험 등급", actionsWrap),
+    addRow,
+    error,
+    actions,
+  );
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const acts = [];
+    actionsWrap.querySelectorAll(".action-row").forEach((row) => {
+      const a = row.querySelector(".action-input").value.trim();
+      const t = row.querySelector(".tier-select").value;
+      if (a) acts.push({ action: a, tier: t });
+    });
+    const payload = {
+      name: name.value.trim(),
+      entity_id: eid.value.trim(),
+      capability: capability.value.trim(),
+      category: category.value.trim(),
+      actions: acts,
+    };
+    const { status, data } = await postJson("/api/registry/device", payload);
+    if (status === 200 && data.ok !== false) {
+      closeModal();
+      await reloadCatalog();
+    } else {
+      showError(error, data.error || "등록 실패");
+    }
+  });
+
+  mountModal("기기·행동 추가", form);
+}
