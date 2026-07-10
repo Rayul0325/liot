@@ -32,6 +32,13 @@ from liot.layers.l2_context.proactive import ProactiveGenerator
 from liot.layers.l3_judgment.llm_judge import FakeLLM
 from liot.layers.l3_judgment.ollama_backend import HTTPOllamaTransport, OllamaBackend
 from liot.layers.l2_context.nl_directive import DirectiveStore, UserDirective
+from liot.layers.l2_context.feature_vector import (
+    NEUTRAL_PREF,
+    SIGNAL_TARGET,
+    FakePreferenceEmbedder,
+    apply_signal,
+    cell_key,
+)
 from liot.layers.l4_execution.executor import ExecDecision, ExecutionPolicy
 from liot.core.risk import _reset_safety_extensions_for_tests
 from liot.layers.l3_judgment.guardrail import _reset_floor_extensions_for_tests
@@ -44,6 +51,37 @@ _DIRECTIVES = DirectiveStore()
 # /api/catalog·/api/simulate·/api/registry/* 가 전부 이 인스턴스를 읽고 쓴다.
 # (demo_server 는 요청마다 LiotApp 을 새로 만들므로 등록 직후 자동 반영된다.)
 _REGISTRY = RuntimeRegistry()
+
+# 선호 임베딩 셀맵(세션 스코프). 폰 알림 응답(수락/거절/무시)이 /api/feedback 로
+# 이 맵을 온라인 EMA 갱신하고(feature_vector.apply_signal), 매 /api/simulate 가
+# app.set_preference_cells 로 주입해 다음 틱의 선호 차원(user_preference_fit)과
+# embedding 트레이스 표시에 반영한다. 빈 맵이면 중립(0.5)만 — 이걸로 "임베딩이
+# 항상 중립으로 표시되던" 데모 버그가 해소된다. /api/registry/reset 이 함께 비운다.
+_PREF_CELLS: dict[str, float] = {}
+
+
+def _apply_feedback(cell: Any, signal: Any) -> dict[str, Any]:
+    """폰 알림 응답(수락/거절/무시)을 세션 선호 셀맵에 온라인 EMA 로 반영한다.
+
+    ``/api/feedback`` 엔드포인트와 테스트가 공유하는 코어. 세션 셀맵 ``_PREF_CELLS``
+    을 갱신하고 갱신 전/후 선호값을 돌려준다 — UI 가 "선호 0.50 → 0.65" 로 표시하고
+    다음 ``/api/simulate`` 가 이 값을 반영한다(수락=선호↑ · 거절=선호↓ · 무시=약한
+    선호↓, feature_vector.SIGNAL_TARGET). ``ok:False`` 면 검증 실패(서버가 400 매핑).
+    """
+    global _PREF_CELLS
+    cell = str(cell or "").strip()
+    signal = str(signal or "").strip()
+    if not cell:
+        return {"ok": False, "error": "피드백 대상 셀(cell)이 없습니다.", "field": "cell"}
+    if signal not in SIGNAL_TARGET:
+        return {
+            "ok": False, "error": f"알 수 없는 신호입니다: {signal or '(빈값)'}",
+            "field": "signal",
+        }
+    before = round(float(_PREF_CELLS.get(cell, NEUTRAL_PREF)), 3)
+    _PREF_CELLS = apply_signal(_PREF_CELLS, cell, signal)
+    after = round(float(_PREF_CELLS.get(cell, NEUTRAL_PREF)), 3)
+    return {"ok": True, "cell": cell, "signal": signal, "before": before, "after": after}
 
 
 def _directive_view(d: UserDirective) -> dict[str, Any]:
@@ -209,20 +247,14 @@ def _arbiter_view(cand_eval: dict[str, Any] | None) -> dict[str, Any] | None:
 def _embedding_view(
     cand_eval: dict[str, Any] | None, facts: dict[str, Any]
 ) -> dict[str, Any] | None:
-    """선택 후보의 선호 임베딩 셀 값(Phase3 개인화 전 = 중립 0.5)."""
-    from liot.layers.l2_context.feature_vector import (
-        NEUTRAL_PREF,
-        FakePreferenceEmbedder,
-        cell_key,
-    )
-
+    """선택 후보의 선호 임베딩 셀 값(세션 셀맵 반영 — 피드백 후 중립에서 이동)."""
     if not cand_eval or cand_eval.get("evaluation") is None:
         return None
     ev = cand_eval["evaluation"]
     sel = ev.scored[ev.selected_index].candidate
     if sel.capability == "noop":
         return None
-    pref = FakePreferenceEmbedder().preference_for(sel, facts)
+    pref = FakePreferenceEmbedder(_PREF_CELLS).preference_for(sel, facts)
     return {
         "cell": cell_key(
             str(facts.get("time_bucket", "")), str(facts.get("occupancy", "")), sel
@@ -271,6 +303,10 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
         external_provider=external,
         proactive=proactive,
     )
+    # 폰 피드백으로 갱신된 세션 선호 셀맵을 이번 틱에 주입한다. 빈 맵이면 중립만
+    # 반환(기존 동작 동일) — 수락 피드백 후엔 해당 셀의 user_preference_fit 이 상승해
+    # 평가·embedding 트레이스에 반영된다.
+    app.set_preference_cells(dict(_PREF_CELLS))
 
     # 1) 모든 센서를 관찰로 주입(맥락/캐시 갱신, 대개 침묵).
     #    미등록 센서 값이면 _reading 이 RegistryError → HTTP 400 으로 매핑된다.
@@ -513,6 +549,9 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
             return
+        if path == "/api/feedback":
+            self._feedback_post()
+            return
         if path.startswith("/api/registry/"):
             self._registry_post(path)
             return
@@ -532,6 +571,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._json(200, result)
 
+    def _feedback_post(self) -> None:
+        """폰 알림 응답(수락/거절/무시) → 세션 선호 셀 갱신(코어는 ``_apply_feedback``)."""
+        body = self._read_json()
+        if body is None:
+            return
+        result = _apply_feedback(body.get("cell"), body.get("signal"))
+        self._json(200 if result.get("ok") else 400, result)
+
     def _registry_post(self, path: str) -> None:
         """런타임 등록 엔드포인트(sensor·device·reset). 검증 실패는 400."""
         if path == "/api/registry/reset":
@@ -540,6 +587,7 @@ class Handler(BaseHTTPRequestHandler):
             _REGISTRY.reset()
             _reset_safety_extensions_for_tests()
             _reset_floor_extensions_for_tests()
+            _PREF_CELLS.clear()  # 세션 선호 셀맵도 초기화(중립 복귀)
             self._json(200, {"ok": True})
             return
         body = self._read_json()

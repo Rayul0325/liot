@@ -14,16 +14,28 @@ import asyncio
 
 import pytest
 
+import liot.demo_server as ds
 from liot.demo_server import _REGISTRY, _run
 from liot.registry import RegistryError
 
 
 @pytest.fixture(autouse=True)
 def _reset_demo_registry():
-    """모듈 전역 데모 레지스트리를 매 테스트 전후로 초기화(격리)."""
+    """모듈 전역 데모 레지스트리·선호 셀맵을 매 테스트 전후로 초기화(격리)."""
     _REGISTRY.reset()
+    ds._PREF_CELLS.clear()
     yield
     _REGISTRY.reset()
+    ds._PREF_CELLS.clear()
+
+
+# 빈집(부재) + 거실 조명 on → vacant-light-off 규칙이 light.turn_off 를 제안한다.
+# 선호 임베딩 셀 = "evening|vacant|light:turn_off"(이력 없으면 중립 0.5).
+_VACANT_LIGHT_BODY = {
+    "mode": "tick",
+    "config": {"time": "evening", "llm_enabled": False},
+    "sensors": {"binary_sensor.living_motion": "off", "light.living_room": "on"},
+}
 
 
 def _simulate(body: dict) -> dict:
@@ -71,3 +83,47 @@ def test_registered_device_state_unknown_entity_still_rejected() -> None:
     }
     with pytest.raises(RegistryError):  # _reading → RegistryError (서버가 400 매핑)
         _simulate(body)
+
+
+# ── P6: 폰 피드백 루프(선호 임베딩) ──────────────────────────────────────
+
+
+def test_feedback_signal_raises_next_embedding_preference() -> None:
+    # 1) 첫 실행: 이력 없음 → embedding.preference == 중립(0.5).
+    r1 = _simulate(dict(_VACANT_LIGHT_BODY))
+    assert r1["ok"] is True and r1["silence"] is False, r1
+    assert r1["embedding"]["preference"] == 0.5, r1["embedding"]
+    cell = r1["embedding"]["cell"]
+
+    # 2) 폰 '수락' 피드백 = /api/feedback 엔드포인트 코어(_apply_feedback).
+    fb = ds._apply_feedback(cell, "accepted")
+    assert fb["ok"] is True, fb
+    assert fb["before"] == 0.5
+    assert fb["after"] == pytest.approx(0.65, abs=1e-3), fb  # 0.5 + 0.3·(1.0−0.5)
+
+    # 3) 다음 실행이 갱신된 셀을 반영 → embedding.preference 상승.
+    r2 = _simulate(dict(_VACANT_LIGHT_BODY))
+    assert r2["embedding"]["cell"] == cell
+    assert r2["embedding"]["preference"] == pytest.approx(0.65, abs=1e-3)
+    assert r2["embedding"]["preference"] > r1["embedding"]["preference"]
+
+
+def test_feedback_reset_returns_embedding_to_neutral() -> None:
+    r1 = _simulate(dict(_VACANT_LIGHT_BODY))
+    ds._apply_feedback(r1["embedding"]["cell"], "accepted")
+    assert ds._PREF_CELLS  # 셀맵 채워짐
+
+    # 리셋(엔드포인트 reset 이 하는 관찰 효과와 동일: 세션 셀맵 비움).
+    ds._PREF_CELLS.clear()
+    r2 = _simulate(dict(_VACANT_LIGHT_BODY))
+    assert r2["embedding"]["preference"] == 0.5  # 중립 복귀
+
+
+def test_feedback_rejects_unknown_signal() -> None:
+    out = ds._apply_feedback("evening|vacant|light:turn_off", "bogus")
+    assert out["ok"] is False and out["field"] == "signal", out
+
+
+def test_feedback_requires_cell() -> None:
+    out = ds._apply_feedback("", "accepted")
+    assert out["ok"] is False and out["field"] == "cell", out

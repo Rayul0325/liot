@@ -68,7 +68,7 @@
         </div>
       </section>
 
-      <!-- 중앙: 파이프라인 + 실행 -->
+      <!-- 중앙: 파이프라인 + 실행 (센터피스) -->
       <section class="center" aria-label="판단 파이프라인">
         <div class="run-bar">
           <button class="btn-run" id="runBtn" type="button" disabled>능동 점검 실행</button>
@@ -77,35 +77,40 @@
 
         <ol class="pipeline" id="pipeline" aria-label="파이프라인 단계"></ol>
 
+        <div class="stage-detail" id="stageDetail" aria-live="polite" hidden></div>
+
         <details class="raw" id="rawPanel" hidden>
           <summary class="raw-summary">원시 트레이스 (JSON)</summary>
           <pre class="raw-json" id="rawJson"></pre>
         </details>
       </section>
 
-      <!-- 우측: 폰 알림 + 지시 채팅 (자리표시) -->
+      <!-- 우측: 폰 알림 + 지시 채팅 -->
       <aside class="rail rail-right" aria-label="알림 · 지시">
-        <div class="phone" aria-label="폰 알림 미리보기">
+        <div class="phone" aria-label="폰 알림">
           <span class="phone-notch" aria-hidden="true"></span>
-          <div class="phone-screen">
-            <p class="phone-placeholder">
-              알림 미리보기
-              <span class="tag-later">P6에서 활성화</span>
-            </p>
+          <div class="phone-screen" id="phoneScreen">
+            <p class="phone-idle">능동 점검을 실행하면<br />제안 알림이 여기에 뜹니다</p>
           </div>
         </div>
 
         <div class="chat" aria-label="지시 채팅">
-          <div class="chat-head">지시 채팅</div>
-          <div class="chat-body">
-            <p class="chat-placeholder">
-              자연어로 집에 지시를 내립니다
-              <span class="tag-later">P6에서 활성화</span>
-            </p>
+          <div class="chat-head">
+            <span>지시 채팅</span>
+            <button class="chat-clear" id="chatClearBtn" type="button" hidden>지시 초기화</button>
           </div>
-          <div class="chat-input">
-            <input type="text" placeholder="예: 밤에는 거실 불 끄지 마" disabled aria-label="지시 입력(P6에서 활성화)" />
+          <div class="chat-body" id="chatBody">
+            <p class="chat-placeholder">자연어로 집에 지시를 내립니다<br />예: “밤에는 거실 불 끄지 마”</p>
           </div>
+          <form class="chat-input" id="chatForm">
+            <input
+              type="text"
+              id="chatInput"
+              placeholder="집에 지시 내리기…"
+              aria-label="지시 입력"
+              autocomplete="off"
+            />
+          </form>
         </div>
       </aside>
     </main>

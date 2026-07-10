@@ -6,16 +6,34 @@
 // 「능동 점검 실행」은 렌더된 보드 값을 읽어 POST /api/simulate 로 보낸다.
 
 // 파이프라인은 고정 순서(엔티티가 아니라 파이프라인 정의) → 번호 있는 시퀀스가 맞다.
-const PIPELINE_STAGES = [
-  "트리거",
-  "수집·임베딩",
-  "제안 라인 A/B",
-  "아비터",
-  "Gate 1",
-  "Gate 2",
-  "L4 개입",
-  "알림",
+// key = 트레이스 필드 매핑용, name = 발표장 표기. 데이터가 좌→우로 흐르며 채워진다.
+const STAGES = [
+  { key: "trigger", name: "트리거" },
+  { key: "collect", name: "수집·임베딩" },
+  { key: "lines", name: "제안 라인 A/B" },
+  { key: "arbiter", name: "아비터" },
+  { key: "gate1", name: "Gate 1 · 결정론" },
+  { key: "gate2", name: "Gate 2 · LLM" },
+  { key: "l4", name: "L4 개입" },
+  { key: "notify", name: "알림" },
 ];
+
+// 스테이지 순차 점등 간격(ms). prefers-reduced-motion 이면 0(즉시 전부 표시).
+const STAGE_STAGGER_MS = 150;
+
+// 판정/결정 값 → 한글 라벨(발표장 가독성). 미상 값은 원문 폴백.
+const CONFIRM_LABELS = { none: "확인 불필요", explicit: "명시 확인", implicit: "암묵 확인" };
+const EXEC_LABELS = { notify_only: "알림만", auto: "자동 실행", blocked: "차단", suppressed: "억제" };
+const GATE2_LABELS = { concur: "동의", override: "기각", abstain: "판단 보류", degrade: "성능 저하" };
+// 지시(directive) 제약 → 한글 라벨.
+const CONSTRAINT_LABELS = { keep_on: "계속 켜 둠", keep_off: "계속 꺼 둠", forbid: "금지", prefer: "선호" };
+// 피드백 신호 → 한글 라벨.
+const SIGNAL_LABELS = { accepted: "승인", dismissed: "거절", ignored: "무시" };
+
+/** 마지막 실행 트레이스(스테이지 상세 클릭·폰 피드백이 참조). @type {object|null} */
+let lastRun = null;
+/** 현재 펼친 스테이지 key(토글용). @type {string|null} */
+let openStage = null;
 
 /**
  * 등급 name(예: "breath") → {value:number, labelKo:string}.
@@ -217,19 +235,474 @@ function renderLegend(tiers) {
     });
 }
 
-// ── 파이프라인 스트립 ─────────────────────────────────────────────────
+// ── 파이프라인 시각화 (센터피스) ──────────────────────────────────────
+/** prefers-reduced-motion 이면 애니메이션 없이 즉시 표시한다. */
+function prefersReducedMotion() {
+  return (
+    window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
 /**
- * 고정 파이프라인 단계 스트립을 렌더한다(번호는 CSS counter).
+ * 8개 스테이지 카드를 렌더한다(클릭 시 상세 드로어 토글). 데이터는 실행할 때
+ * fillStage 가 채운다(초기엔 미점등).
  * @returns {void}
  */
 function renderPipeline() {
   const ol = document.getElementById("pipeline");
   ol.replaceChildren();
-  for (const name of PIPELINE_STAGES) {
+  STAGES.forEach((stage, i) => {
     const li = el("li", "stage");
-    li.append(el("span", "stage-name", name));
+    li.dataset.stage = stage.key;
+    li.dataset.lit = "0";
+    li.setAttribute("role", "button");
+    li.setAttribute("tabindex", "0");
+    li.setAttribute("aria-expanded", "false");
+    li.setAttribute("aria-label", stage.name + " 단계 상세 보기");
+
+    const head = el("div", "stage-head");
+    head.append(el("span", "stage-num tabnum", String(i + 1)));
+    head.append(el("span", "stage-name", stage.name));
+    head.append(el("span", "stage-chip"));
+    li.append(head);
+    li.append(el("div", "stage-body"));
+
+    const activate = () => toggleStageDetail(stage.key);
+    li.addEventListener("click", activate);
+    li.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        activate();
+      }
+    });
     ol.append(li);
+  });
+}
+
+/** 모든 스테이지를 소등·비우고 상세 드로어를 닫는다(새 실행 시작 시). */
+function resetPipeline() {
+  document.querySelectorAll("#pipeline .stage").forEach((li) => {
+    li.dataset.lit = "0";
+    delete li.dataset.outcome;
+    li.classList.remove("is-open");
+    li.setAttribute("aria-expanded", "false");
+    li.querySelector(".stage-body").replaceChildren();
+    li.querySelector(".stage-chip").replaceChildren();
+  });
+  const detail = document.getElementById("stageDetail");
+  detail.hidden = true;
+  detail.replaceChildren();
+  openStage = null;
+}
+
+/**
+ * 한 스테이지를 실제 데이터로 채우고 점등한다(head 등급칩 + body 내용).
+ * @param {string} key 스테이지 key
+ * @param {object} data /api/simulate 응답
+ * @returns {void}
+ */
+function fillStage(key, data) {
+  const li = document.querySelector('#pipeline [data-stage="' + key + '"]');
+  if (!li) return;
+  li.querySelector(".stage-body").replaceChildren(stageBody(key, data));
+  const chipSlot = li.querySelector(".stage-chip");
+  chipSlot.replaceChildren();
+  const chip = stageChip(key, data);
+  if (chip) chipSlot.append(chip);
+  li.dataset.lit = "1";
+  if (key === "notify") li.dataset.outcome = data.silence ? "silence" : "proposal";
+}
+
+/**
+ * 스테이지를 순차 점등(좌→우)하며 데이터를 흘려보낸다. reduced-motion 이면 즉시.
+ * @param {object} data /api/simulate 응답
+ * @returns {Promise<void>} 마지막 스테이지까지 점등되면 resolve.
+ */
+function animateRun(data) {
+  return new Promise((resolve) => {
+    const step = prefersReducedMotion() ? 0 : STAGE_STAGGER_MS;
+    let remaining = STAGES.length;
+    STAGES.forEach((stage, i) => {
+      const reveal = () => {
+        fillStage(stage.key, data);
+        remaining -= 1;
+        if (remaining === 0) resolve();
+      };
+      if (step === 0) reveal();
+      else window.setTimeout(reveal, i * step);
+    });
+  });
+}
+
+/**
+ * 트레이스 등급 객체 → 등급 칩(색은 level, 라벨은 API 의 ko).
+ * @param {{level:number, ko:string}|null|undefined} t
+ * @returns {HTMLElement|null}
+ */
+function traceTier(t) {
+  if (!t) return null;
+  const chip = el("span", "chip", t.ko);
+  chip.dataset.tier = String(t.level);
+  return chip;
+}
+
+/** 스테이지 head 에 붙는 등급 칩(Gate1 하한·L4 판정·알림 제안 등급). */
+function stageChip(key, data) {
+  if (key === "gate1" && data.gate1) return traceTier(data.gate1.floor_tier);
+  if (key === "l4" && data.judgment) return traceTier(data.judgment.risk_tier);
+  if (key === "notify" && data.proposal) return traceTier(data.proposal.tier);
+  return null;
+}
+
+/** 라벨+값 마이크로 행. 빈 값은 "—". */
+function metric(label, value) {
+  const row = el("div", "metric");
+  row.append(el("span", "metric-k", label));
+  const v = value == null || value === "" ? "—" : String(value);
+  row.append(el("span", "metric-v", v));
+  return row;
+}
+
+/** 데이터 미도달 스테이지용 흐린 안내(침묵 흐름). */
+function stageMuted(text) {
+  return el("p", "stage-muted", text);
+}
+
+/** 긴 문자열 축약(발표장 카드 밀도 관리). */
+function abbrev(s, n) {
+  s = String(s || "");
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+
+/** "proactive:rule:vacant-light-off@hash" → "vacant-light-off". */
+function shortenOrigin(origin) {
+  const s = String(origin).split("@")[0];
+  const parts = s.split(":");
+  return parts[parts.length - 1] || s;
+}
+
+// ── 스테이지 body 빌더 (트레이스 필드 → 카드 내용) ────────────────────
+/** 스테이지 key → body 노드 디스패처. */
+function stageBody(key, data) {
+  switch (key) {
+    case "trigger":
+      return bodyTrigger(data);
+    case "collect":
+      return bodyCollect(data);
+    case "lines":
+      return bodyLines(data);
+    case "arbiter":
+      return bodyArbiter(data);
+    case "gate1":
+      return bodyGate1(data);
+    case "gate2":
+      return bodyGate2(data);
+    case "l4":
+      return bodyL4(data);
+    case "notify":
+      return bodyNotify(data);
+    default:
+      return el("span");
   }
+}
+
+function bodyTrigger(data) {
+  const t = data.trigger || {};
+  const wrap = el("div", "stage-fields");
+  wrap.append(metric("종류", t.kind === "event" ? "이벤트" : "능동 틱"));
+  wrap.append(metric("근원", t.origin ? shortenOrigin(t.origin) : "—"));
+  return wrap;
+}
+
+function bodyCollect(data) {
+  const wrap = el("div", "stage-fields");
+  const input = data.input || {};
+  wrap.append(metric("시간대", BUCKET_LABELS[input.time_bucket] || input.time_bucket));
+  wrap.append(metric("재실", OCC_LABELS[input.occupancy] || input.occupancy));
+  const emb = data.embedding;
+  if (emb) {
+    const row = el("div", "metric");
+    row.append(el("span", "metric-k", "선호 셀"));
+    const v = el("span", "metric-v tabnum", Number(emb.preference).toFixed(2));
+    if (emb.preference > 0.5) v.classList.add("pref-up");
+    else if (emb.preference < 0.5) v.classList.add("pref-down");
+    row.append(v);
+    wrap.append(row);
+  }
+  const snap = data.snapshot;
+  if (snap && snap.nl_summary) {
+    wrap.append(el("p", "stage-summary", abbrev(snap.nl_summary, 68)));
+  }
+  const dirs = data.directives && data.directives.active;
+  if (dirs && dirs.length) {
+    wrap.append(el("p", "stage-note", "지시 " + dirs.length + "건 반영"));
+  }
+  return wrap;
+}
+
+function bodyLines(data) {
+  const lines = data.lines || { line_a: [], line_b: [] };
+  const wrap = el("div", "lines-mini");
+  wrap.append(lineColumn("A · 규칙/ML", lines.line_a || []));
+  wrap.append(lineColumn("B · LLM", lines.line_b || []));
+  return wrap;
+}
+
+function lineColumn(title, items) {
+  const col = el("div", "line-col");
+  col.append(el("span", "line-title", title));
+  if (!items.length) {
+    col.append(el("span", "line-empty", "—"));
+    return col;
+  }
+  for (const it of items) {
+    const row = el("div", "line-item");
+    row.append(el("span", "line-label", it.label));
+    row.append(el("span", "line-conf tabnum", Number(it.line_confidence).toFixed(2)));
+    col.append(row);
+  }
+  return col;
+}
+
+function bodyArbiter(data) {
+  if (!data.arbiter) return stageMuted("아비터 미도달");
+  const cands = [...(data.candidates || [])]
+    .sort((a, b) => b.final_score - a.final_score)
+    .slice(0, 3);
+  const max = Math.max(0.0001, ...cands.map((c) => Math.abs(c.final_score)));
+  const wrap = el("div", "arb-mini");
+  for (const c of cands) {
+    const row = el("div", "arb-row");
+    if (c.is_selected) row.classList.add("is-selected");
+    row.append(el("span", "arb-label", c.is_noop ? "무행동" : c.capability + "." + c.action));
+    const barwrap = el("span", "arb-barwrap");
+    const bar = el("span", "arb-bar");
+    bar.style.width = Math.max(4, (c.final_score / max) * 100) + "%";
+    barwrap.append(bar);
+    row.append(barwrap);
+    row.append(el("span", "arb-val tabnum", Number(c.final_score).toFixed(2)));
+    wrap.append(row);
+  }
+  return wrap;
+}
+
+function bodyGate1(data) {
+  const g = data.gate1;
+  if (!g) return stageMuted("Gate 1 미도달");
+  const wrap = el("div", "stage-fields");
+  const row = el("div", "metric");
+  row.append(el("span", "metric-k", "판정"));
+  const tag = el("span", "verdict-tag", g.blocked ? "차단" : "허용");
+  tag.dataset.kind = g.blocked ? "block" : "allow";
+  row.append(tag);
+  wrap.append(row);
+  if (g.safety_critical) wrap.append(el("p", "stage-note safety", "안전 임계 카테고리"));
+  const rules = g.matched_rules || [];
+  wrap.append(metric("매칭 규칙", rules.length ? rules.join(", ") : "없음"));
+  return wrap;
+}
+
+function bodyGate2(data) {
+  const g = data.gate2;
+  if (!g) return stageMuted("Gate 2 미도달 (침묵)");
+  const wrap = el("div", "stage-fields");
+  const row = el("div", "metric");
+  row.append(el("span", "metric-k", "판정"));
+  const tag = el("span", "verdict-tag", GATE2_LABELS[g.verdict] || g.verdict);
+  tag.dataset.kind = g.verdict === "concur" ? "allow" : "warn";
+  row.append(tag);
+  wrap.append(row);
+  wrap.append(metric("모델", g.model_id));
+  wrap.append(metric("신뢰도", Number(g.confidence).toFixed(2)));
+  if (g.degraded) wrap.append(el("p", "stage-note", "성능 저하 모드"));
+  return wrap;
+}
+
+function bodyL4(data) {
+  const iv = data.intervention;
+  if (!iv) return stageMuted("개입 없음 (침묵)");
+  const wrap = el("div", "stage-fields");
+  wrap.append(metric("조건", iv.condition));
+  wrap.append(metric("확인", CONFIRM_LABELS[iv.required_confirmation] || iv.required_confirmation));
+  wrap.append(metric("실행", EXEC_LABELS[iv.execution_decision] || iv.execution_decision));
+  return wrap;
+}
+
+function bodyNotify(data) {
+  if (data.silence) {
+    const wrap = el("div", "silence-card");
+    wrap.append(el("span", "silence-badge", "침묵"));
+    wrap.append(el("p", "silence-text", "제안 없음 (fail-closed)"));
+    wrap.append(el("p", "silence-reason", abbrev(data.silence_reason, 64)));
+    return wrap;
+  }
+  const p = data.proposal;
+  if (!p) return stageMuted("—");
+  const wrap = el("div", "notify-card");
+  wrap.append(el("span", "notify-dev", nameFor(p.entity_id)));
+  wrap.append(el("span", "notify-act", p.capability + "." + p.action));
+  return wrap;
+}
+
+// ── 스테이지 상세 드로어 ──────────────────────────────────────────────
+/** 스테이지 클릭 → 상세 드로어 토글(같은 스테이지 재클릭이면 닫기). */
+function toggleStageDetail(key) {
+  const detail = document.getElementById("stageDetail");
+  if (openStage === key) {
+    detail.hidden = true;
+    detail.replaceChildren();
+    markOpen(null);
+    openStage = null;
+    return;
+  }
+  if (!lastRun || lastRun.ok === false) return;
+  detail.replaceChildren(renderStageDetail(key, lastRun));
+  detail.hidden = false;
+  markOpen(key);
+  openStage = key;
+}
+
+/** 열린 스테이지 카드에 is-open 표시(단일 선택). */
+function markOpen(key) {
+  document.querySelectorAll("#pipeline .stage").forEach((li) => {
+    const on = li.dataset.stage === key;
+    li.classList.toggle("is-open", on);
+    li.setAttribute("aria-expanded", on ? "true" : "false");
+  });
+}
+
+/** 스테이지 상세 노드(아비터=후보 점수표, 나머지=사실 목록). */
+function renderStageDetail(key, data) {
+  const wrap = el("div", "detail-inner");
+  const stage = STAGES.find((s) => s.key === key);
+  const head = el("div", "detail-head");
+  head.append(el("span", "detail-title", (stage ? stage.name : key) + " 상세"));
+  const close = el("button", "detail-close", "닫기");
+  close.type = "button";
+  close.addEventListener("click", () => toggleStageDetail(key));
+  head.append(close);
+  wrap.append(head);
+  wrap.append(key === "arbiter" ? candidateTable(data) : detailFacts(key, data));
+  return wrap;
+}
+
+/** 아비터 상세: 후보별 점수 분해표(기대효과·선호·에너지·방해·안전·최종). */
+function candidateTable(data) {
+  const cands = data.candidates || [];
+  if (!cands.length) return el("p", "detail-empty", "후보가 없습니다 (침묵).");
+  const table = el("table", "cand-table");
+  const thead = el("thead");
+  const htr = el("tr");
+  ["후보", "소스", "기대효과", "선호", "에너지", "방해", "안전", "최종"].forEach((h) => {
+    htr.append(el("th", null, h));
+  });
+  thead.append(htr);
+  table.append(thead);
+  const tbody = el("tbody");
+  for (const c of cands) {
+    const tr = el("tr");
+    if (c.is_selected) tr.classList.add("is-selected");
+    tr.append(el("td", "cand-name", c.is_noop ? "무행동" : c.capability + "." + c.action));
+    tr.append(el("td", "cand-origin", c.origin));
+    tr.append(numCell(c.expected_effect));
+    tr.append(numCell(c.user_preference_fit));
+    tr.append(numCell(c.energy_cost));
+    tr.append(numCell(c.disturbance));
+    tr.append(numCell(c.safety_risk));
+    const fin = numCell(c.final_score);
+    fin.classList.add("cand-final");
+    tr.append(fin);
+    tbody.append(tr);
+  }
+  table.append(tbody);
+  const scroll = el("div", "cand-scroll");
+  scroll.append(table);
+  return scroll;
+}
+
+function numCell(v) {
+  return el("td", "num tabnum", Number(v).toFixed(2));
+}
+
+/** 아비터 외 스테이지 상세: 사실 목록(dt/dd). */
+function detailFacts(key, data) {
+  const rows = factRows(key, data);
+  const dl = el("dl", "detail-facts");
+  for (const [k, v] of rows) {
+    dl.append(el("dt", null, k));
+    dl.append(el("dd", null, v == null || v === "" ? "—" : String(v)));
+  }
+  return dl;
+}
+
+/** 스테이지별 상세 사실 [라벨, 값] 목록. */
+function factRows(key, data) {
+  if (key === "trigger") {
+    const t = data.trigger || {};
+    return [["종류", t.kind], ["소스", t.source], ["근원", t.origin]];
+  }
+  if (key === "collect") {
+    const s = data.snapshot || {};
+    const e = data.embedding || {};
+    return [
+      ["맥락 요약", s.nl_summary],
+      ["스냅샷 해시", s.snapshot_hash],
+      ["선호 셀", e.cell],
+      ["선호값", e.preference != null ? e.preference : null],
+      ["비고", e.note],
+    ];
+  }
+  if (key === "lines") {
+    const l = data.lines || {};
+    return [
+      ["라인 A (규칙/ML)", (l.line_a || []).map((x) => x.label).join(", ") || "—"],
+      ["라인 B (LLM)", (l.line_b || []).map((x) => x.label).join(", ") || "—"],
+    ];
+  }
+  if (key === "gate1") {
+    const g = data.gate1 || {};
+    return [
+      ["판정", g.verdict],
+      ["차단", g.blocked ? "예" : "아니오"],
+      ["안전 임계", g.safety_critical ? "예" : "아니오"],
+      ["하한 등급", g.floor_tier ? g.floor_tier.ko : null],
+      ["매칭 규칙", (g.matched_rules || []).join(", ") || "없음"],
+    ];
+  }
+  if (key === "gate2") {
+    const g = data.gate2 || {};
+    const j = data.judgment || {};
+    return [
+      ["판정", GATE2_LABELS[g.verdict] || g.verdict],
+      ["모델", g.model_id],
+      ["신뢰도", g.confidence],
+      ["성능 저하", g.degraded ? "예" : "아니오"],
+      ["사유", j.rationale],
+    ];
+  }
+  if (key === "l4") {
+    const iv = data.intervention || {};
+    return [
+      ["조건", iv.condition],
+      ["확인 요구", CONFIRM_LABELS[iv.required_confirmation] || iv.required_confirmation],
+      ["실행 결정", EXEC_LABELS[iv.execution_decision] || iv.execution_decision],
+      ["실행 활성", iv.execution_enabled ? "예" : "아니오"],
+    ];
+  }
+  if (key === "notify") {
+    if (data.silence) return [["결과", "침묵"], ["사유", data.silence_reason]];
+    const p = data.proposal || {};
+    return [
+      ["기기", nameFor(p.entity_id)],
+      ["행동", p.capability + "." + p.action],
+      ["등급", p.tier ? p.tier.ko : null],
+      ["카테고리", p.category],
+      ["확인 요구", CONFIRM_LABELS[p.required_confirmation] || p.required_confirmation],
+      ["사유", p.rationale],
+      ["만료", p.expires_at],
+    ];
+  }
+  return [];
 }
 
 // ── 실행 ──────────────────────────────────────────────────────────────
@@ -257,53 +730,295 @@ function readBody() {
 }
 
 /**
- * 능동 점검 1틱 실행: 보드 값 → POST /api/simulate → 트레이스 표시.
+ * 능동 점검 1틱 실행: 보드 값 → POST /api/simulate → 파이프라인 애니메이션.
+ * 실행 중엔 버튼을 잠그고, 스테이지가 좌→우로 점등되며 데이터가 흐른다.
  * @returns {Promise<void>}
  */
 async function runTick() {
   const btn = document.getElementById("runBtn");
   btn.disabled = true;
   setStatus("running", "실행 중…");
+  document.getElementById("runHint").textContent = "파이프라인 실행 중…";
+  resetPipeline();
+  renderPhoneRunning();
+
+  let data;
   try {
     const res = await fetch("/api/simulate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(readBody()),
     });
-    const data = await res.json();
-    showTrace(data);
-    if (data.ok === false) {
-      setStatus("error", "오류 · " + (data.error || "실패"));
-      document.getElementById("runHint").textContent = data.error || "실행 실패";
-    } else if (data.silence) {
-      setStatus("silent", "완료 · 침묵");
-      document.getElementById("runHint").textContent =
-        data.silence_reason || "행동 없음(침묵)";
-    } else {
-      const p = data.proposal;
-      setStatus("proposal", "완료 · 제안");
-      document.getElementById("runHint").textContent = p
-        ? "제안: " + p.capability + "." + p.action + " (" + (p.tier?.ko ?? "") + ")"
-        : "제안 생성됨";
-    }
+    data = await res.json();
   } catch (err) {
     setStatus("error", "요청 실패");
     document.getElementById("runHint").textContent = String(err);
-  } finally {
+    renderPhoneError(String(err));
     btn.disabled = false;
+    return;
   }
+
+  lastRun = data;
+  document.getElementById("rawJson").textContent = JSON.stringify(data, null, 2);
+  document.getElementById("rawPanel").hidden = false;
+
+  if (data.ok === false) {
+    setStatus("error", "오류 · " + (data.error || "실패"));
+    document.getElementById("runHint").textContent = data.error || "실행 실패";
+    renderPhoneError(data.error || "실행 실패");
+    btn.disabled = false;
+    return;
+  }
+
+  await animateRun(data);
+  finalizeRun(data);
+  btn.disabled = false;
 }
 
 /**
- * 응답 트레이스를 접이식 원시 패널에 덤프하고 펼친다(실제 시각화는 P6).
+ * 애니메이션 종료 시점의 마무리: 상태 배지·힌트·폰 알림(제안 또는 침묵).
  * @param {object} data /api/simulate 응답
  * @returns {void}
  */
-function showTrace(data) {
-  document.getElementById("rawJson").textContent = JSON.stringify(data, null, 2);
-  const panel = document.getElementById("rawPanel");
-  panel.hidden = false;
-  panel.open = true;
+function finalizeRun(data) {
+  if (data.silence) {
+    setStatus("silent", "완료 · 침묵");
+    document.getElementById("runHint").textContent =
+      data.silence_reason || "행동 없음(침묵)";
+    renderPhoneSilence(data);
+    return;
+  }
+  const p = data.proposal;
+  setStatus("proposal", "완료 · 제안");
+  document.getElementById("runHint").textContent = p
+    ? "제안: " + p.capability + "." + p.action + " (" + (p.tier ? p.tier.ko : "") + ")"
+    : "제안 생성됨";
+  renderPhoneProposal(data);
+}
+
+// ── 폰 알림 + 피드백 루프 ─────────────────────────────────────────────
+/** 대기 상태(실행 전). */
+function renderPhoneIdle() {
+  document
+    .getElementById("phoneScreen")
+    .replaceChildren(el("p", "phone-idle", "능동 점검을 실행하면 제안 알림이 여기에 뜹니다"));
+}
+
+/** 실행 중(판단 진행). */
+function renderPhoneRunning() {
+  document
+    .getElementById("phoneScreen")
+    .replaceChildren(el("p", "phone-idle", "판단 중…"));
+}
+
+/** 오류 상태. */
+function renderPhoneError(msg) {
+  const w = el("div", "phone-note");
+  w.append(el("p", "phone-note-title", "오류"));
+  w.append(el("p", "phone-note-body", abbrev(msg, 90)));
+  document.getElementById("phoneScreen").replaceChildren(w);
+}
+
+/** 침묵 결과 — 안전 fail-closed 를 일급 상태로 명시. */
+function renderPhoneSilence(data) {
+  const w = el("div", "phone-silence");
+  w.append(el("span", "phone-silence-badge", "침묵"));
+  w.append(el("p", "phone-silence-title", "보낼 알림이 없습니다"));
+  w.append(el("p", "phone-silence-reason", abbrev(data.silence_reason, 80)));
+  document.getElementById("phoneScreen").replaceChildren(w);
+}
+
+/**
+ * 제안 알림 카드 + 승인/거절/무시 버튼. 제목은 기기명+행동+등급으로 일반 생성
+ * (기기별 하드코딩 문구 없음). 버튼 → POST /api/feedback → 선호값 갱신 표시.
+ * @param {object} data /api/simulate 응답(proposal + embedding 포함)
+ * @returns {void}
+ */
+function renderPhoneProposal(data) {
+  const p = data.proposal;
+  const emb = data.embedding;
+  const cell = emb ? emb.cell : null;
+
+  const card = el("div", "notif");
+  const head = el("div", "notif-head");
+  head.append(el("span", "notif-app", "LIOT 제안"));
+  head.append(el("span", "notif-time", "지금"));
+  card.append(head);
+
+  card.append(el("p", "notif-title", nameFor(p.entity_id)));
+  const sub = el("p", "notif-sub");
+  sub.append(el("span", "notif-act", p.capability + "." + p.action));
+  const chip = traceTier(p.tier);
+  if (chip) sub.append(chip);
+  card.append(sub);
+  if (p.rationale) card.append(el("p", "notif-reason", abbrev(p.rationale, 88)));
+
+  const actions = el("div", "notif-actions");
+  const buttons = [];
+  [
+    ["accepted", "승인"],
+    ["dismissed", "거절"],
+    ["ignored", "무시"],
+  ].forEach(([signal, label]) => {
+    const b = el("button", "notif-btn", label);
+    b.type = "button";
+    b.dataset.signal = signal;
+    if (!cell) b.disabled = true;
+    b.addEventListener("click", () => sendFeedback(signal, cell, card, buttons));
+    buttons.push(b);
+    actions.append(b);
+  });
+  card.append(actions);
+
+  const result = el("p", "notif-result");
+  result.hidden = true;
+  card.append(result);
+  if (!cell) {
+    result.textContent = "선호 셀 정보 없음 — 피드백 비활성";
+    result.hidden = false;
+  }
+  document.getElementById("phoneScreen").replaceChildren(card);
+}
+
+/** 피드백 기록(최근이 위). @type {{cell:string, signal:string, before:number, after:number}[]} */
+const feedbackLog = [];
+
+/**
+ * 알림 응답을 서버에 보내 선호 셀을 갱신하고 "선호 0.50 → 0.65" 를 표시한다.
+ * @returns {Promise<void>}
+ */
+async function sendFeedback(signal, cell, card, buttons) {
+  if (!cell) return;
+  buttons.forEach((b) => (b.disabled = true));
+  const result = card.querySelector(".notif-result");
+  const { status, data } = await postJson("/api/feedback", { cell, signal });
+  if (status === 200 && data.ok !== false) {
+    result.hidden = false;
+    result.textContent =
+      SIGNAL_LABELS[signal] +
+      " · 선호 " +
+      data.before.toFixed(2) +
+      " → " +
+      data.after.toFixed(2);
+    result.dataset.dir =
+      data.after > data.before ? "up" : data.after < data.before ? "down" : "flat";
+    buttons.forEach((b) => b.classList.toggle("is-chosen", b.dataset.signal === signal));
+    appendFeedbackHistory(cell, signal, data);
+  } else {
+    result.hidden = false;
+    result.textContent = (data && data.error) || "피드백 실패";
+    buttons.forEach((b) => (b.disabled = false));
+  }
+}
+
+/** 폰 아래 피드백 기록 라인(최근 5건)을 갱신한다(다음 실행이 이 값을 반영). */
+function appendFeedbackHistory(cell, signal, data) {
+  feedbackLog.unshift({ cell, signal, before: data.before, after: data.after });
+  const host = ensurePhoneLog();
+  const rows = [el("span", "phone-log-title", "피드백 기록")];
+  feedbackLog.slice(0, 5).forEach((f) => {
+    const row = el("div", "phone-log-row");
+    row.append(el("span", "phone-log-sig", SIGNAL_LABELS[f.signal] || f.signal));
+    row.append(el("span", "phone-log-cell", shortCell(f.cell)));
+    const d = el("span", "phone-log-delta tabnum", f.before.toFixed(2) + "→" + f.after.toFixed(2));
+    d.dataset.dir = f.after > f.before ? "up" : f.after < f.before ? "down" : "flat";
+    row.append(d);
+    rows.push(row);
+  });
+  host.replaceChildren(...rows);
+  host.hidden = false;
+}
+
+/** 폰 프레임 바로 아래 피드백 기록 컨테이너(없으면 생성). */
+function ensurePhoneLog() {
+  let host = document.getElementById("phoneLog");
+  if (!host) {
+    host = el("div", "phone-log");
+    host.id = "phoneLog";
+    host.hidden = true;
+    document.querySelector(".phone").insertAdjacentElement("afterend", host);
+  }
+  return host;
+}
+
+/** "evening|vacant|light:turn_off" → "light:turn_off". */
+function shortCell(cell) {
+  const parts = String(cell).split("|");
+  return parts[parts.length - 1] || cell;
+}
+
+// ── 지시 채팅 ─────────────────────────────────────────────────────────
+/** capability → 한글 라벨(지시 칩). 미상은 원문. */
+const CAP_LABELS = { light: "조명", climate: "냉난방", cover: "커튼", lock: "잠금" };
+function capabilityLabel(cap) {
+  return CAP_LABELS[cap] || cap;
+}
+
+/** 최근 채팅 메시지(파싱 결과 안내). @type {{text:string, kind:string}|null} */
+let chatMsg = null;
+/** 활성 지시 목록(서버 응답 active). @type {object[]} */
+let chatActive = [];
+
+/** 채팅 본문(메시지 + 활성 지시 칩)을 다시 그린다. */
+function paintChat() {
+  const body = document.getElementById("chatBody");
+  body.replaceChildren();
+  if (chatMsg) {
+    const m = el("p", "chat-msg", chatMsg.text);
+    m.dataset.kind = chatMsg.kind;
+    body.append(m);
+  }
+  if (chatActive.length) {
+    const list = el("div", "chat-directives");
+    for (const d of chatActive) {
+      const chip = el("div", "dir-chip");
+      chip.dataset.constraint = d.constraint;
+      chip.append(el("span", "dir-constraint", CONSTRAINT_LABELS[d.constraint] || d.constraint));
+      chip.append(el("span", "dir-cap", d.capability ? capabilityLabel(d.capability) : "전체"));
+      if (d.raw_text) chip.title = d.raw_text;
+      list.append(chip);
+    }
+    body.append(list);
+  } else if (!chatMsg) {
+    body.append(
+      el("p", "chat-placeholder", "자연어로 집에 지시를 내립니다 · 예: “밤에는 거실 불 끄지 마”"),
+    );
+  }
+  document.getElementById("chatClearBtn").hidden = chatActive.length === 0;
+}
+
+/** 지시 전송(Enter): POST /api/directive → 파싱 결과·활성 지시 갱신. */
+async function sendDirective() {
+  const input = document.getElementById("chatInput");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  const { status, data } = await postJson("/api/directive", { text });
+  if (status !== 200 || data.ok === false) {
+    chatMsg = { text: "지시 전송에 실패했어요", kind: "error" };
+    paintChat();
+    return;
+  }
+  chatActive = data.active || [];
+  if (!data.parsed || !data.parsed.length) {
+    chatMsg = {
+      text: "“" + text + "” — 해석하지 못했어요 (예: “밤에는 거실 불 끄지 마”)",
+      kind: "warn",
+    };
+  } else {
+    chatMsg = { text: "“" + text + "” 반영됨 · 다음 실행부터 적용", kind: "ok" };
+  }
+  paintChat();
+}
+
+/** 지시 전체 초기화: POST /api/directive {reset:true}. */
+async function clearDirectives() {
+  const { status, data } = await postJson("/api/directive", { reset: true });
+  if (status === 200 && data.ok !== false) {
+    chatActive = [];
+    chatMsg = { text: "지시를 모두 초기화했어요", kind: "ok" };
+    paintChat();
+  }
 }
 
 // ── 카탈로그 적용/리로드 ──────────────────────────────────────────────
@@ -432,6 +1147,16 @@ async function init() {
     document
       .getElementById("addRuleBtn")
       .addEventListener("click", openRuleModal);
+
+    // 지시 채팅: Enter 전송(전용 전송 버튼 없음) + 초기화.
+    document.getElementById("chatForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      sendDirective();
+    });
+    document
+      .getElementById("chatClearBtn")
+      .addEventListener("click", clearDirectives);
+    renderPhoneIdle();
   } catch (err) {
     setStatus("error", "카탈로그 로드 실패");
     document.getElementById("runHint").textContent = String(err);
