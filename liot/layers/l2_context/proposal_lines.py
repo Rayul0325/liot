@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence, runtime_checkable
 
+from liot.core.categories import resolve_category
 from liot.core.contracts import (
     ActionCandidate,
     CandidateAction,
@@ -32,6 +33,7 @@ from .proactive import validate_proactive_candidate
 
 if TYPE_CHECKING:  # pragma: no cover
     from liot.layers.l4_execution.device_catalog import DeviceCatalog
+    from .proactive_rules import ProactiveRuleSet
 
 __all__ = [
     "ProposalLine",
@@ -44,43 +46,78 @@ __all__ = [
 # "켜짐"으로 간주하는 정규화 값(조명 상태 판단).
 _ON_VALUES = frozenset({True, 1, "1", "on", "ON", "true", "True", "on_"})
 
+# "끄기/줄이기" 방향으로 간주하는 action 이름 토큰. device_catalog._DECREASE_TOKENS
+# 정신을 공유하고 stop 을 보강한다 — action 이름에 이 토큰이 하나라도 들어가면
+# off류로 본다. 빈집→off류 일반화가 turn_off/close/off/stop 등을 임의 기기에
+# (조명 하드코딩 없이) 적용하게 하는 유일한 어휘 원천이다.
+_OFF_ACTION_TOKENS = ("lower", "decrease", "down", "cool", "close", "off", "stop")
+
 
 def _is_on(value: Any) -> bool:
     return value in _ON_VALUES
 
 
-def _context_candidates(
+def _is_off_action(action: str) -> bool:
+    """action 이름이 off류(끄기/닫기/줄이기)인가(닫힌 토큰 부분일치)."""
+    a = (action or "").strip().lower()
+    return any(t in a for t in _OFF_ACTION_TOKENS)
+
+
+def _generic_candidates(
     facts: Mapping[str, Any],
     cur: Mapping[str, Any],
     available_actions: Sequence[Mapping[str, Any]] | None,
+    *,
+    ruleset: "ProactiveRuleSet | None" = None,
+    categories: Mapping[str, str] | None = None,
+    catalog: "DeviceCatalog | None" = None,
 ) -> list[CandidateAction]:
-    """맥락에 맞는 컴포트 후보를 결정론적으로 고른다(양 라인이 공유하는 규칙).
+    """맥락에 맞는 컴포트 후보를 결정론적으로 만든다(양 라인이 공유하는 제네릭 엔진).
 
-    v1 규칙(확장 가능):
-      - 빈 집(occupancy=vacant) + 켜진 조명 → 그 조명 끄기.
-    실모델 라인에선 이 자리에 ML/LLM 이 들어가지만, 안전 게이트
-    (validate_proactive_candidate)는 어느 쪽이든 병합 직전에 강제된다.
+    두 갈래(모두 병합 게이트의 ``validate_proactive_candidate`` 로 재검 — fail-closed):
+      (a) 빈 집(occupancy=vacant) + 켜진 임의 엔티티 → 그 엔티티의 off류 행동
+          (turn_off/close/off/stop 등). 카탈로그·조명 하드코딩 없이
+          ``available_actions`` 만으로 일반화한다(등록된 기기면 무엇이든). 구
+          "빈집→조명 끄기" 1규칙은 이 갈래의 부분집합이다.
+      (b) 런타임 임계 규칙(``ruleset``) 매칭 — "센서 X가 V를 넘으면 행동 Y 제안".
+          기존 ``ProactiveRuleSet.matching`` 을 그대로 쓴다. ``ruleset`` 미지정이면
+          이 갈래는 비활성(라인 기본 동작 — 앱 흐름은 생성기가 규칙을 소유).
     """
-    occ = str(facts.get("occupancy", "")).strip().lower()
     out: list[CandidateAction] = []
-    for act in available_actions or []:
-        cap = str(act.get("capability") or "")
-        action = str(act.get("action") or "")
-        eid = str(act.get("entity_id") or "")
-        cat = str(act.get("category") or cap)
-        if not cap or not action or not eid:
-            continue
-        if (
-            occ == "vacant"
-            and cap == "light"
-            and action == "turn_off"
-            and _is_on(cur.get(eid))
-        ):
-            out.append(
-                CandidateAction(
-                    capability=cap, action=action, params={}, entity_id=eid, category=cat
-                )
+    seen: set[tuple[str, str, str]] = set()
+
+    def _add(cap: str, action: str, eid: str, cat: str, params: Mapping[str, Any]) -> None:
+        key = (cap, action, eid)
+        if not cap or not action or not eid or key in seen:
+            return
+        seen.add(key)
+        out.append(
+            CandidateAction(
+                capability=cap,
+                action=action,
+                params=dict(params or {}),
+                entity_id=eid,
+                category=cat,
             )
+        )
+
+    # (a) 빈집 → off류 일반화(임의 켜진 엔티티).
+    occ = str(facts.get("occupancy", "")).strip().lower()
+    if occ == "vacant":
+        for act in available_actions or []:
+            cap = str(act.get("capability") or "")
+            action = str(act.get("action") or "")
+            eid = str(act.get("entity_id") or "")
+            cat = str(act.get("category") or cap)
+            if _is_off_action(action) and _is_on(cur.get(eid)):
+                _add(cap, action, eid, cat, {})
+
+    # (b) 런타임 임계 규칙 매칭.
+    if ruleset is not None:
+        for rule in ruleset.matching(facts, cur):
+            cat = resolve_category(rule.target_entity, categories, catalog)
+            _add(rule.capability, rule.action, rule.target_entity, cat, rule.params)
+
     return out
 
 
@@ -103,12 +140,25 @@ class ProposalLine(Protocol):
 class MLProposalLine:
     """Line A · ML(결정론 휴리스틱) 제안.
 
-    맥락 규칙으로 후보를 고르고, 자신감 = 기본치와 선호 임베딩의 결합(결정론).
+    공유 제네릭 엔진(빈집→off류 + 런타임 임계 규칙)으로 후보를 고르고, 자신감 =
+    기본치와 선호 임베딩의 결합(결정론). ``ruleset`` 을 주면 임계 규칙 갈래가
+    켜진다(생략 시 빈집→off류만 — 앱 흐름은 규칙을 생성기가 소유해 생략한다).
     실 학습 모델은 같은 Protocol 뒤 슬롯(예정).
     """
 
     name = "line_a:ml"
     _base = 0.70
+
+    def __init__(
+        self,
+        *,
+        ruleset: "ProactiveRuleSet | None" = None,
+        categories: Mapping[str, str] | None = None,
+        catalog: "DeviceCatalog | None" = None,
+    ) -> None:
+        self._ruleset = ruleset
+        self._categories = categories
+        self._catalog = catalog
 
     def propose(
         self,
@@ -119,7 +169,14 @@ class MLProposalLine:
         available_actions: Sequence[Mapping[str, Any]] | None = None,
     ) -> list[ActionCandidate]:
         out: list[ActionCandidate] = []
-        for ca in _context_candidates(facts, cur, available_actions):
+        for ca in _generic_candidates(
+            facts,
+            cur,
+            available_actions,
+            ruleset=self._ruleset,
+            categories=self._categories,
+            catalog=self._catalog,
+        ):
             pref = embedder.preference_for(ca, facts) if embedder is not None else 0.5
             conf = round(0.5 * self._base + 0.5 * float(pref), 4)
             out.append(
@@ -136,12 +193,23 @@ class MLProposalLine:
 class LLMProposalLine:
     """Line B · LLM 제안(Fake, 네트워크 없음).
 
-    available_actions(조작 가능 행동 목록)를 받아 맥락에 맞는 제안을 낸다.
-    v1 은 결정론 Fake; 실모델 LLM 슬롯은 예정.
+    같은 제네릭 엔진을 소비하되(빈집→off류 + 런타임 임계 규칙), 라인 고유의
+    신뢰도·사유 라벨을 붙인다. v1 은 결정론 Fake; 실모델 LLM 슬롯은 예정.
     """
 
     name = "line_b:llm"
     _base = 0.65
+
+    def __init__(
+        self,
+        *,
+        ruleset: "ProactiveRuleSet | None" = None,
+        categories: Mapping[str, str] | None = None,
+        catalog: "DeviceCatalog | None" = None,
+    ) -> None:
+        self._ruleset = ruleset
+        self._categories = categories
+        self._catalog = catalog
 
     def propose(
         self,
@@ -152,7 +220,14 @@ class LLMProposalLine:
         available_actions: Sequence[Mapping[str, Any]] | None = None,
     ) -> list[ActionCandidate]:
         out: list[ActionCandidate] = []
-        for ca in _context_candidates(facts, cur, available_actions):
+        for ca in _generic_candidates(
+            facts,
+            cur,
+            available_actions,
+            ruleset=self._ruleset,
+            categories=self._categories,
+            catalog=self._catalog,
+        ):
             pref = embedder.preference_for(ca, facts) if embedder is not None else 0.5
             conf = round(0.5 * self._base + 0.5 * float(pref), 4)
             out.append(

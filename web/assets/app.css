@@ -365,6 +365,22 @@ input[type="range"]:focus-visible {
 }
 
 /* ── 기기·행동 카드 ───────────────────────────────────────────────── */
+/* 기기 상태 토글(런타임 기기의 on/off — 빈집→off류 일반화 입력) */
+.device-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--line-soft);
+}
+.device-state-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+
 .card-device .actions {
   list-style: none;
   margin: 0;
@@ -424,6 +440,36 @@ input[type="range"]:focus-visible {
   color: var(--tier-3);
   border-color: color-mix(in srgb, var(--tier-3) 40%, transparent);
   background: color-mix(in srgb, var(--tier-3) 12%, transparent);
+}
+
+/* ── 규칙 보드 ────────────────────────────────────────────────────── */
+.rules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.rule-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  background: var(--bg-panel);
+  border: 1px solid var(--line-soft);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: var(--s2) var(--s3);
+}
+.rule-text {
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  line-height: 1.45;
+}
+.rule-empty {
+  font-size: 12px;
+  color: var(--ink-faint);
+  padding: var(--s2) var(--s1);
 }
 
 /* ── 위험 등급 레전드 ─────────────────────────────────────────────── */
@@ -872,6 +918,14 @@ input[type="range"]:focus-visible {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: var(--s2);
+}
+
+/* 규칙 조건 한 줄 (연산자 + 값) */
+.op-value-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.9fr) 1fr;
+  gap: var(--s2);
+  align-items: center;
 }
 
 /* 기기 행동 행 (행동 + 등급 + 삭제) */

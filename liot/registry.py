@@ -38,7 +38,16 @@ from liot.core.risk import (
     is_safety_category,
     register_safety_category,
 )
-from liot.layers.l2_context.proactive_rules import derive_proactive_allowed
+from liot.layers.l2_context.proactive_rules import (
+    ALLOWED_PREDICATE_OPS,
+    ProactiveRule,
+    ProactiveRuleError,
+    ProactiveRuleSet,
+    build_ruleset,
+    derive_proactive_allowed,
+    load_proactive_rulesets,
+    parse_rule,
+)
 from liot.layers.l3_judgment.guardrail import category_floor, register_category_floor
 from liot.layers.l4_execution.device_catalog import DeviceCatalog, load_device_catalog
 
@@ -138,6 +147,9 @@ class RuntimeRegistry:
         # 출하 카탈로그 기기(가스밸브·차고문)는 CATEGORIES 에 없었으므로 여기 넣지
         # 않는다 — categories() 가 출하 데모와 동일 집합을 유지하게.
         self._device_categories: dict[str, str] = {}
+        # 런타임 등록 임계 규칙(파싱·검증 완료본). config 베이스라인과 병합해
+        # proactive_ruleset() 이 생성기에 공급한다. reset 에서 폐기(세션 스코프).
+        self._rules: list[ProactiveRule] = []
 
     # ------------------------------------------------------------------
     # 조회 (서버가 소비)
@@ -172,6 +184,43 @@ class RuntimeRegistry:
         """
         return self.proactive_allowed()
 
+    def proactive_ruleset(self) -> ProactiveRuleSet:
+        """config 베이스라인 규칙 + 런타임 등록 규칙을 하나의 병합 룰셋으로.
+
+        베이스라인(``config/proactive/*.yaml``)을 반드시 포함한다 — 출하 홈의
+        vacant-light-off 가 tick 의 ``propose()`` 에서 계속 매칭돼 능동 진입
+        게이트를 통과해야 하기 때문이다(빠지면 능동성이 침묵으로 퇴행). 파생
+        허용목록을 한 번만 계산해 로더/런타임 규칙 검증에 공유한다. limits 는
+        베이스라인 것을 승계한다(런타임 규칙이 throttle 을 못 느슨하게).
+        """
+        allowed = self.proactive_allowed()
+        base = load_proactive_rulesets(allowed=allowed)
+        return build_ruleset(
+            tuple(base.rules) + tuple(self._rules),
+            name="__demo__",
+            version=base.ruleset_version,
+            limits=base.limits,
+            sources=base.sources,
+        )
+
+    def rules_meta(self) -> list[dict[str, Any]]:
+        """등록된 런타임 규칙 요약 목록(UI 규칙 패널용, 등록 순서 보존)."""
+        return [self._rule_view(r) for r in self._rules]
+
+    @staticmethod
+    def _rule_view(rule: ProactiveRule) -> dict[str, Any]:
+        """ProactiveRule → UI/응답용 평면 dict(한글 요약은 프런트가 조립)."""
+        return {
+            "id": rule.rule_id,
+            "match": dict(rule.match),
+            "state": [
+                {"entity": p.entity_id, "op": p.op, "value": p.value} for p in rule.state
+            ],
+            "capability": rule.capability,
+            "action": rule.action,
+            "target": rule.target_entity,
+        }
+
     def device_name(self, entity_id: str) -> str:
         """기기 표시 이름(없으면 entity_id)."""
         return self._device_names.get(entity_id, entity_id)
@@ -179,17 +228,33 @@ class RuntimeRegistry:
     def known_sensor(self, entity_id: str) -> bool:
         return entity_id in self._sensors
 
-    def coerce_value(self, entity_id: str, value: Any) -> Any:
-        """UI 값 -> ``SensorReading.raw_value``. 센서 메타 kind 로 강제변환한다.
+    def known_device(self, entity_id: str) -> bool:
+        """등록된 기기(카탈로그 devices)에 이 entity_id 가 있는가."""
+        return self._device_index(entity_id) is not None
 
-        미등록 센서는 ``RegistryError``(서버가 HTTP 400 으로 매핑). bool 은 on/off
-        문자열로, number 는 float 로 강제한다(기존 ``_BOOL_SENSORS``/``_raw_for``
-        특수케이스를 kind 주도로 일반화).
+    @staticmethod
+    def _coerce_bool(value: Any) -> Any:
+        """bool 상태 강제변환: python bool / 숫자 진리값 → on/off, 문자열은 그대로."""
+        if isinstance(value, bool):
+            return "on" if value else "off"
+        if isinstance(value, (int, float)):
+            return "on" if value else "off"
+        return value
+
+    def coerce_value(self, entity_id: str, value: Any) -> Any:
+        """UI 값 -> ``SensorReading.raw_value``. 센서/기기 상태를 강제변환한다.
+
+        센서면 메타 kind(number→float, bool→on/off)로, 등록된 **기기**면 상태
+        토글(on/off bool)로 강제한다 — 런타임 등록 기기의 상태를 simulate 로 주입해
+        빈집→off류 일반화가 실제로 도달하게 한다(baked 기기는 센서로도 시드돼
+        센서 경로가 상태를 소유). 둘 다 아니면 ``RegistryError``(서버가 HTTP 400).
         """
         meta = self._sensors.get(entity_id)
         if meta is None:
+            if self.known_device(entity_id):
+                return self._coerce_bool(value)  # 기기 상태 = on/off
             raise RegistryError(
-                f"등록되지 않은 센서입니다: {entity_id}", field="entity_id"
+                f"등록되지 않은 센서·기기입니다: {entity_id}", field="entity_id"
             )
         if meta["kind"] == "number":
             try:
@@ -199,12 +264,7 @@ class RuntimeRegistry:
                     f"수치 센서 값이 숫자가 아닙니다: {entity_id}={value!r}",
                     field="value",
                 ) from None
-        # bool: python bool / 숫자 진리값 -> on/off, 이미 문자열이면 그대로.
-        if isinstance(value, bool):
-            return "on" if value else "off"
-        if isinstance(value, (int, float)):
-            return "on" if value else "off"
-        return value
+        return self._coerce_bool(value)
 
     # ------------------------------------------------------------------
     # 등록 (확장 전용)
@@ -362,9 +422,140 @@ class RuntimeRegistry:
             "capability": capability, "action": action, "tier": new_tier.name.lower()
         }
 
+    def add_rule(self, spec: dict[str, Any]) -> dict[str, Any]:
+        """런타임 임계 규칙 1개를 등록한다("센서 X가 V를 넘으면 행동 Y 제안").
+
+        payload: ``{name?, match?, state?, propose:{entity_id|target, capability,
+        action, tier?}}``. 검증(전부 실패 시 **한글** 사유 → 서버가 HTTP 400):
+          * 대상 기기(propose.entity_id)는 등록된 기기여야 하고, 선언 capability 가
+            그 기기의 실제 capability 와 일치해야 한다(미등록/불일치 = 거부).
+          * 상태 술어 op 는 닫힌 어휘(eq/ne/lt/le/gt/ge)여야 하고, 수치 센서 임계값은
+            float 로 강제한다(문자열 임계 = 조용히 죽는 규칙 방지).
+          * (capability, action)은 파생 허용목록 안이어야 한다(ember·안전 액추에이터·
+            여는 방향 거부 — ``parse_rule`` 강제, 영어 사유는 한글로 매핑).
+          * 규칙 이름(rule_id)은 중복 불가(origin 토큰 충돌 방지).
+        ``propose.tier`` 는 UI 표시용이며 검증엔 쓰지 않는다.
+        """
+        if not isinstance(spec, dict):
+            raise RegistryError("규칙 정의가 올바르지 않습니다.")
+        if spec.get("propose") is not None and not isinstance(spec["propose"], dict):
+            raise RegistryError(
+                "행동(propose) 형식이 올바르지 않습니다 (객체여야 합니다)", field="propose"
+            )
+        if spec.get("state") is not None and not isinstance(spec["state"], list):
+            raise RegistryError(
+                "조건(state) 형식이 올바르지 않습니다 (목록이어야 합니다)", field="state"
+            )
+
+        # ── propose 정규화 + 대상 기기 검증(등록·capability 일치) ──────────
+        prop = dict(spec.get("propose") or {})
+        if not prop.get("target") and not prop.get("target_entity") and prop.get("entity_id"):
+            prop["target"] = prop.get("entity_id")
+        target = str(prop.get("target") or prop.get("target_entity") or "").strip()
+        capability = str(prop.get("capability") or "").strip().lower()
+        action = str(prop.get("action") or "").strip().lower()
+        if not capability or not action or not target:
+            raise RegistryError(
+                "행동 정의에 capability·action·대상 기기가 모두 필요합니다.",
+                field="propose",
+            )
+        if not self.known_device(target):
+            raise RegistryError(f"등록되지 않은 기기입니다: {target}", field="propose")
+        dev_cap = (self._device_capability(target) or "").strip().lower()
+        if dev_cap and dev_cap != capability:
+            raise RegistryError(
+                f"기기 capability 불일치: '{target}' 는 '{dev_cap}' 인데 "
+                f"규칙은 '{capability}' 를 선언했습니다.",
+                field="propose",
+            )
+
+        # ── 상태 술어: op 어휘 검사 + 수치 센서 임계 float 강제 ────────────
+        coerced_state: list[dict[str, Any]] = []
+        for p in spec.get("state") or []:
+            if not isinstance(p, dict):
+                raise RegistryError("조건(state) 형식이 올바르지 않습니다.", field="state")
+            p = dict(p)
+            op = str(p.get("op") or "").strip().lower()
+            if op and op not in ALLOWED_PREDICATE_OPS:
+                raise RegistryError(
+                    f"지원하지 않는 연산자입니다: '{op}' (가능: eq/ne/lt/le/gt/ge)",
+                    field="state",
+                )
+            meta = self._sensors.get(str(p.get("entity") or ""))
+            if meta is not None and meta.get("kind") == "number" and "value" in p:
+                try:
+                    p["value"] = float(p["value"])
+                except (TypeError, ValueError):
+                    raise RegistryError(
+                        f"수치 조건 값이 숫자가 아닙니다: {p.get('value')!r}",
+                        field="state",
+                    ) from None
+            coerced_state.append(p)
+
+        raw = {
+            "id": spec.get("name") or spec.get("id"),
+            "match": spec.get("match") or {},
+            "state": coerced_state,
+            "propose": prop,
+            "ttl_minutes": spec.get("ttl_minutes", 15),
+            "description": spec.get("description", ""),
+        }
+        try:
+            rule = parse_rule(raw, len(self._rules), allowed=self.proactive_allowed())
+        except ProactiveRuleError as exc:
+            raise RegistryError(
+                self._korean_rule_error(str(exc), capability, action), field="propose"
+            ) from None
+
+        # ── 이름(rule_id) 중복 거부(origin 토큰 충돌 방지) ────────────────
+        if any(r.rule_id == rule.rule_id for r in self._rules):
+            raise RegistryError(
+                f"이미 존재하는 규칙 이름입니다: {rule.rule_id}", field="name"
+            )
+        self._rules.append(rule)
+        return self._rule_view(rule)
+
     # ------------------------------------------------------------------
     # 내부
     # ------------------------------------------------------------------
+    def _device_capability(self, entity_id: str) -> str | None:
+        """등록된 기기의 실제 capability(없으면 None)."""
+        idx = self._device_index(entity_id)
+        if idx is None:
+            return None
+        return (self._raw.get("devices", []) or [])[idx].get("capability")
+
+    @staticmethod
+    def _korean_rule_error(msg: str, capability: str, action: str) -> str:
+        """``parse_rule`` 의 영어 ``ProactiveRuleError`` 를 한글 사유로 매핑한다.
+
+        데모/UI 노출 에러는 전량 한글이어야 한다(리뷰 지적). 실패 종류를 영어 메시지
+        토큰으로 식별해 한글로 바꾸되, 식별 안 되는 잔여 케이스는 한글 접두사 +
+        원문(기술 토큰)으로 폴백한다.
+        """
+        if "proactive-allowed" in msg:
+            return (
+                f"허용되지 않은 행동입니다(능동 제안 불가): ('{capability}', '{action}') — "
+                "등급이 숨결 이하인 비-안전 행동만 규칙에 쓸 수 있습니다"
+            )
+        if "closed vocabulary" in msg:
+            return "지원하지 않는 연산자입니다 (가능: eq/ne/lt/le/gt/ge)"
+        if "disallowed match keys" in msg:
+            return "규칙 조건 키가 올바르지 않습니다 (가능: 시간대·재실)"
+        if "scalar" in msg or "mapping" in msg:
+            return "규칙 값 형식이 올바르지 않습니다 (단일 스칼라만 허용)"
+        if "at least one" in msg:
+            return "규칙에는 조건이 최소 하나 필요합니다 (시간대·재실 또는 센서 상태)"
+        if "missing 'entity'" in msg:
+            return "조건에 센서(entity)가 필요합니다"
+        if "ttl" in msg.lower():
+            return "TTL(분)은 양의 정수여야 합니다"
+        if "unknown keys" in msg:
+            return "규칙 조건에 알 수 없는 키가 있습니다 (가능: entity/op/value)"
+        if "must be a list" in msg:
+            return "조건(state) 형식이 올바르지 않습니다 (목록이어야 합니다)"
+        return "규칙을 등록할 수 없습니다 (정의 형식을 확인해 주세요)"
+
     def _validate_floor(self, category: str, floor: Any) -> RiskTier | None:
         """카테고리 하한 요청을 검증한다(낮추기 거부). 미지정이면 None.
 

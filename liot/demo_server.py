@@ -28,6 +28,7 @@ from liot.core.risk import RiskTier
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l2_context.context_builder import derive_occupancy
 from liot.layers.l2_context.external_provider import FakeExternalProvider
+from liot.layers.l2_context.proactive import ProactiveGenerator
 from liot.layers.l3_judgment.llm_judge import FakeLLM
 from liot.layers.l3_judgment.ollama_backend import HTTPOllamaTransport, OllamaBackend
 from liot.layers.l2_context.nl_directive import DirectiveStore, UserDirective
@@ -115,7 +116,12 @@ def _catalog_view() -> dict[str, Any]:
     tiers = {
         str(int(t)): {"name": t.name.lower(), "label_ko": t.label_ko} for t in RiskTier
     }
-    return {"sensors": sensors, "devices": list(grouped.values()), "tiers": tiers}
+    return {
+        "sensors": sensors,
+        "devices": list(grouped.values()),
+        "tiers": tiers,
+        "rules": _REGISTRY.rules_meta(),
+    }
 
 
 def _build_backend(cfg: dict[str, Any]):
@@ -247,13 +253,23 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
         )
 
     categories = _REGISTRY.categories()
+    catalog = _REGISTRY.to_catalog()
+    # 능동 생성기에 레지스트리 병합 룰셋(config 베이스라인 + 런타임 임계 규칙)을
+    # 공급한다 — 등록한 규칙이 다음 tick 부터 propose()/후보집합에 흐른다(D5).
+    proactive = ProactiveGenerator(
+        ruleset=_REGISTRY.proactive_ruleset(),
+        catalog=catalog,
+        categories=categories,
+        clock=clock,
+    )
     app = LiotApp(
         clock=clock,
-        catalog=_REGISTRY.to_catalog(),
+        catalog=catalog,
         categories=categories,
         llm_backend=backend,
         condition=str(cfg.get("condition") or "B"),
         external_provider=external,
+        proactive=proactive,
     )
 
     # 1) 모든 센서를 관찰로 주입(맥락/캐시 갱신, 대개 침묵).
@@ -382,7 +398,13 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
     # 최종 제안 or 침묵
     if proposal is not None:
         tier = RiskTier.from_str(proposal.risk_tier)
-        exec_policy = ExecutionPolicy(enabled=bool(cfg.get("execution_enabled", False)))
+        # 카탈로그 파생 실행 확장분(등록된 breath 이하 비-안전-액추에이터 행동)을
+        # 정책에 주입 — 등록 행동이 L4 실행 결정(AUTO/NOTIFY_ONLY)에 반영된다.
+        # FORBIDDEN_OPEN(lock.unlock·valve.open)은 어떤 확장에도 못 든다(불변).
+        exec_policy = ExecutionPolicy(
+            enabled=bool(cfg.get("execution_enabled", False)),
+            extra_executable=_REGISTRY.executable_extras(),
+        )
         decision = exec_policy.decide(proposal.action, tier)
         out["proposal"] = {
             "tier": _tier_view(tier),
@@ -539,6 +561,10 @@ class Handler(BaseHTTPRequestHandler):
                     floor=body.get("floor"),
                 )
                 self._json(200, {"ok": True, "device": rec})
+                return
+            if path == "/api/registry/rule":
+                rec = _REGISTRY.add_rule(body)
+                self._json(200, {"ok": True, "rule": rec})
                 return
         except RegistryError as exc:
             self._json(400, {"ok": False, "error": exc.message, "field": exc.field})

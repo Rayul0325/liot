@@ -24,6 +24,7 @@ import hashlib
 import uuid
 from typing import Any, Mapping
 
+from liot.core.categories import resolve_category
 from liot.core.clock import Clock
 from liot.core.contracts import ContextSnapshot
 from liot.core.egress_gate import AliasMap
@@ -50,19 +51,14 @@ SUMMARY_TEMPLATE_SHA = hashlib.sha256(SUMMARY_TEMPLATE.encode("utf-8")).hexdiges
 DEFAULT_SEMANTIC_THRESHOLD = 0.15
 
 
-def _category_of(entity_id: str, categories: Mapping[str, str] | None) -> str | None:
-    """엔티티의 카테고리를 결정한다.
+def _category_of(entity_id: str, categories: Mapping[str, str] | None) -> str:
+    """엔티티의 카테고리를 결정한다(단일 리졸버 위임, 카탈로그 없이).
 
-    categories 매핑이 있으면 그것을 우선한다. 없으면 entity_id 의 도메인
-    접두사('door.front' -> 'door')로 추정한다.
+    맵 우선 → 도메인/언더스코어 접두사 → 'unknown'. 카탈로그 메타는 이 계층에
+    없으므로 catalog=None 으로 위임한다(맵에 없는 안전 엔티티는 도메인 접두사로
+    떨어지되, 안전 판정은 categories 맵이 채워져야 정확 — 기존과 동일).
     """
-    if categories and entity_id in categories:
-        return categories[entity_id]
-    if "." in entity_id:
-        return entity_id.split(".", 1)[0]
-    if "_" in entity_id:
-        return entity_id.split("_", 1)[0]
-    return None
+    return resolve_category(entity_id, categories, None)
 
 
 def _is_safety(category: str | None) -> bool:

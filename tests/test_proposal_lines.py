@@ -29,6 +29,7 @@ from liot.layers.l2_context.proposal_lines import (
     merge_candidate_set,
 )
 from liot.layers.l4_execution.device_catalog import load_device_catalog
+from liot.registry import RuntimeRegistry
 
 CATALOG = load_device_catalog()
 ACTS = CATALOG.available_actions()
@@ -199,3 +200,106 @@ def test_arbiter_selects_deterministically_safety_from_catalog():
     # 안전위험은 catalog 값(light=ambient tier 0 → 0.0), 라인/임베딩과 무관
     scored_off = [a for a in ev.scored if a.candidate.capability == "light"][0]
     assert scored_off.safety_risk == 0.0
+
+
+# ── P5: 제네릭 후보 생성(빈집→off류 일반화 + 런타임 임계 규칙) ─────────────────
+
+
+def _vacuum_registry(*, with_rule: bool = False) -> RuntimeRegistry:
+    reg = RuntimeRegistry()
+    reg.add_sensor(
+        {
+            "entity_id": "sensor.soil_moisture", "name": "토양 수분",
+            "category": "moisture", "kind": "number", "unit": "%", "min": 0, "max": 100,
+        }
+    )
+    reg.add_device(
+        entity_id="vacuum.robot", name="로봇청소기", capability="vacuum",
+        category="appliance",
+        actions=[{"action": "start", "tier": "breath"}, {"action": "stop", "tier": "ambient"}],
+    )
+    if with_rule:
+        reg.add_rule(
+            {
+                "name": "soil-dry-clean",
+                "state": [{"entity": "sensor.soil_moisture", "op": "lt", "value": 30}],
+                "propose": {"entity_id": "vacuum.robot", "capability": "vacuum", "action": "start"},
+            }
+        )
+    return reg
+
+
+def _keyset(cs: CandidateSet):
+    return {
+        (c.candidate.capability, c.candidate.action, c.candidate.entity_id)
+        for c in cs.candidates
+    }
+
+
+def test_generic_vacancy_off_still_produces_light_off():
+    # 구 "빈집→조명 끄기" 는 제네릭 엔진 part(a) 의 부분집합으로 그대로 살아있다.
+    cs = _merge([MLProposalLine()], FakePreferenceEmbedder())
+    assert ("light", "turn_off", "light.living_room") in _keyset(cs)
+
+
+def test_generic_vacancy_off_generalizes_to_registered_device():
+    # 빈집 + 켜진 로봇청소기 → off류(stop) 후보 생성(조명 하드코딩 없이 일반화).
+    reg = _vacuum_registry()
+    cat = reg.to_catalog()
+    cs = merge_candidate_set(
+        trace_id="t", facts={"time_bucket": "day", "occupancy": "vacant"},
+        cur={"vacuum.robot": True}, lines=[MLProposalLine()], catalog=cat,
+        available_actions=cat.available_actions(),
+    )
+    keys = _keyset(cs)
+    assert ("vacuum", "stop", "vacuum.robot") in keys  # off류(stop) 생성
+    assert ("vacuum", "start", "vacuum.robot") not in keys  # start 는 off류 아님
+
+
+def test_generic_occupied_yields_no_vacancy_candidate():
+    # 재실(occupied)이면 빈집→off류 갈래가 꺼지고, ruleset 없으면 후보 0(NoOp 만).
+    reg = _vacuum_registry()
+    cat = reg.to_catalog()
+    cs = merge_candidate_set(
+        trace_id="t", facts={"time_bucket": "day", "occupancy": "occupied"},
+        cur={"vacuum.robot": True}, lines=[MLProposalLine(), LLMProposalLine()],
+        catalog=cat, available_actions=cat.available_actions(),
+    )
+    assert len(cs.candidates) == 1
+    assert is_noop(cs.candidates[0].candidate)
+
+
+def test_runtime_threshold_rule_candidate_through_proposal_line():
+    # 런타임 규칙(soil<30 → vacuum.start)이 제안 라인의 제네릭 엔진으로 흐른다.
+    reg = _vacuum_registry(with_rule=True)
+    cat = reg.to_catalog()
+    line = MLProposalLine(
+        ruleset=reg.proactive_ruleset(), categories=reg.categories(), catalog=cat
+    )
+    facts = {"time_bucket": "day", "occupancy": "occupied"}  # 빈집 갈래 배제 — 순수 규칙
+    hit = merge_candidate_set(
+        trace_id="t", facts=facts, cur={"sensor.soil_moisture": 22.0},
+        lines=[line], catalog=cat, available_actions=cat.available_actions(),
+    )
+    assert ("vacuum", "start", "vacuum.robot") in _keyset(hit)  # 22 < 30 → 매칭
+    miss = merge_candidate_set(
+        trace_id="t", facts=facts, cur={"sensor.soil_moisture": 55.0},
+        lines=[line], catalog=cat, available_actions=cat.available_actions(),
+    )
+    assert ("vacuum", "start", "vacuum.robot") not in _keyset(miss)  # 55 → 미매칭
+
+
+def test_runtime_rule_resolves_registered_category():
+    # 규칙 후보의 category 는 리졸버가 결정한다(등록 기기 → appliance) — 안전 우회 방지.
+    reg = _vacuum_registry(with_rule=True)
+    cat = reg.to_catalog()
+    line = MLProposalLine(
+        ruleset=reg.proactive_ruleset(), categories=reg.categories(), catalog=cat
+    )
+    out = line.propose(
+        {"time_bucket": "day", "occupancy": "occupied"},
+        {"sensor.soil_moisture": 10.0},
+        available_actions=cat.available_actions(),
+    )
+    start = [c for c in out if c.candidate.action == "start"][0]
+    assert start.candidate.category == "appliance"

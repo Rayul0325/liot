@@ -167,6 +167,24 @@ def test_coerce_bool_to_on_off(reg: RuntimeRegistry) -> None:
     assert reg.coerce_value("sensor.soil_moisture", 30) == 30.0
 
 
+def test_coerce_registered_device_state_bool(reg: RuntimeRegistry) -> None:
+    # 런타임 등록 기기(센서 아님)의 상태도 on/off 로 주입 가능해야 한다 —
+    # 빈집→off류 일반화가 데모/UI 에서 실제로 도달하려면 필수(계약 결함 수정).
+    reg.add_device(
+        entity_id="vacuum.robot", name="로봇청소기", capability="vacuum",
+        category="appliance",
+        actions=[{"action": "start", "tier": "breath"}, {"action": "stop", "tier": "ambient"}],
+    )
+    assert reg.known_device("vacuum.robot")
+    assert reg.coerce_value("vacuum.robot", True) == "on"
+    assert reg.coerce_value("vacuum.robot", False) == "off"
+    assert reg.coerce_value("vacuum.robot", 1) == "on"
+    # 센서도 기기도 아니면 여전히 거부.
+    with pytest.raises(RegistryError) as exc:
+        reg.coerce_value("nope.nothing", True)
+    assert exc.value.field == "entity_id"
+
+
 # ── 5) reset ─────────────────────────────────────────────────────────────────
 def test_reset_restores_baked_state(reg: RuntimeRegistry) -> None:
     reg.add_sensor(
@@ -324,3 +342,191 @@ def test_add_device_bad_floor_tier_rejected(reg: RuntimeRegistry) -> None:
             actions=[{"action": "turn_on", "tier": "ambient"}], floor="not_a_tier",
         )
     assert exc.value.field == "floor"
+
+
+# ── 8) 런타임 임계 규칙(P5): 등록·병합·안전 거부 ──────────────────────────────
+def _register_vacuum(reg: RuntimeRegistry) -> None:
+    reg.add_sensor(
+        {
+            "entity_id": "sensor.soil_moisture", "name": "토양 수분",
+            "category": "moisture", "kind": "number", "unit": "%",
+            "min": 0, "max": 100,
+        }
+    )
+    reg.add_device(
+        entity_id="vacuum.robot", name="로봇청소기", capability="vacuum",
+        category="appliance",
+        actions=[{"action": "start", "tier": "breath"}, {"action": "stop", "tier": "ambient"}],
+    )
+
+
+def test_add_rule_roundtrip(reg: RuntimeRegistry) -> None:
+    _register_vacuum(reg)
+    rec = reg.add_rule(
+        {
+            "name": "토양 건조 청소",
+            "state": [{"entity": "sensor.soil_moisture", "op": "lt", "value": 30}],
+            "propose": {"entity_id": "vacuum.robot", "capability": "vacuum", "action": "start"},
+        }
+    )
+    assert rec["capability"] == "vacuum" and rec["action"] == "start"
+    assert rec["target"] == "vacuum.robot"
+    # rules_meta 에 요약이 등장하고, 병합 룰셋에 규칙이 흐른다.
+    ids = {r["id"] for r in reg.rules_meta()}
+    assert "토양 건조 청소" in ids
+    rs = reg.proactive_ruleset()
+    assert any(
+        r.capability == "vacuum" and r.action == "start" and r.target_entity == "vacuum.robot"
+        for r in rs.rules
+    )
+
+
+def test_add_rule_maps_target_alias(reg: RuntimeRegistry) -> None:
+    # propose.target 로 줘도 동작(entity_id 별칭과 등가).
+    _register_vacuum(reg)
+    rec = reg.add_rule(
+        {
+            "state": [{"entity": "sensor.soil_moisture", "op": "le", "value": 20}],
+            "propose": {"target": "vacuum.robot", "capability": "vacuum", "action": "stop"},
+        }
+    )
+    assert rec["action"] == "stop" and rec["target"] == "vacuum.robot"
+
+
+def test_add_rule_ember_lock_action_rejected(reg: RuntimeRegistry) -> None:
+    # 안전/여는 방향(lock.unlock)은 파생 허용목록 밖 → 등록 자체가 400(RegistryError).
+    with pytest.raises(RegistryError) as exc:
+        reg.add_rule(
+            {
+                "match": {"occupancy": "vacant"},
+                "propose": {"entity_id": "lock.front_door", "capability": "lock", "action": "unlock"},
+            }
+        )
+    assert exc.value.field == "propose"
+    assert "허용되지 않은 행동" in exc.value.message  # 한글 사유(영어 원문 아님)
+    assert not reg.rules_meta()  # 미커밋
+
+
+def test_add_rule_ember_registered_action_rejected(reg: RuntimeRegistry) -> None:
+    # ember 로 등록한 새 행동은 상한(breath)을 넘어 허용목록 밖 → 규칙 거부.
+    reg.add_device(
+        entity_id="siren.attic", name="다락 사이렌", capability="siren",
+        category="appliance", actions=[{"action": "blast", "tier": "ember"}],
+    )
+    with pytest.raises(RegistryError) as exc:
+        reg.add_rule(
+            {
+                "match": {"occupancy": "vacant"},
+                "propose": {"entity_id": "siren.attic", "capability": "siren", "action": "blast"},
+            }
+        )
+    assert exc.value.field == "propose"
+
+
+def test_proactive_ruleset_includes_config_baseline(reg: RuntimeRegistry) -> None:
+    # 병합 룰셋은 config 베이스라인(vacant-light-off)을 반드시 포함한다 —
+    # 출하 홈 능동성이 tick propose() 게이트를 계속 통과하도록.
+    rs = reg.proactive_ruleset()
+    assert any(r.rule_id == "vacant-light-off" for r in rs.rules)
+
+
+def test_add_rule_reset_clears(reg: RuntimeRegistry) -> None:
+    _register_vacuum(reg)
+    reg.add_rule(
+        {
+            "state": [{"entity": "sensor.soil_moisture", "op": "lt", "value": 30}],
+            "propose": {"entity_id": "vacuum.robot", "capability": "vacuum", "action": "start"},
+        }
+    )
+    assert reg.rules_meta()
+    reg.reset()
+    assert not reg.rules_meta()
+
+
+# ── 8b) 규칙 등록 강건화(리뷰 지적): 한글 사유 · 대상검증 · 수치강제 · 이름중복 ──
+def test_add_rule_unregistered_target_rejected(reg: RuntimeRegistry) -> None:
+    # BLOCKER 2: propose.entity_id 가 미등록 기기면 한글 400(허용목록 통과 무관).
+    with pytest.raises(RegistryError) as exc:
+        reg.add_rule(
+            {
+                "match": {"occupancy": "vacant"},
+                "propose": {"entity_id": "ghost.unknown", "capability": "ghost", "action": "poke"},
+            }
+        )
+    assert exc.value.field == "propose"
+    assert "등록되지 않은 기기입니다" in exc.value.message
+    assert "ghost.unknown" in exc.value.message
+
+
+def test_add_rule_capability_mismatch_rejected(reg: RuntimeRegistry) -> None:
+    # BLOCKER 2: 대상 기기의 실제 capability 와 규칙 선언 capability 가 다르면 거부.
+    _register_vacuum(reg)  # vacuum.robot 의 실제 capability = vacuum
+    with pytest.raises(RegistryError) as exc:
+        reg.add_rule(
+            {
+                "state": [{"entity": "sensor.soil_moisture", "op": "lt", "value": 30}],
+                "propose": {"entity_id": "vacuum.robot", "capability": "light", "action": "turn_off"},
+            }
+        )
+    assert exc.value.field == "propose"
+    assert "capability 불일치" in exc.value.message
+
+
+def test_add_rule_unsupported_op_rejected(reg: RuntimeRegistry) -> None:
+    # BLOCKER 1: 닫힌 어휘 밖 연산자는 한글 사유(영어 아님) + 해당 op 노출.
+    _register_vacuum(reg)
+    with pytest.raises(RegistryError) as exc:
+        reg.add_rule(
+            {
+                "state": [{"entity": "sensor.soil_moisture", "op": "regex", "value": 30}],
+                "propose": {"entity_id": "vacuum.robot", "capability": "vacuum", "action": "start"},
+            }
+        )
+    assert exc.value.field == "state"
+    assert "지원하지 않는 연산자입니다" in exc.value.message
+    assert "regex" in exc.value.message
+
+
+def test_add_rule_numeric_threshold_string_coerced(reg: RuntimeRegistry) -> None:
+    # HARDENING 3: 수치 센서 임계 "30"(문자열)은 float 로 강제 — 조용히 죽는 규칙 방지.
+    _register_vacuum(reg)
+    rec = reg.add_rule(
+        {
+            "name": "문자열 임계",
+            "state": [{"entity": "sensor.soil_moisture", "op": "lt", "value": "30"}],
+            "propose": {"entity_id": "vacuum.robot", "capability": "vacuum", "action": "start"},
+        }
+    )
+    val = rec["state"][0]["value"]
+    assert val == 30.0 and isinstance(val, float)
+    rule = [r for r in reg.proactive_ruleset().rules if r.rule_id == "문자열 임계"][0]
+    assert rule.state[0].value == 30.0  # 병합 룰셋에도 float 로 흐른다
+
+
+def test_add_rule_numeric_threshold_uncoercible_rejected(reg: RuntimeRegistry) -> None:
+    # HARDENING 3: 수치 센서 임계가 숫자로 강제 불가면 한글 400(조용히 삼키지 않음).
+    _register_vacuum(reg)
+    with pytest.raises(RegistryError) as exc:
+        reg.add_rule(
+            {
+                "state": [{"entity": "sensor.soil_moisture", "op": "lt", "value": "축축함"}],
+                "propose": {"entity_id": "vacuum.robot", "capability": "vacuum", "action": "start"},
+            }
+        )
+    assert exc.value.field == "state"
+    assert "숫자가 아닙니다" in exc.value.message
+
+
+def test_add_rule_duplicate_name_rejected(reg: RuntimeRegistry) -> None:
+    # HARDENING 4: 같은 규칙 이름 재등록은 한글 400(origin 토큰/rule_id 충돌 방지).
+    _register_vacuum(reg)
+    spec = {
+        "name": "청소 규칙",
+        "state": [{"entity": "sensor.soil_moisture", "op": "lt", "value": 30}],
+        "propose": {"entity_id": "vacuum.robot", "capability": "vacuum", "action": "start"},
+    }
+    reg.add_rule(spec)
+    with pytest.raises(RegistryError) as exc:
+        reg.add_rule(dict(spec))
+    assert exc.value.field == "name"
+    assert "이미 존재하는 규칙 이름입니다" in exc.value.message

@@ -25,6 +25,29 @@ const PIPELINE_STAGES = [
 const tierByName = new Map();
 
 /**
+ * entity_id → 표시 이름(규칙 요약에서 한글 이름을 쓰기 위한 조회표).
+ * 카탈로그 렌더 시 센서 + 기기 이름으로 채운다.
+ * @type {Map<string, string>}
+ */
+const entityNames = new Map();
+
+/**
+ * 센서로도 표현되는 entity_id 집합. 기기 카드는 여기 없는 기기에만 상태 토글을
+ * 붙인다(중복 엔티티는 센서 카드가 상태를 소유 — 이중 토글 충돌 방지).
+ * @type {Set<string>}
+ */
+const sensorEntityIds = new Set();
+
+// 상태 술어 연산자 → 한글 라벨(규칙 빌더·요약의 단일 원천).
+const OP_LABELS = { lt: "미만", le: "이하", gt: "초과", ge: "이상", eq: "같음", ne: "다름" };
+// 시간대(match.time_bucket)·재실(match.occupancy) 한글 라벨.
+const BUCKET_LABELS = { morning: "아침", day: "낮", evening: "저녁", night: "밤" };
+const OCC_LABELS = { occupied: "재실", vacant: "부재", unknown: "미상" };
+
+/** 마지막 카탈로그 응답(규칙 모달이 센서·기기 목록을 재사용). @type {object} */
+let lastCatalog = {};
+
+/**
  * 요소 생성 헬퍼.
  * @param {string} tag 태그명
  * @param {string} [cls] class 속성
@@ -141,6 +164,16 @@ function deviceCard(device) {
   top.append(el("span", "card-cat", device.category ?? device.capability ?? ""));
   card.append(top);
 
+  // 센서로도 표현되지 않는 기기는 상태(on/off) 토글을 붙인다 — 빈집→off류
+  // 일반화가 이 상태를 읽어 후보를 만든다. simulate 페이로드에 포함된다.
+  if (!sensorEntityIds.has(device.entity_id)) {
+    card.dataset.stateful = "true";
+    const row = el("div", "device-state");
+    row.append(el("span", "device-state-label", "상태"));
+    row.append(boolControl());
+    card.append(row);
+  }
+
   const list = el("ul", "actions");
   for (const act of device.actions) {
     const li = el("li", "action");
@@ -215,6 +248,11 @@ function readBody() {
       sensors[eid] = Number(card.querySelector("input[type=range]").value);
     }
   });
+  // 상태 토글이 있는 기기(센서로 표현되지 않는 런타임 기기)의 on/off 도 포함한다.
+  document.querySelectorAll('#deviceBoard [data-stateful="true"]').forEach((card) => {
+    const cb = card.querySelector("input[type=checkbox]");
+    if (cb) sensors[card.dataset.entity] = cb.checked;
+  });
   return { sensors, config: { time: "evening" }, mode: "tick" };
 }
 
@@ -281,6 +319,7 @@ let catalogTiers = {};
  * @returns {void}
  */
 function applyCatalog(catalog) {
+  lastCatalog = catalog;
   catalogTiers = catalog.tiers || {};
 
   tierByName.clear();
@@ -288,17 +327,76 @@ function applyCatalog(catalog) {
     tierByName.set(t.name, { value: Number(value), labelKo: t.label_ko });
   }
 
+  entityNames.clear();
+  sensorEntityIds.clear();
+  for (const s of catalog.sensors || []) {
+    entityNames.set(s.entity_id, s.name);
+    sensorEntityIds.add(s.entity_id);
+  }
+  for (const dev of catalog.devices || []) entityNames.set(dev.entity_id, dev.name);
+
   document
     .getElementById("sensorBoard")
     .replaceChildren(...(catalog.sensors || []).map(sensorCard));
   document
     .getElementById("deviceBoard")
     .replaceChildren(...(catalog.devices || []).map(deviceCard));
+  renderRules(catalog.rules || []);
   renderLegend(catalogTiers);
 
   const n = (catalog.sensors || []).length;
   const d = (catalog.devices || []).length;
   setStatus("ready", "대기 · 센서 " + n + " · 기기 " + d);
+}
+
+/**
+ * entity_id → 표시 이름(없으면 entity_id 그대로).
+ * @param {string} eid
+ * @returns {string}
+ */
+function nameFor(eid) {
+  return entityNames.get(eid) || eid;
+}
+
+/**
+ * 규칙 1개 → 한글 요약 문자열.
+ * 예: "토양 수분 미만 30 · 부재 → 로봇청소기 start 제안".
+ * @param {{match?:object, state?:{entity:string,op:string,value:any}[], target:string, action:string}} rule
+ * @returns {string}
+ */
+function ruleSummary(rule) {
+  const conds = [];
+  for (const [k, v] of Object.entries(rule.match || {})) {
+    if (k === "time_bucket") conds.push(BUCKET_LABELS[v] || v);
+    else if (k === "occupancy") conds.push(OCC_LABELS[v] || v);
+    else conds.push(k + "=" + v);
+  }
+  for (const p of rule.state || []) {
+    conds.push(nameFor(p.entity) + " " + (OP_LABELS[p.op] || p.op) + " " + p.value);
+  }
+  const cond = conds.length ? conds.join(" · ") : "무조건";
+  return cond + " → " + nameFor(rule.target) + " " + rule.action + " 제안";
+}
+
+/**
+ * 등록된 규칙 패널을 렌더한다(비면 안내 문구).
+ * @param {object[]} rules
+ * @returns {void}
+ */
+function renderRules(rules) {
+  const wrap = document.getElementById("ruleBoard");
+  if (!wrap) return;
+  if (!rules.length) {
+    wrap.replaceChildren(el("li", "rule-empty", "등록된 규칙이 없습니다"));
+    return;
+  }
+  wrap.replaceChildren(
+    ...rules.map((rule) => {
+      const li = el("li", "rule-item");
+      li.append(el("span", "rule-text", ruleSummary(rule)));
+      return li;
+    }),
+  );
 }
 
 /**
@@ -331,6 +429,9 @@ async function init() {
     document
       .getElementById("addDeviceBtn")
       .addEventListener("click", openDeviceModal);
+    document
+      .getElementById("addRuleBtn")
+      .addEventListener("click", openRuleModal);
   } catch (err) {
     setStatus("error", "카탈로그 로드 실패");
     document.getElementById("runHint").textContent = String(err);
@@ -663,4 +764,145 @@ function openDeviceModal() {
   });
 
   mountModal("기기·행동 추가", form);
+}
+
+// ── 규칙 추가 모달 ─────────────────────────────────────────────────────
+/**
+ * value 오름차순 옵션 select 를 만든다([value, label] 배열).
+ * @param {[string, string][]} pairs
+ * @returns {HTMLSelectElement}
+ */
+function optionSelect(pairs) {
+  const sel = el("select", "field-select");
+  for (const [v, label] of pairs) {
+    const o = el("option", null, label);
+    o.value = v;
+    sel.append(o);
+  }
+  return sel;
+}
+
+/**
+ * 조건 한 줄(연산자 select + 값 input)을 만든다.
+ * @param {HTMLSelectElement} opSel
+ * @param {HTMLInputElement} valueInput
+ * @returns {HTMLElement}
+ */
+function opValueRow(opSel, valueInput) {
+  const row = el("div", "op-value-row");
+  row.append(opSel, valueInput);
+  return row;
+}
+
+/**
+ * 기기 행동 옵션들을 채운다. tier≤breath(잔잔·숨결)만 활성, 나머지는
+ * "능동 제안 불가(등급)"로 비활성. value = "entity_id|capability|action".
+ * @param {HTMLSelectElement} sel
+ * @returns {number} 활성(선택 가능) 옵션 수
+ */
+function fillActionOptions(sel) {
+  let enabledCount = 0;
+  for (const dev of lastCatalog.devices || []) {
+    for (const act of dev.actions || []) {
+      const meta = tierByName.get(act.tier);
+      const canPropose = meta ? meta.value <= 1 : false; // ≤ breath
+      const o = el(
+        "option",
+        null,
+        dev.name +
+          " · " +
+          act.action +
+          " (" +
+          act.tier_ko +
+          ")" +
+          (canPropose ? "" : " — 능동 제안 불가(등급)"),
+      );
+      o.value = dev.entity_id + "|" + (dev.capability || "") + "|" + act.action;
+      if (!canPropose) o.disabled = true;
+      else enabledCount += 1;
+      sel.append(o);
+    }
+  }
+  return enabledCount;
+}
+
+/** 「규칙 추가」 모달을 연다: "센서 X가 [연산자] V이면 → 행동 Y 제안". */
+function openRuleModal() {
+  const form = el("form", "modal-form");
+
+  const name = makeInput("name", { type: "text", placeholder: "예: 토양 건조 시 청소" });
+
+  const sensorSel = optionSelect(
+    (lastCatalog.sensors || []).map((s) => [s.entity_id, s.name + " (" + s.entity_id + ")"]),
+  );
+
+  const opSel = optionSelect(
+    Object.entries(OP_LABELS).map(([v, label]) => [v, label + " (" + v + ")"]),
+  );
+  const valueInput = makeInput("value", { type: "text", placeholder: "예: 30" });
+
+  const actionSel = el("select", "field-select");
+  const enabled = fillActionOptions(actionSel);
+
+  const bucketSel = optionSelect([
+    ["", "(없음)"],
+    ["morning", "아침"],
+    ["day", "낮"],
+    ["evening", "저녁"],
+    ["night", "밤"],
+  ]);
+  const occSel = optionSelect([
+    ["", "(없음)"],
+    ["occupied", "재실"],
+    ["vacant", "부재"],
+  ]);
+
+  const { error, actions } = formFooter("규칙 등록");
+  form.append(
+    field("규칙 이름", name, "비우면 자동 생성됩니다"),
+    field("센서", sensorSel),
+    fieldGroup("조건 (연산자 · 값)", opValueRow(opSel, valueInput)),
+    field("행동", actionSel, "능동 제안 가능한 등급(잔잔·숨결)만 선택됩니다"),
+    field("시간대 (선택)", bucketSel),
+    field("재실 (선택)", occSel),
+    error,
+    actions,
+  );
+
+  if (!(lastCatalog.sensors || []).length) {
+    showError(error, "먼저 센서를 등록하세요.");
+  } else if (!enabled) {
+    showError(error, "능동 제안 가능한 행동이 없습니다. 숨결 이하 행동을 먼저 등록하세요.");
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const av = actionSel.value;
+    if (!av) {
+      showError(error, "행동을 선택하세요.");
+      return;
+    }
+    const [entity_id, capability, action] = av.split("|");
+    const match = {};
+    if (bucketSel.value) match.time_bucket = bucketSel.value;
+    if (occSel.value) match.occupancy = occSel.value;
+    const raw = valueInput.value.trim();
+    const num = Number(raw);
+    const value = raw !== "" && !Number.isNaN(num) ? num : raw;
+    const payload = {
+      name: name.value.trim(),
+      match,
+      state: [{ entity: sensorSel.value, op: opSel.value, value }],
+      propose: { entity_id, capability, action },
+    };
+    const { status, data } = await postJson("/api/registry/rule", payload);
+    if (status === 200 && data.ok !== false) {
+      closeModal();
+      await reloadCatalog();
+    } else {
+      showError(error, data.error || "등록 실패");
+    }
+  });
+
+  mountModal("규칙 추가", form);
 }

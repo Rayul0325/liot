@@ -25,7 +25,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 import yaml
 
@@ -45,6 +45,8 @@ __all__ = [
     "ProactiveRule",
     "ProactiveLimits",
     "ProactiveRuleSet",
+    "parse_rule",
+    "build_ruleset",
     "load_proactive_ruleset",
     "load_proactive_rulesets",
     "DEFAULT_PROACTIVE_DIR",
@@ -308,6 +310,46 @@ def _parse_rule(
         params=dict(params_raw),
         ttl_minutes=ttl,
         description=str(raw.get("description", "")),
+    )
+
+
+def parse_rule(
+    raw: dict[str, Any],
+    idx: int = 0,
+    *,
+    allowed: frozenset[tuple[str, str]] | None = None,
+) -> ProactiveRule:
+    """단일 규칙 dict 를 검증·파싱한다(레지스트리 런타임 규칙 등록용 공개 진입).
+
+    ``_parse_rule`` 의 얇은 공개 래퍼 — deny-by-default 검증(카탈로그 파생
+    허용목록·닫힌 op 어휘·스칼라만)을 그대로 적용한다. ``allowed`` 미지정 →
+    출하 카탈로그 파생 허용목록.
+    """
+    return _parse_rule(raw, idx, allowed=allowed)
+
+
+def build_ruleset(
+    rules: Sequence[ProactiveRule],
+    *,
+    name: str = "__runtime__",
+    version: str = "runtime:0.0.0",
+    limits: ProactiveLimits | None = None,
+    sources: tuple[str, ...] = (),
+) -> ProactiveRuleSet:
+    """이미 파싱된 ``ProactiveRule`` 들로 ``ProactiveRuleSet`` 을 조립한다.
+
+    레지스트리가 config 베이스라인 규칙 + 런타임 등록 규칙을 하나의 병합 룰셋으로
+    묶을 때 쓴다(로더를 거치지 않고 조립하되 ``_compute_hash`` 로 결정론적 무결성
+    해시를 유지 — 출처 재현성 불변식 4 보존).
+    """
+    rules_t = tuple(rules)
+    return ProactiveRuleSet(
+        name=name,
+        ruleset_version=version,
+        rules=rules_t,
+        ruleset_hash=_compute_hash(name, version, rules_t),
+        limits=limits if limits is not None else ProactiveLimits(),
+        sources=sources,
     )
 
 

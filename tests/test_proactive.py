@@ -636,3 +636,31 @@ rules:
         load_proactive_ruleset(p)  # 출하 허용목록엔 (vacuum,start) 없음
     rs = load_proactive_ruleset(p, allowed=reg.proactive_allowed())  # 파생 주입 → 통과
     assert rs.rules[0].capability == "vacuum" and rs.rules[0].action == "start"
+
+
+# ==========================================================================
+# 7) 카테고리 리졸버 단일화 (P5/D6) — core.categories 단일 원천 + 재수출 호환
+# ==========================================================================
+def test_resolve_category_is_single_source() -> None:
+    from liot.core.categories import resolve_category as core_resolve
+    from liot.layers.l2_context.proactive import resolve_category as proactive_resolve
+
+    # proactive 는 core 를 재수출(같은 객체) — 로직 이중관리 없음.
+    assert proactive_resolve is core_resolve
+    cat = load_device_catalog()
+    # 우선순위: 명시 맵 → 카탈로그 메타 → 도메인/언더스코어 접두사 → unknown.
+    assert core_resolve("light.living_room", {"light.living_room": "custom"}, cat) == "custom"
+    assert core_resolve("light.living_room", {}, cat) == "ambient"
+    assert core_resolve("foo.bar", {}, None) == "foo"
+    assert core_resolve("baz", {}, None) == "unknown"
+
+
+def test_app_and_context_builder_share_resolver() -> None:
+    # app._category_of 와 context_builder._category_of 가 동일 체인을 본다(불일치=우회).
+    from liot.layers.l2_context.context_builder import _category_of
+
+    app = LiotApp(clock=CLOCK, categories=CATS)
+    assert app._category_of("binary_sensor.kitchen_gas") == "gas"
+    assert _category_of("binary_sensor.kitchen_gas", CATS) == "gas"
+    # 맵에 없으면 도메인 접두사(카탈로그 없는 context_builder 계층).
+    assert _category_of("switch.unknown_thing", {}) == "switch"

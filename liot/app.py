@@ -23,6 +23,7 @@ from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 
+from liot.core.categories import resolve_category
 from liot.core.clock import Clock
 from liot.core.contracts import (
     CandidateAction,
@@ -198,17 +199,9 @@ class LiotApp:
     # 카테고리 추론
     # ------------------------------------------------------------------
     def _category_of(self, entity_id: str) -> str:
-        if entity_id in self._categories:
-            return self._categories[entity_id]
-        cat = self.catalog.category_for(entity_id)
-        if cat:
-            return cat
-        # 도메인 접두사 추정(예: 'light.living_room' -> 'light').
-        if "." in entity_id:
-            return entity_id.split(".", 1)[0]
-        if "_" in entity_id:
-            return entity_id.split("_", 1)[0]
-        return "unknown"
+        # 단일 리졸버에 위임(맵 → 카탈로그 메타 → 도메인 접두사). 계층 간 분류
+        # 일치를 보장한다(생성기·context_builder 와 동일 체인).
+        return resolve_category(entity_id, self._categories, self.catalog)
 
     def _capability_of(self, entity_id: str, category: str) -> str:
         cap = self.catalog.capability_for(entity_id)

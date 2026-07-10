@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Mapping
 
+from liot.core.categories import resolve_category
 from liot.core.clock import Clock
 from liot.core.contracts import (
     ActionCandidate,
@@ -96,30 +97,6 @@ def _proactive_allowed(catalog: "DeviceCatalog | None") -> frozenset[tuple[str, 
         cached = derive_proactive_allowed(catalog)
         _ALLOWED_MEMO[catalog] = cached
     return cached
-
-
-def resolve_category(
-    entity_id: str,
-    categories: Mapping[str, str] | None,
-    catalog: "DeviceCatalog | None",
-) -> str:
-    """타깃 엔티티의 카테고리를 결정한다 — app._category_of 와 동일 우선순위.
-
-    명시 categories 맵 → 카탈로그 메타 → 도메인 접두사. 생성기의 안전 거부가
-    app/게이트와 같은 분류를 보도록 단일 로직을 공유한다(분류 불일치 =
-    안전 우회 구멍).
-    """
-    if categories and entity_id in categories:
-        return categories[entity_id]
-    if catalog is not None:
-        cat = catalog.category_for(entity_id)
-        if cat:
-            return cat
-    if "." in entity_id:
-        return entity_id.split(".", 1)[0]
-    if "_" in entity_id:
-        return entity_id.split("_", 1)[0]
-    return "unknown"
 
 
 def validate_proactive_candidate(
