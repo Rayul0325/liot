@@ -31,6 +31,7 @@ from liot.layers.l2_context.external_provider import FakeExternalProvider
 from liot.layers.l3_judgment.llm_judge import FakeLLM
 from liot.layers.l3_judgment.ollama_backend import HTTPOllamaTransport, OllamaBackend
 from liot.layers.l2_context.nl_directive import DirectiveStore, UserDirective
+from liot.layers.l4_execution.device_catalog import load_device_catalog
 from liot.layers.l4_execution.executor import ExecDecision, ExecutionPolicy
 
 # 활성 자연어 지시(세션 스코프). /api/directive 로 추가·초기화, /api/simulate tick 에 반영.
@@ -75,6 +76,30 @@ _BOOL_SENSORS = {
     "light.living_room",
 }
 
+# 엔티티 → 한글 표시 이름(센서·기기 공용). 데모 카탈로그 뷰의 단일 원천.
+# (JS 는 라벨을 절대 하드코딩하지 않고 /api/catalog 응답만으로 렌더한다.)
+_ENTITY_LABELS: dict[str, str] = {
+    "sensor.living_temperature": "거실 온도",
+    "sensor.living_humidity": "거실 습도",
+    "binary_sensor.living_motion": "거실 움직임",
+    "light.living_room": "거실 조명",
+    "climate.living_room": "거실 냉난방",
+    "cover.living_room": "거실 커튼",
+    "binary_sensor.kitchen_gas": "주방 가스",
+    "binary_sensor.hall_smoke": "복도 연기",
+    "binary_sensor.bath_leak": "욕실 누수",
+    "lock.front_door": "현관 잠금",
+    # device_catalog.yaml 전용 엔티티
+    "switch.gas_valve": "가스 밸브",
+    "cover.garage": "차고 문",
+}
+
+# 수치 센서의 단위·범위. 나머지 엔티티는 불리언(토글)로 취급한다.
+_NUMERIC_SENSORS: dict[str, dict[str, Any]] = {
+    "sensor.living_temperature": {"unit": "°C", "min": -10, "max": 40},
+    "sensor.living_humidity": {"unit": "%", "min": 0, "max": 100},
+}
+
 
 def _raw_for(entity_id: str, value: Any) -> Any:
     """UI 값 → SensorReading.raw_value. 불리언 센서는 on/off 문자열로."""
@@ -101,6 +126,55 @@ def _reading(entity_id: str, value: Any, ts: str) -> SensorReading:
 
 def _tier_view(tier: RiskTier) -> dict[str, Any]:
     return {"name": tier.name.lower(), "ko": tier.label_ko, "glyph": tier.glyph, "level": int(tier)}
+
+
+def _catalog_view() -> dict[str, Any]:
+    """센서·기기·행동·위험등급을 한 응답으로 합성한다(`GET /api/catalog`).
+
+    이 합성부는 **이 함수 한 곳에만 격리**한다 — P2 에서 데이터 원천을
+    런타임 레지스트리로 바로 이 지점에서 교체한다. 지금은:
+      * 센서 = ``CATEGORIES`` + ``_NUMERIC_SENSORS`` 에서 메타 합성
+        (수치 센서는 kind="number"+단위/범위, 나머지는 kind="bool").
+      * 기기·행동 = ``load_device_catalog().available_actions()`` 를
+        entity_id 로 묶음.
+      * 위험등급 legend = ``RiskTier.label_ko`` 단일 원천(한글 라벨 이중관리 없음).
+    """
+    sensors: list[dict[str, Any]] = []
+    for eid, category in CATEGORIES.items():
+        num = _NUMERIC_SENSORS.get(eid)
+        meta: dict[str, Any] = {
+            "entity_id": eid,
+            "name": _ENTITY_LABELS.get(eid, eid),
+            "category": category,
+        }
+        if num is not None:
+            meta.update(kind="number", unit=num["unit"], min=num["min"], max=num["max"])
+        else:
+            meta.update(kind="bool", unit=None, min=None, max=None)
+        sensors.append(meta)
+
+    catalog = load_device_catalog()
+    grouped: dict[str, dict[str, Any]] = {}
+    for act in catalog.available_actions():
+        eid = str(act["entity_id"])
+        dev = grouped.get(eid)
+        if dev is None:
+            dev = grouped[eid] = {
+                "entity_id": eid,
+                "name": _ENTITY_LABELS.get(eid, eid),
+                "category": act.get("category"),
+                "capability": act.get("capability"),
+                "actions": [],
+            }
+        tier = RiskTier.from_str(str(act["tier"]))
+        dev["actions"].append(
+            {"action": act["action"], "tier": act["tier"], "tier_ko": tier.label_ko}
+        )
+
+    tiers = {
+        str(int(t)): {"name": t.name.lower(), "label_ko": t.label_ko} for t in RiskTier
+    }
+    return {"sensors": sensors, "devices": list(grouped.values()), "tiers": tiers}
 
 
 def _build_backend(cfg: dict[str, Any]):
@@ -430,8 +504,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
-        if path in ("/", "/lab", "/lab.html"):
-            path = "/lab.html"
+        if path == "/api/catalog":
+            self._json(200, _catalog_view())
+            return
+        if path == "/":
+            path = "/app.html"  # 새 2D 단일 페이지(관제실)
+        elif path in ("/lab", "/lab.html"):
+            path = "/lab.html"  # 구 페이지는 P8 삭제 전까지 유지
         rel = path.lstrip("/")
         target = (WEB_DIR / rel).resolve()
         if not str(target).startswith(str(WEB_DIR)) or not target.is_file():

@@ -1,0 +1,746 @@
+/* LIOT 관제실 — 쿨 네이비-블랙 다크 단일 테마. 발표장(프로젝터) 가독성 우선.
+   토큰 → 레이아웃 → 보드 카드 → 컨트롤 → 파이프라인 → 우측 레일 순. */
+
+:root {
+  color-scheme: dark;
+
+  /* 바탕 (쿨 네이비-블랙, 웜톤 아님) */
+  --bg: #0a0e15;
+  --bg-panel: #0e131d;
+  --bg-raised: #141b28;
+  --bg-inset: #070b11;
+
+  /* 라인 */
+  --line: #1d2735;
+  --line-soft: #151d29;
+
+  /* 잉크 */
+  --ink: #e7edf4;
+  --ink-dim: #97a4b6;
+  --ink-faint: #5d6b7e;
+
+  /* 일렉트릭 액센트 (시안 계열 전기 블루) — 단일 액센트 */
+  --accent: #35c6ff;
+  --accent-press: #12abec;
+  --accent-ink: #04141d;
+  --accent-glow: rgba(53, 198, 255, 0.16);
+
+  /* 위험 등급 (액센트와 구별되는 의미색; 잔잔→불씨 = 안전→위험) */
+  --tier-0: #3fcf8e; /* 잔잔  AMBIENT */
+  --tier-1: #e3c34c; /* 숨결  BREATH  */
+  --tier-2: #f0913c; /* 땅거미 DUSK   */
+  --tier-3: #ef5a5a; /* 불씨  EMBER   */
+
+  --radius: 10px;
+  --radius-sm: 7px;
+  --radius-lg: 14px;
+
+  /* 간격 스케일 */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 22px;
+  --s6: 30px;
+  --s7: 44px;
+
+  --font-ui: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, SFMono-Regular, Menlo,
+    monospace;
+
+  --focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+button {
+  font-family: inherit;
+}
+
+.tabnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 헤더 ─────────────────────────────────────────────────────────── */
+.hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding: var(--s4) var(--s6);
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, #0c111b, var(--bg));
+}
+
+.hdr-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+
+.hdr-mark {
+  color: var(--accent);
+  display: inline-flex;
+  filter: drop-shadow(0 0 6px var(--accent-glow));
+}
+
+.hdr-titles {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.hdr-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.hdr-sub {
+  font-size: 12.5px;
+  color: var(--ink-dim);
+}
+
+.hdr-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-panel);
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+
+.hdr-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  box-shadow: 0 0 0 0 transparent;
+}
+
+.hdr-status[data-state="loading"] .hdr-dot {
+  background: var(--tier-1);
+}
+.hdr-status[data-state="ready"] .hdr-dot {
+  background: var(--tier-0);
+}
+.hdr-status[data-state="running"] .hdr-dot {
+  background: var(--accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+.hdr-status[data-state="silent"] .hdr-dot {
+  background: var(--ink-dim);
+}
+.hdr-status[data-state="proposal"] .hdr-dot {
+  background: var(--accent);
+}
+.hdr-status[data-state="error"] .hdr-dot {
+  background: var(--tier-3);
+}
+
+@keyframes pulse {
+  50% {
+    box-shadow: 0 0 0 4px var(--accent-glow);
+  }
+}
+
+/* ── 3열 레이아웃 ─────────────────────────────────────────────────── */
+.layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(320px, 1.15fr) minmax(360px, 1.5fr) minmax(280px, 0.95fr);
+  gap: var(--s4);
+  padding: var(--s5) var(--s6);
+  align-items: start;
+  min-height: 0;
+}
+
+.rail,
+.center {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  min-width: 0;
+}
+
+/* ── 보드 ─────────────────────────────────────────────────────────── */
+.board-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+
+.board-head--gap {
+  margin-top: var(--s3);
+}
+
+.board-title {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: var(--s3);
+}
+
+/* 카드 공통 */
+.card {
+  background: var(--bg-panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: var(--s3) var(--s3) var(--s3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.card-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+
+.card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.card-cat {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* 센서 카드는 조작 가능 → 호버 피드백 */
+.card-sensor {
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+.card-sensor:hover {
+  border-color: var(--line);
+  background: var(--bg-raised);
+}
+
+/* ── 컨트롤: 숫자 슬라이더 ─────────────────────────────────────────── */
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+
+input[type="range"] {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-inset);
+  cursor: pointer;
+  outline-offset: 4px;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  cursor: pointer;
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  cursor: pointer;
+}
+input[type="range"]:focus-visible {
+  box-shadow: var(--focus);
+}
+
+.slider-val {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  color: var(--ink);
+  min-width: 3.4em;
+  text-align: right;
+  white-space: nowrap;
+}
+.slider-val .unit {
+  color: var(--ink-dim);
+  font-size: 11.5px;
+  margin-left: 1px;
+}
+
+/* ── 컨트롤: 불리언 토글 ──────────────────────────────────────────── */
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  cursor: pointer;
+  user-select: none;
+}
+.toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.toggle-track {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  transition: background 0.15s ease, border-color 0.15s ease;
+  flex: none;
+}
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ink-dim);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.toggle input:checked + .toggle-track {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+}
+.toggle input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(18px);
+  background: var(--accent);
+}
+.toggle input:focus-visible + .toggle-track {
+  box-shadow: var(--focus);
+}
+.toggle-state {
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 기기·행동 카드 ───────────────────────────────────────────────── */
+.card-device .actions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding: var(--s1) 0;
+}
+.action-name {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink-dim);
+}
+
+/* 위험 등급 칩 */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.chip[data-tier="0"] {
+  color: var(--tier-0);
+  border-color: color-mix(in srgb, var(--tier-0) 40%, transparent);
+  background: color-mix(in srgb, var(--tier-0) 12%, transparent);
+}
+.chip[data-tier="1"] {
+  color: var(--tier-1);
+  border-color: color-mix(in srgb, var(--tier-1) 40%, transparent);
+  background: color-mix(in srgb, var(--tier-1) 12%, transparent);
+}
+.chip[data-tier="2"] {
+  color: var(--tier-2);
+  border-color: color-mix(in srgb, var(--tier-2) 40%, transparent);
+  background: color-mix(in srgb, var(--tier-2) 12%, transparent);
+}
+.chip[data-tier="3"] {
+  color: var(--tier-3);
+  border-color: color-mix(in srgb, var(--tier-3) 40%, transparent);
+  background: color-mix(in srgb, var(--tier-3) 12%, transparent);
+}
+
+/* ── 위험 등급 레전드 ─────────────────────────────────────────────── */
+.legend {
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--line-soft);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s3);
+}
+.legend-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+.legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+
+/* ── 등록 버튼(자리표시) ──────────────────────────────────────────── */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  cursor: not-allowed;
+  position: relative;
+}
+.btn-ghost:disabled {
+  opacity: 0.65;
+}
+.btn-plus {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1;
+}
+.btn-ghost[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  font-size: 11.5px;
+  color: var(--ink);
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+/* ── 중앙: 실행 바 ────────────────────────────────────────────────── */
+.run-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  flex-wrap: wrap;
+}
+
+.btn-run {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  padding: 12px 22px;
+  cursor: pointer;
+  transition: background 0.14s ease, transform 0.05s ease, box-shadow 0.14s ease;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 6px 20px -6px var(--accent-glow);
+}
+.btn-run:hover:not(:disabled) {
+  background: var(--accent-press);
+}
+.btn-run:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.btn-run:disabled {
+  background: var(--bg-raised);
+  color: var(--ink-faint);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.btn-run:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.run-hint {
+  font-size: 12.5px;
+  color: var(--ink-dim);
+}
+
+/* ── 파이프라인 스트립 (실제 순서 → 번호 부여) ────────────────────── */
+.pipeline {
+  list-style: none;
+  margin: 0;
+  padding: var(--s5) var(--s4);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--s3) var(--s2);
+  background: var(--bg-panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-lg);
+  counter-reset: stage;
+}
+
+.stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s3);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.stage::before {
+  counter-increment: stage;
+  content: counter(stage);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 50%;
+  background: var(--accent-glow);
+}
+.stage-name {
+  font-size: 13px;
+  color: var(--ink-dim);
+  font-weight: 550;
+}
+.stage[data-lit="1"] {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--bg-raised);
+}
+.stage[data-lit="1"] .stage-name {
+  color: var(--ink);
+}
+
+/* ── 원시 트레이스 패널 ───────────────────────────────────────────── */
+.raw {
+  background: var(--bg-panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+.raw-summary {
+  cursor: pointer;
+  padding: var(--s3) var(--s4);
+  font-size: 13px;
+  color: var(--ink-dim);
+  user-select: none;
+}
+.raw-summary:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+  border-radius: var(--radius);
+}
+.raw[open] .raw-summary {
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink);
+}
+.raw-json {
+  margin: 0;
+  padding: var(--s4);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 420px;
+  overflow: auto;
+}
+
+/* ── 우측 레일: 폰 알림 ───────────────────────────────────────────── */
+.phone {
+  position: relative;
+  align-self: center;
+  width: 220px;
+  max-width: 100%;
+  aspect-ratio: 9 / 17;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  padding: 14px 12px;
+  box-shadow: inset 0 0 0 6px #0b1017, 0 10px 30px -12px #000;
+  display: flex;
+}
+.phone-notch {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 64px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line);
+}
+.phone-screen {
+  flex: 1;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #0c1119, #090d13);
+  display: grid;
+  place-items: center;
+  padding: var(--s4);
+}
+.phone-placeholder,
+.chat-placeholder {
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-faint);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.tag-later {
+  font-size: 11px;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 999px;
+  padding: 2px 8px;
+  align-self: center;
+  background: var(--accent-glow);
+}
+
+/* ── 우측 레일: 지시 채팅 ─────────────────────────────────────────── */
+.chat {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.chat-head {
+  padding: var(--s3) var(--s4);
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--line-soft);
+}
+.chat-body {
+  padding: var(--s6) var(--s4);
+  display: grid;
+  place-items: center;
+}
+.chat-input {
+  padding: var(--s3);
+  border-top: 1px solid var(--line-soft);
+}
+.chat-input input {
+  width: 100%;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 13px;
+}
+.chat-input input:disabled {
+  color: var(--ink-faint);
+  cursor: not-allowed;
+}
+
+/* ── 반응형 ───────────────────────────────────────────────────────── */
+@media (max-width: 1180px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  .rail-right {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .phone {
+    width: 200px;
+  }
+  .chat {
+    flex: 1;
+    min-width: 260px;
+  }
+}
+
+@media (max-width: 640px) {
+  .hdr {
+    padding: var(--s3) var(--s4);
+  }
+  .layout {
+    padding: var(--s4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
