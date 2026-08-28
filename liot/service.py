@@ -63,9 +63,14 @@ if TYPE_CHECKING:  # pragma: no cover
     from liot.core.contracts import Proposal, SensorReading
     from liot.layers.l1_sensing.ha_bridge import HABridge
 
-__all__ = ["DispatchResult", "LiotService"]
+__all__ = ["DEV_SIGNING_SECRET", "DispatchResult", "LiotService"]
 
 _DEDUP_WINDOW = timedelta(hours=2)
+
+# 개발·테스트 전용 서명 키. 소스에 있으므로 **비밀이 아니다** — 이 값으로 서명된
+# 딥링크는 저장소를 읽은 누구나 위조할 수 있다. 배포 진입점(liot.serve)은 피드백
+# 수신구가 외부에서 닿는 구성일 때 이 값을 거부한다(fail-closed).
+DEV_SIGNING_SECRET: bytes = b"liot-dev-signing-key"
 
 
 class DispatchResult:
@@ -107,7 +112,7 @@ class LiotService:
         notifier: Notifier | None = None,
         transport: NtfyTransport | None = None,
         topic: str = "liot",
-        secret: bytes | str = b"liot-dev-signing-key",
+        secret: bytes | str = DEV_SIGNING_SECRET,
         budget_per_hour: int = 6,
         executor: Executor | None = None,
         policy: ExecutionPolicy | None = None,
