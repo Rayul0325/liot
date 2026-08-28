@@ -416,6 +416,11 @@ LIOT_NOTIFY_SECRET=*** LIOT_LLM_BACKEND=ollama \
   액추에이터 호출이 아니다. HA 로는 읽기(stream)만.
 - **fail-closed**: ntfy 송신 실패는 파이프라인을 죽이지 않고 '미전송'으로
   남긴다(제안은 pending → 다음에 재시도/다이제스트).
+- **`LIOT_NOTIFY_SECRET` 는 외부 노출 시 필수**: 미설정이면 소스에 공개된 dev
+  키가 쓰인다(= 비밀이 아님 → 서명 위조 가능). 그 상태로 피드백 수신구가
+  외부에서 닿는 구성(비루프백 바인드 또는 `LIOT_NTFY_FEEDBACK_URL` 이 외부
+  주소)이면 데몬은 **수신구를 열지 않고 사유를 출력한다**. 루프백 로컬 데모는
+  종전대로 동작한다. 검증: `tests/test_feedback_exposure.py`.
 
 검증: `tests/test_service.py` (영속·발화·실 HTTP POST 왕복·fail-closed·
 recently-rejected 억제·서명 검증/위조 거부·피드백 HTTP 왕복·수용률·데몬 루프).

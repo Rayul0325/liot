@@ -130,7 +130,9 @@ class _LiteLLMStub:
 def build_llm_backend() -> LLMBackend:
     """환경에 따라 백엔드를 고른다.
 
-    LIOT_LLM_BACKEND 미설정 → FakeLLM. 설정 → 스텁(Phase1 미연결).
+    LIOT_LLM_BACKEND 미설정/'fake' → FakeLLM(결정론).
+    'ollama'|'gemma'|'home'|'local' → OllamaBackend(실연동, egress 통과).
+    그 밖의 값 → _LiteLLMStub(미연결. 항상 LLMUnavailable → degraded 경로).
     """
     backend = os.environ.get("LIOT_LLM_BACKEND", "").strip()
     if not backend or backend.lower() in ("fake", "fakellm", "none"):

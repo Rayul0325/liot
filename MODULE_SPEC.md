@@ -403,29 +403,35 @@ class DeviceCatalog:
         # _devices × _capabilities 교차, tier 는 risk_for 권위. 후보 '생성 상한'(권위 아닌 필터).
 ```
 
-### 구현 현황 (2026-07-09)
+### 구현 현황 (2026-08-29 실측)
 
-| Phase | 내용                                                                            | 상태    |
-| ----- | ------------------------------------------------------------------------------- | ------- |
-| 0     | 인터페이스 골격(Protocol+Fake 스텁) + `line_confidence` + `available_actions()` | ✅ 완료 |
-| 1     | 선호 임베딩 조회 + 2갈래 제안 라인 실동작 → 병합 `CandidateSet`                 | ⏳ 진행 |
-| 2     | 아비터(evaluator 재사용) + `app.tick()` 재작성 + 데모 트레이스                  | ⏳ 진행 |
-| 3     | 개인화 루프(피드백→임베딩 EMA+감쇠, `_refresh_feedback` 훅)                     | ⏳ 진행 |
-| 4     | 트리거 감지 배선(규칙 상시 + LLM 옵트인)                                        | ⏳ 진행 |
-| 5     | 자연어 지시 오버라이드(`/api/directive` + 음성 옵션)                            | ⏳ 진행 |
-| 6     | 데모 시각화 + 문서·불변식 스윕                                                  | ⏳ 진행 |
+각 행의 '근거'는 배선 지점이다. 표를 고칠 때는 근거부터 확인한다.
 
-> 스펙-우선: 이 시그니처가 목표 계약이다. Phase 1~6 구현이 이 문서를 따른다
-> (변경 시 이 문서를 먼저 갱신). Phase 0 은 스텁이라 두 제안 라인은 빈 목록,
-> 트리거는 항상 fire, 임베더는 중립 0.5 를 돌려준다(동작 무변경).
+| Phase | 내용                                                                            | 상태      | 근거                                                                       |
+| ----- | ------------------------------------------------------------------------------- | --------- | -------------------------------------------------------------------------- |
+| 0     | 인터페이스 골격(Protocol+Fake 스텁) + `line_confidence` + `available_actions()` | ✅ 완료   | —                                                                          |
+| 1     | 선호 임베딩 조회 + 2갈래 제안 라인 실동작 → 병합 `CandidateSet`                 | ✅ 완료   | `app.py` `augment_candidate_set(...)` · `tests/test_proposal_lines.py`     |
+| 2     | 아비터(evaluator 재사용) + `app.tick()` 재작성 + 데모 트레이스                  | ✅ 완료   | `app.py` `evaluator.evaluate(...)` → `last_candidate_evaluation`           |
+| 3     | 개인화 루프(피드백→임베딩 EMA+감쇠, `_refresh_feedback` 훅)                     | ✅ 완료   | `service.py` `_refresh_feedback()` · `feature_vector.apply_signal`         |
+| 4     | 트리거 감지 배선(규칙 상시 + LLM 옵트인)                                        | ✅ 완료   | `app.py` `_event_detector.detect(cur)` · `tests/test_event_detector.py`    |
+| 5     | 자연어 지시 오버라이드(`/api/directive` + 음성 옵션)                            | ◐ 부분    | 채팅=`demo_server.py` `/api/directive`. **음성 입력 미구현**(아래)         |
+| 6     | 데모 시각화 + 문서·불변식 스윕                                                  | ✅ 완료   | `web/assets/app.js` 파이프라인 시각화 · CI 불변식 게이트                   |
+
+> **Phase 5 의 잔여분**: `nl_directive` 는 `source: chat | voice` 를 *데이터
+> 필드로만* 정의한다. 음성 입력 경로(STT·마이크 UI)는 코드에 없다 — 지시는
+> 채팅으로만 들어온다. 'voice' 값이 존재한다는 이유로 구현됐다고 읽지 말 것.
+
+> 스펙-우선: 이 시그니처가 목표 계약이다. 구현이 이 문서를 따른다(변경 시 이
+> 문서를 먼저 갱신).
 
 > **데모 리뉴얼(2026-07-10)**: 관제실 데모(`web/app.html`·`demo_server`)가 후보
 > 생성(규칙 + 제네릭 런타임 후보) → 아비터(`CandidateEvaluator`) 융합 → 개인화
 > 피드백 루프(`/api/feedback` → 임베딩 EMA) → 자연어 지시(`/api/directive`) →
 > 시각화를 **결정론 Fake 위에서 실동작**시킨다. 여기에 런타임 등록
-> (`RuntimeRegistry`)과 카탈로그 파생 허용목록(아래 §신설)이 더해졌다. 정식
-> `proposal_lines`(Line B)·`event_detector`(트리거) 모듈 배선과 실
-> ML/LLM/임베딩 학습은 인터페이스 뒤 결정론 Fake + env 슬롯(예정)으로 남는다.
+> (`RuntimeRegistry`)과 카탈로그 파생 허용목록(아래 §신설)이 더해졌다.
+> `proposal_lines`(Line B)·`event_detector`(트리거)는 **`app.tick()` 에 정식
+> 배선을 마쳤다**(위 표 Phase 1·4). 남은 것은 실 ML/LLM/임베딩 *학습* 으로,
+> 인터페이스 뒤 결정론 Fake + env 슬롯으로 대체돼 있다.
 
 ---
 
