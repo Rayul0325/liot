@@ -221,6 +221,11 @@ def _directive_view(d: UserDirective) -> dict[str, Any]:
     }
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+
+# 요청 본문 상한. 이 서버가 받는 건 센서 값·등록 폼·프리셋 번들뿐이라 1MiB 면
+# 넉넉하다. 상한이 없으면 Content-Length 만 크게 불러 놓고 본문을 안 보내는
+# 것만으로 핸들러 스레드를 잡아둘 수 있다(ThreadingHTTPServer = 연결당 스레드).
+MAX_BODY_BYTES = 1 << 20
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # 시간대(UI) → 대표 UTC 시각(clock.time_bucket 기준: 06-11 morning / 11-17 day /
@@ -635,6 +640,11 @@ _STATIC_TYPES = {
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "LiotDemoLab/1.0"
+    # 소켓 수준 타임아웃. StreamRequestHandler.setup() 이 이 값을 연결에 건다.
+    # 없으면 헤더만 보내고 본문을 안 보내는 연결이 스레드를 영원히 붙든다
+    # (실측: 그런 요청 5개로 스레드 2 → 7, 전부 응답 없음). 파이프라인 계산은
+    # 소켓 연산이 아니라서 느린 LLM 틱이 이 타임아웃에 걸리지 않는다.
+    timeout = 30
 
     def log_message(self, *a: Any) -> None:  # quiet
         pass
@@ -658,20 +668,66 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             path = "/app.html"  # 새 2D 단일 페이지(관제실)
         rel = path.lstrip("/")
-        target = (WEB_DIR / rel).resolve()
-        if not str(target).startswith(str(WEB_DIR)) or not target.is_file():
+        # 경로 '포함 관계'로 판정한다. 예전 검사는 문자열 접두사 비교라
+        # `web` 로 시작하는 형제 디렉터리(web_secret·web-dist·website…)가 전부
+        # 통과했다 — /../web_secret/leak.html 이 200 으로 새어 나갔다(실측).
+        try:
+            target = (WEB_DIR / rel).resolve()
+        except (OSError, ValueError):
+            self._send(404, b"not found", "text/plain; charset=utf-8")
+            return
+        if not target.is_relative_to(WEB_DIR) or not target.is_file():
             self._send(404, b"not found", "text/plain; charset=utf-8")
             return
         ctype = _STATIC_TYPES.get(target.suffix, "application/octet-stream")
         self._send(200, target.read_bytes(), ctype)
 
     def _read_json(self) -> dict[str, Any] | None:
+        """요청 본문을 JSON **객체**로 읽는다. 아니면 400 을 보내고 None.
+
+        예전 판은 Content-Length 를 그대로 믿고 `rfile.read(length)` 했다:
+          - 음수(-1)면 EOF 까지 읽으려 해서 연결이 열려 있는 한 스레드가 묶였다.
+          - 상한이 없어 1억을 부르고 5바이트만 보내도 마찬가지였다.
+          - 반환 타입이 dict 로 선언돼 있었지만 실제로는 JSON 이 주는 대로
+            돌려줘서, 배열 본문(`["a"]`)이 오면 호출부의 body.get(...) 이
+            AttributeError 로 터지고 응답 없이 연결이 끊겼다(3개 엔드포인트).
+        """
+        raw = self.headers.get("Content-Length", "0") or "0"
         try:
-            length = int(self.headers.get("Content-Length", "0") or "0")
-            return json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
-        except (ValueError, TypeError) as exc:
+            length = int(raw)
+        except (TypeError, ValueError):
+            self._json(400, {"ok": False, "error": "Content-Length 헤더가 올바르지 않습니다."})
+            return None
+        if length < 0 or length > MAX_BODY_BYTES:
+            self._json(
+                400,
+                {"ok": False, "error": f"본문 길이가 허용 범위를 벗어났습니다"
+                                       f" (0~{MAX_BODY_BYTES} 바이트, 받은 값: {length})."},
+            )
+            return None
+        if length == 0:
+            return {}
+        try:
+            data = self.rfile.read(length)
+        except OSError as exc:  # 소켓 타임아웃 포함(본문이 오다 말았다)
+            self._json(400, {"ok": False, "error": f"본문을 읽지 못했습니다: {type(exc).__name__}"})
+            return None
+        if len(data) != length:
+            self._json(400, {"ok": False, "error": "본문이 Content-Length 보다 짧습니다."})
+            return None
+        try:
+            payload = json.loads(data.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError) as exc:
             self._json(400, {"ok": False, "error": f"bad json: {exc}"})
             return None
+        if not isinstance(payload, dict):
+            self._json(
+                400,
+                {"ok": False, "error": "요청 본문은 JSON 객체여야 합니다"
+                                       f" (받은 값: {type(payload).__name__})."},
+            )
+            return None
+        return payload
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
