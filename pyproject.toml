@@ -72,9 +72,6 @@ ignore = [
     "SIM108",
 ]
 
-[tool.ruff.lint.per-file-ignores]
-# 테스트는 적대적 케이스를 일부러 만든다(광범위 예외 단언 등).
-"tests/*" = ["B017"]
 
 [tool.mypy]
 python_version = "3.11"

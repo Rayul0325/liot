@@ -229,12 +229,18 @@ def test_ntfy_egress_does_not_pii_flag_signed_deeplink() -> None:
     out = emit_external(Destination.NTFY, payload, trace_id="t")  # 예외 없이 통과
     assert out["signed_deeplink"] == digit_heavy
     # 하지만 비-딥링크 필드의 진짜 PII(전화번호)는 여전히 차단된다.
-    with pytest.raises(Exception):
+    # 예외 타입과 **어떤 탐지기가 걸렸는지**까지 고정한다. 예전에는
+    # `pytest.raises(Exception)` 이라, egress 가드가 사라지고 필드 이름이 바뀌어
+    # TypeError 가 나도 이 테스트는 초록이었다 — 틀린 이유로 통과하는 단언.
+    from liot.core.invariants import EgressViolation
+
+    with pytest.raises(EgressViolation) as caught:
         emit_external(
             Destination.NTFY,
             {**payload, "label": "연락처 010-1234-5678"},
             trace_id="t",
         )
+    assert "phone_kr" in str(caught.value), caught.value
 
 
 def test_verify_deeplink_sig_roundtrip() -> None:
