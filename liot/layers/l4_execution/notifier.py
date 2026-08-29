@@ -147,28 +147,41 @@ def gate_pipeline(
     return "IMMEDIATE"
 
 
-def sign_deeplink(secret: bytes, proposal_id: str, risk_tier: RiskTier) -> str:
+def sign_deeplink(
+    secret: bytes, proposal_id: str, risk_tier: RiskTier, nonce: str = ""
+) -> str:
     """제안 '열기' 딥링크를 HMAC-SHA256 으로 서명한다(위조 방지).
 
-    형식: ``liot://p/<proposal_id>?t=<tier>&sig=<hmac_hex>``.
+    형식: ``liot://p/<proposal_id>?t=<tier>&sig=<hmac_hex>[&n=<nonce>]``.
     서명 대상은 ``<proposal_id>:<tier_int>`` 의 정규 문자열. 이 딥링크는
     '앱에서 열기'(상태 변경 없음)용이며, 상태를 바꾸는 피드백 액션은
-    action 까지 묶은 별도 서명(sign_feedback)을 쓴다.
+    action 과 nonce 까지 묶은 별도 서명(sign_feedback)을 쓴다.
+
+    nonce 는 서명 대상이 아니라 **운반물**이다 — transport 가 이걸 읽어 액션
+    버튼 서명을 만든다. 위조 걱정이 없는 이유: nonce 를 바꿔치기해도 그 nonce
+    에 대한 유효한 액션 서명을 만들 수 없다(비밀키가 필요하다).
     """
     tier_int = int(RiskTier.from_str(risk_tier))
     message = f"{proposal_id}:{tier_int}".encode()
     sig = hmac.new(secret, message, hashlib.sha256).hexdigest()
-    return f"liot://p/{proposal_id}?t={tier_int}&sig={sig}"
+    url = f"liot://p/{proposal_id}?t={tier_int}&sig={sig}"
+    return f"{url}&n={nonce}" if nonce else url
 
 
-def sign_feedback(secret: bytes, proposal_id: str, risk_tier: RiskTier, action: str) -> str:
-    """피드백 액션 서명. 서명 대상 = ``<proposal_id>:<tier_int>:<action>``.
+def sign_feedback(
+    secret: bytes, proposal_id: str, risk_tier: RiskTier, action: str, nonce: str = ""
+) -> str:
+    """피드백 액션 서명. 대상 = ``<proposal_id>:<tier_int>:<action>:<nonce>``.
 
-    action 을 서명에 묶으므로, 한 버튼의 서명으로 다른 액션(수락↔거절)을
-    수행할 수 없다 — 도청자가 사용자의 선택을 뒤집지 못한다.
+    - **action 바인딩**: 한 버튼의 서명으로 다른 액션(수락↔거절)을 수행할 수
+      없다 — 도청자가 사용자의 선택을 뒤집지 못한다.
+    - **nonce 바인딩**: 서비스가 발급한 1회용 토큰을 함께 묶는다. 서비스는
+      성공한 피드백마다 nonce 를 소비하므로, 캡처한 링크를 다시 던져도 통하지
+      않는다. 이게 없던 시절엔 수락 링크 하나를 두 번 재생하는 것만으로
+      EMBER 의 DOUBLE_CONFIRM(1차 보류 → 2차 실행)이 충족됐다.
     """
     tier_int = int(RiskTier.from_str(risk_tier))
-    message = f"{proposal_id}:{tier_int}:{(action or '').strip().lower()}".encode()
+    message = f"{proposal_id}:{tier_int}:{(action or '').strip().lower()}:{nonce}".encode()
     return hmac.new(secret, message, hashlib.sha256).hexdigest()
 
 
@@ -203,12 +216,14 @@ class Notifier:
         now = now or self._now()
         return gate_pipeline(proposal, ctx, budget, now)
 
-    def build_payload(self, proposal: Proposal) -> NotificationPayload:
+    def build_payload(self, proposal: Proposal, nonce: str = "") -> NotificationPayload:
         """제안에서 외부 알림 페이로드를 만든다(rationale/device/room 없음).
 
         라벨은 위험도 한국어 라벨만 사용한다(엔티티명/방이름 누설 금지).
         """
-        signed = sign_deeplink(self._secret, proposal.proposal_id, proposal.risk_tier)
+        signed = sign_deeplink(
+            self._secret, proposal.proposal_id, proposal.risk_tier, nonce
+        )
         tier = RiskTier.from_str(proposal.risk_tier)
         return NotificationPayload(
             channel=self._channel,
@@ -226,6 +241,7 @@ class Notifier:
         ctx: NotificationContext,
         budget: NotificationBudget,
         now: str | None = None,
+        nonce: str = "",
     ) -> tuple[GateDecision, dict[str, Any] | None]:
         """게이트 적용 후, IMMEDIATE 면 egress_gate 로 정제 페이로드를 만든다.
 
@@ -242,18 +258,22 @@ class Notifier:
         if decision != "IMMEDIATE":
             return decision, None
 
-        payload = self.build_payload(proposal)
+        sanitized = self.sanitize(proposal, nonce)
+        budget.consume()
+        return decision, sanitized
+
+    def sanitize(self, proposal: Proposal, nonce: str = "") -> dict[str, Any]:
+        """게이트를 거치지 않고 정제 페이로드만 만든다(egress 는 반드시 통과).
+
+        2차 확인 요청처럼 **사용자 행동에 대한 직접 응답**으로 나가는 알림에
+        쓴다. 발화 게이트/예산은 '먼저 말 거는' 알림을 위한 장치라, 사람이
+        방금 누른 버튼에 대한 후속 확인까지 억제하면 흐름이 끊긴다.
+        """
+        payload = self.build_payload(proposal, nonce)
         raw = payload.model_dump()
         # risk_tier 는 외부 송신용 정수로 직렬화(IntEnum -> int).
         raw["risk_tier"] = int(payload.risk_tier)
-
-        sanitized = emit_external(
-            Destination.NTFY,
-            raw,
-            trace_id=proposal.proposal_id,
-        )
-        budget.consume()
-        return decision, sanitized
+        return emit_external(Destination.NTFY, raw, trace_id=proposal.proposal_id)
 
     def _now(self) -> str:
         if self._clock is not None:

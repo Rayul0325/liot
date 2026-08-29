@@ -46,11 +46,12 @@ class NtfyTransport(Protocol):
     def send(self, topic: str, sanitized: dict[str, Any]) -> None: ...
 
 
-def _parse_deeplink(deeplink: str) -> tuple[str, str, str] | None:
-    """signed_deeplink(liot://p/<id>?t=<tier>&sig=<hex>) → (id, t, sig).
+def _parse_deeplink(deeplink: str) -> tuple[str, str, str, str] | None:
+    """signed_deeplink(liot://p/<id>?t=<tier>&sig=<hex>[&n=<nonce>]) → 4요소.
 
-    피드백 액션 버튼 URL 을 만들기 위해 서명 3요소를 추출한다. 형식이
-    어긋나면 None(액션 버튼 없이 알림만 보낸다)."""
+    피드백 액션 버튼 URL 을 만들기 위해 (id, t, sig, nonce) 를 추출한다.
+    nonce 는 없을 수 있다(빈 문자열). 형식이 어긋나면 None(액션 버튼 없이
+    알림만 보낸다)."""
     try:
         parts = urlsplit(deeplink)
         pid = parts.path.rsplit("/", 1)[-1]
@@ -58,7 +59,7 @@ def _parse_deeplink(deeplink: str) -> tuple[str, str, str] | None:
         t = q.get("t", [""])[0]
         sig = q.get("sig", [""])[0]
         if pid and t and sig:
-            return pid, t, sig
+            return pid, t, sig, q.get("n", [""])[0]
     except (ValueError, IndexError):  # pragma: no cover - 방어적
         return None
     return None
@@ -115,15 +116,18 @@ class HTTPNtfyTransport:
             import hashlib
             import hmac
 
-            pid, t, _ = parsed
+            pid, t, _, nonce = parsed
             base = self.feedback_base_url
 
             def _sig(action: str) -> str:
-                msg = f"{pid}:{t}:{action}".encode()
+                # nonce 를 서명에 묶는다(sign_feedback 과 동일 규약) — 서비스가
+                # 성공한 피드백마다 nonce 를 소비하므로 링크가 1회용이 된다.
+                msg = f"{pid}:{t}:{action}:{nonce}".encode()
                 return hmac.new(self._secret, msg, hashlib.sha256).hexdigest()
 
-            accept = f"{base}/feedback?p={pid}&t={t}&sig={_sig('accept')}&a=accept"
-            dismiss = f"{base}/feedback?p={pid}&t={t}&sig={_sig('dismiss')}&a=dismiss"
+            qs = f"p={pid}&t={t}&n={nonce}"
+            accept = f"{base}/feedback?{qs}&sig={_sig('accept')}&a=accept"
+            dismiss = f"{base}/feedback?{qs}&sig={_sig('dismiss')}&a=dismiss"
             headers["Actions"] = (
                 f"http, Accept, {accept}, method=GET; "
                 f"http, Dismiss, {dismiss}, method=GET"

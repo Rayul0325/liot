@@ -307,7 +307,8 @@ async def test_feedback_http_roundtrip(tmp_path) -> None:
         res = await svc.handle_reading(_reading("binary_sensor.kitchen_gas", "on"))
         pid = res.proposal.proposal_id
         tier = int(res.proposal.risk_tier)
-        good = sign_feedback(SECRET, pid, res.proposal.risk_tier, "accept")
+        nonce = svc._nonce[pid]  # 알림 링크에 박혀 나간 1회용 토큰
+        good = sign_feedback(SECRET, pid, res.proposal.risk_tier, "accept", nonce)
 
         async def _get(path: str) -> str:
             reader, writer = await asyncio.open_connection("127.0.0.1", port)
@@ -317,9 +318,12 @@ async def test_feedback_http_roundtrip(tmp_path) -> None:
             writer.close()
             return data.decode("utf-8", "replace")
 
-        ok = await _get(f"/feedback?p={pid}&t={tier}&sig={good}&a=accept")
+        ok = await _get(f"/feedback?p={pid}&t={tier}&n={nonce}&sig={good}&a=accept")
         assert "200 OK" in ok and "accepted" in ok
-        bad = await _get(f"/feedback?p={pid}&t={tier}&sig=deadbeef&a=accept")
+        # 같은 링크 재생 → nonce 가 소비됐으므로 거부(영구 재사용 방지).
+        replay = await _get(f"/feedback?p={pid}&t={tier}&n={nonce}&sig={good}&a=accept")
+        assert "403" in replay
+        bad = await _get(f"/feedback?p={pid}&t={tier}&n={nonce}&sig=deadbeef&a=accept")
         assert "403" in bad
         nf = await _get("/nope")
         assert "404" in nf

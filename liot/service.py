@@ -20,7 +20,10 @@ LiotApp(두뇌, 네트워크 없음·결정만)을 둘러싸고 부수효과를 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import hmac
 import json
+import secrets
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -140,6 +143,12 @@ class LiotService:
         self._policy = policy or ExecutionPolicy(enabled=False)
         self._prior: dict[str, dict[str, Any]] = {}  # pid → 실행 전 상태(되돌리기)
         self._awaiting_second: set[str] = set()  # 이중확인 1차 통과 대기 pid
+        # 피드백 링크 1회용 토큰: proposal_id → 지금 유효한 nonce.
+        # 서명만으로는 링크가 영구 재사용 가능한 권한이 된다 — 캡처한 수락 링크를
+        # 두 번 재생하는 것만으로 EMBER 의 DOUBLE_CONFIRM(1차 보류 → 2차 실행)이
+        # 충족됐다. 성공한 피드백마다 여기서 nonce 를 지워 링크를 1회용으로 만들고,
+        # 2차 확인은 새 nonce 로 발급된 별도 링크를 요구한다.
+        self._nonce: dict[str, str] = {}
         # 개인화 루프(Phase3): 제안 → 선호 셀 키(맥락+행동), 신호 중복 방지.
         self._prop_cell: dict[str, str] = {}  # proposal_id → cell_key
         self._pref_signaled: set[str] = set()  # 이미 신호 반영된 proposal_id
@@ -191,7 +200,10 @@ class LiotService:
         now_dt = self.clock.now_dt()
         self._roll_budget(now_dt)
         ctx = await self._build_context(now_dt)
-        decision, sanitized = self.notifier.notify(proposal, ctx, self._budget)
+        nonce = self._issue_nonce(proposal.proposal_id)
+        decision, sanitized = self.notifier.notify(
+            proposal, ctx, self._budget, nonce=nonce
+        )
         exec_decision = self._policy.decide(proposal.action, proposal.risk_tier)
 
         if decision != "IMMEDIATE" or sanitized is None:
@@ -235,6 +247,30 @@ class LiotService:
             self._prior[proposal.proposal_id] = res.prior_state
         return res.ok
 
+    def _issue_nonce(self, proposal_id: str) -> str:
+        """제안에 새 1회용 피드백 토큰을 발급한다(이전 토큰은 즉시 무효)."""
+        nonce = secrets.token_hex(16)
+        self._nonce[proposal_id] = nonce
+        return nonce
+
+    async def _request_second_confirmation(self, proposal: Proposal) -> None:
+        """이중확인 2차용 **새 링크**를 발급해 다시 알린다.
+
+        1차 링크는 이미 소비됐으므로, 같은 링크를 다시 눌러도(=재생해도) 2차가
+        충족되지 않는다 — 두 번째 확인은 새 nonce 를 가진 별도 알림에서만 온다.
+
+        발화 게이트·예산은 거치지 않는다. 그건 '먼저 말 거는' 알림을 위한
+        장치인데, 이건 사람이 방금 누른 버튼에 대한 직접 응답이라 억제되면
+        확인 흐름이 끊긴다. egress 는 그대로 통과한다(정제 보장 불변).
+        """
+        self._issue_nonce(proposal.proposal_id)
+        if self.transport is None:
+            return  # sanitize-only: 배달 경로가 없다(링크도 없다)
+        sanitized = self.notifier.sanitize(proposal, self._nonce[proposal.proposal_id])
+        # 송신 실패는 치명적이지 않다 — 제안은 대기 상태로 남고 재시도 가능하다.
+        with contextlib.suppress(NtfyError):
+            self.transport.send(self.topic, sanitized)
+
     async def _on_approved(self, proposal: Proposal) -> str:
         """승인(accepted) 피드백 후 정책에 따라 실행한다.
 
@@ -254,11 +290,18 @@ class LiotService:
                     " · executed(2/2)" if await self._try_execute(proposal) else " · exec-failed"
                 )
             self._awaiting_second.add(pid)
+            await self._request_second_confirmation(proposal)
             return " · confirm-again(1/2)"
         return ""
 
     async def _handle_undo(self, pid: str, tier: str, sig: str) -> tuple[str, str]:
-        """서명된 되돌리기. 직전 실행의 이전 상태로 복원한다."""
+        """서명된 되돌리기. 직전 실행의 이전 상태로 복원한다.
+
+        되돌리기 서명은 **nonce 를 쓰지 않는다**(대상 = pid:tier:undo:"").
+        이유: (a) 되돌리기 링크는 알림에 실려 나가지 않아 비밀키 보유자만
+        만들 수 있고, (b) 성공 시 self._prior 에서 이전 상태를 꺼내 지우므로
+        같은 링크를 다시 던져도 되돌릴 것이 없다 — 이미 1회용이다.
+        """
         if self._executor is None:
             return "404 Not Found", "undo unavailable"
         if not verify_feedback_sig(self._secret, pid, tier, "undo", sig):
@@ -344,6 +387,10 @@ class LiotService:
             p = await self.proposals.get(pid)
             if p is not None and (p.state or "").lower() == "expired":
                 await self._apply_pref_signal(pid, "expired")
+                # 만료된 제안의 1회용 토큰은 더 쓸 일이 없다. 지워 두면 (a) 상시
+                # 데몬에서 _nonce 가 무한히 자라지 않고, (b) 만료 후 도착한
+                # 링크가 확실히 거부된다.
+                self._nonce.pop(pid, None)
 
     async def _refresh_feedback(self) -> None:
         """DB 의 거절/수용 이력을 동기 스냅샷으로 빚어 앱에 주입한다.
@@ -468,18 +515,33 @@ class LiotService:
         tier = q.get("t", [""])[0]
         sig = q.get("sig", [""])[0]
         action = q.get("a", [""])[0]
+        nonce = q.get("n", [""])[0]
         key = (action or "").strip().lower()
 
-        # 되돌리기: 상태 피드백이 아니라 별도 서명 경로.
+        # 되돌리기: 상태 피드백이 아니라 별도 서명 경로. 되돌리기는 self._prior
+        # 를 소비하므로 이미 1회용이다(nonce 없이도 재생이 무의미).
         if key == "undo":
             return await self._handle_undo(pid, tier, sig)
 
+        # 1회용 토큰 검사 — 서명이 유효해도 이미 쓴 링크면 거부한다. 이게 없으면
+        # 캡처한 수락 링크가 영구 권한이 되고, 두 번 재생하는 것만으로 EMBER 의
+        # 이중확인이 충족된다(1차 보류 → 2차 실행).
+        expected = self._nonce.get(pid, "")
+        if not expected or not hmac.compare_digest(expected, nonce):
+            return "403 Forbidden", "stale or already-used link"
+
         try:
-            proposal = await self.feedback.verify_and_apply(pid, tier, sig, action)
+            proposal = await self.feedback.verify_and_apply(
+                pid, tier, sig, action, nonce=nonce
+            )
         except FeedbackAuthError:
             return "403 Forbidden", "invalid signature or action"
         if proposal is None:
             return "404 Not Found", "no such proposal"
+
+        # 소비: 이 링크는 여기서 끝난다. 2차 확인이 필요하면 _on_approved 가
+        # 새 nonce 를 발급해 별도 알림으로 내보낸다.
+        self._nonce.pop(pid, None)
 
         # 승인 시 정책에 따라 실제 조작(불변식 8). 거절/스누즈는 실행 없음.
         note = ""

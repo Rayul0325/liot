@@ -137,6 +137,21 @@ def _apply_preset(payload: Any) -> tuple[dict[str, Any], int]:
     values = dict(payload.get("values") or {})
     reset = bool(payload.get("reset"))
 
+    # 항목 하나하나가 dict 인지 **아무것도 건드리기 전에** 확인한다. 예전에는
+    # reset 을 먼저 실행한 뒤 dict(123) 에서 TypeError 가 났고, 그 예외는
+    # except RegistryError 를 그대로 빠져나가 롤백도 응답도 없이 연결이 끊겼다
+    # (레지스트리와 선호 셀맵이 통째로 날아간 채로).
+    for field, items in (("sensors", sensors), ("devices", devices), ("rules", rules)):
+        for item in items:
+            if not isinstance(item, dict):
+                where = _PRESET_STAGE_KO.get(field[:-1], field)
+                return {
+                    "ok": False,
+                    "error": f"프리셋 적용 실패({where}): 항목은 객체여야 합니다"
+                             f" (받은 값: {type(item).__name__}).",
+                    "field": field,
+                }, 400
+
     # 스냅샷→등록→(실패 시)롤백 전체가 한 덩어리여야 한다. 락 밖에서 돌면
     # 롤백이 그 사이 다른 요청이 등록한 것까지 되돌려 지운다(lost update).
     with STATE_LOCK:
@@ -179,6 +194,19 @@ def _apply_preset(payload: Any) -> tuple[dict[str, Any], int]:
                 "ok": False,
                 "error": f"프리셋 적용 실패({where}): {exc.message}",
                 "field": exc.field,
+            }, 400
+        except Exception as exc:  # noqa: BLE001 - 상태 파괴 방지가 우선
+            # 검증을 통과한 뒤에도 예상 못 한 예외가 날 수 있다(레지스트리 내부
+            # 변경, 새 필드 등). 그때 롤백 없이 빠져나가면 reset 이 이미 지운
+            # 상태가 그대로 남는다 — 어떤 예외든 반드시 이전 상태로 되돌린다.
+            _REGISTRY.restore(snap)
+            _PREF_CELLS.clear()
+            _PREF_CELLS.update(pref_snap)
+            where = _PRESET_STAGE_KO.get(stage, stage)
+            return {
+                "ok": False,
+                "error": f"프리셋 적용 실패({where}): {type(exc).__name__}: {exc}",
+                "field": None,
             }, 400
     return {"ok": True, "applied": applied, "values": values}, 200
 

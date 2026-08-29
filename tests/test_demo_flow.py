@@ -249,3 +249,59 @@ def test_preset_reset_flag_clears_then_preserves() -> None:
     )
     assert code2 == 200 and result2["ok"] is True, result2
     assert "fan.study" in _catalog_ids()[1]  # reset:False 는 보존
+
+
+# ── 프리셋: RegistryError 가 아닌 실패에도 상태가 살아남는다 ──────────────
+def test_preset_non_registry_error_still_rolls_back() -> None:
+    """항목이 dict 가 아니면 아무것도 건드리기 전에 400 — 상태 파괴 없음.
+
+    2026-08-29 코드리뷰가 찾은 결함: `_apply_preset` 은 `except RegistryError`
+    만 두고 있었다. `{"reset": true, "sensors": [123]}` 을 보내면 reset 이 먼저
+    실행된 뒤 `dict(123)` 에서 TypeError 가 났고, 그 예외는 except 를 그대로
+    빠져나가 롤백도 응답도 없이 연결이 끊겼다 — 레지스트리와 선호 셀맵이 통째로
+    날아간 채로. (실측: 센서 11 → 10, 선호맵 {'...': 0.65} → {})
+    """
+    _seed_device()
+    ds._PREF_CELLS["evening|vacant|light:turn_off"] = 0.65
+    before_sensors, before_devices = _catalog_ids()
+    before_rules = len(_REGISTRY.rules_meta())
+
+    for bad in ([123], ["문자열"], [None]):
+        result, code = ds._apply_preset({"reset": True, "sensors": bad})
+        assert code == 400 and result["ok"] is False, (bad, result)
+        assert "객체여야" in result["error"], result
+
+        after_sensors, after_devices = _catalog_ids()
+        assert after_sensors == before_sensors, (bad, after_sensors)
+        assert after_devices == before_devices, (bad, after_devices)
+        assert "fan.study" in after_devices, f"{bad}: reset 이 롤백되지 않았다"
+        assert len(_REGISTRY.rules_meta()) == before_rules
+        assert ds._PREF_CELLS == {"evening|vacant|light:turn_off": 0.65}, (
+            f"{bad}: 선호 셀맵이 복원되지 않았다"
+        )
+
+
+def test_preset_unexpected_exception_rolls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """검증을 통과한 뒤 터지는 예상 밖 예외도 반드시 롤백된다."""
+    _seed_device()
+    ds._PREF_CELLS["evening|vacant|light:turn_off"] = 0.65
+    before_sensors, before_devices = _catalog_ids()
+
+    def boom(**_kw):
+        raise TypeError("레지스트리 내부에서 예상 못 한 실패")
+
+    monkeypatch.setattr(_REGISTRY, "add_device", boom)
+    result, code = ds._apply_preset(
+        {
+            "reset": True,
+            "devices": [{"entity_id": "fan.x", "name": "팬", "capability": "fan",
+                         "category": "appliance",
+                         "actions": [{"action": "turn_on", "tier": "ambient"}]}],
+        }
+    )
+    assert code == 400 and result["ok"] is False, result
+    assert "TypeError" in result["error"], result  # 데모: 실패를 화면에 그대로 노출
+
+    assert _catalog_ids() == (before_sensors, before_devices)
+    assert "fan.study" in _catalog_ids()[1]  # reset 롤백됨
+    assert ds._PREF_CELLS == {"evening|vacant|light:turn_off": 0.65}

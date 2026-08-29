@@ -49,18 +49,25 @@ def verify_deeplink_sig(secret: bytes, proposal_id: str, tier: str | int, sig: s
 
 
 def verify_feedback_sig(
-    secret: bytes, proposal_id: str, tier: str | int, action: str, sig: str
+    secret: bytes,
+    proposal_id: str,
+    tier: str | int,
+    action: str,
+    sig: str,
+    nonce: str = "",
 ) -> bool:
-    """sign_feedback 규약 검증. 대상 = f"{pid}:{tier_int}:{action}".
+    """sign_feedback 규약 검증. 대상 = f"{pid}:{tier_int}:{action}:{nonce}".
 
-    action 을 서명에 묶으므로 한 버튼 서명으로 다른 액션을 수행할 수 없다.
+    action 을 묶으므로 한 버튼 서명으로 다른 액션을 수행할 수 없고, nonce 를
+    묶으므로 서비스가 그 nonce 를 소비한 뒤에는 같은 링크가 통하지 않는다.
     상수 시간 비교(compare_digest).
     """
     try:
         tier_int = int(tier)
     except (TypeError, ValueError):
         return False
-    message = f"{proposal_id}:{tier_int}:{(action or '').strip().lower()}".encode()
+    action_key = (action or "").strip().lower()
+    message = f"{proposal_id}:{tier_int}:{action_key}:{nonce}".encode()
     expected = hmac.new(secret, message, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, str(sig))
 
@@ -90,6 +97,7 @@ class FeedbackGateway:
         sig: str,
         action: str,
         *,
+        nonce: str = "",
         latency_ms: int | None = None,
     ) -> Proposal | None:
         """서명(action-bound) 검증 후 피드백을 적용한다.
@@ -103,7 +111,7 @@ class FeedbackGateway:
         key = (action or "").strip().lower()
         if key not in self._ACTION_ALIASES:
             raise FeedbackAuthError(f"unknown feedback action: {action!r}")
-        if not verify_feedback_sig(self._secret, proposal_id, tier, key, sig):
+        if not verify_feedback_sig(self._secret, proposal_id, tier, key, sig, nonce):
             raise FeedbackAuthError(
                 f"invalid signature for proposal {proposal_id!r} action {key!r}"
             )
