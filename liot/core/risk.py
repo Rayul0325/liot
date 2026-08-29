@@ -91,7 +91,9 @@ _CONFIRMATION: dict[RiskTier, str] = {
 }
 
 
-def escalate_only(cur: RiskTier, target: RiskTier) -> RiskTier:
+def escalate_only(
+    cur: RiskTier | str | int, target: RiskTier | str | int
+) -> RiskTier:
     """위험도는 자동 승격만 가능하다. 결과 = max(cur, target).
 
     cur/target 가 문자열이나 정수여도 RiskTier 로 정규화한다.

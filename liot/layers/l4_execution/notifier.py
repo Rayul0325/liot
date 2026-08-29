@@ -148,7 +148,10 @@ def gate_pipeline(
 
 
 def sign_deeplink(
-    secret: bytes, proposal_id: str, risk_tier: RiskTier, nonce: str = ""
+    secret: bytes,
+    proposal_id: str,
+    risk_tier: RiskTier | str | int,
+    nonce: str = "",
 ) -> str:
     """제안 '열기' 딥링크를 HMAC-SHA256 으로 서명한다(위조 방지).
 
@@ -169,7 +172,11 @@ def sign_deeplink(
 
 
 def sign_feedback(
-    secret: bytes, proposal_id: str, risk_tier: RiskTier, action: str, nonce: str = ""
+    secret: bytes,
+    proposal_id: str,
+    risk_tier: RiskTier | str | int,
+    action: str,
+    nonce: str = "",
 ) -> str:
     """피드백 액션 서명. 대상 = ``<proposal_id>:<tier_int>:<action>:<nonce>``.
 

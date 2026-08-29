@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterable, Sequence
+from typing import Any
 
 from liot.core.contracts import SensorReading
 
@@ -32,7 +33,7 @@ class FakeSensorSource:
     @classmethod
     def from_raw(
         cls,
-        rows: Iterable[dict],
+        rows: Iterable[dict[str, Any]],
         *,
         default_source: str = "fake",
         home_id: str = "singleton",

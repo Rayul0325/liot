@@ -111,7 +111,7 @@ CI 가 도는 것과 같은 검사를 로컬에서 그대로 돌린다.
 ```bash
 make check     # lint + typecheck + test (CI 와 같은 순서)
 make lint      # ruff — 결함 규칙만(줄 길이 E5 는 의도적으로 제외)
-make typecheck # mypy strict — 코어(liot/core·liot/db), 임포트 따라 확장
+make typecheck # mypy strict — liot·scripts·tests 전체(88파일)
 make cov       # 커버리지 + 하한 83% 게이트
 ```
 
@@ -121,8 +121,9 @@ make cov       # 커버리지 + 하한 83% 게이트
   한글 주석이 주 문서화 수단이라 설명을 짧게 만드는 압력은 이득이 아니다(실측
   위반 32건 중 4건이 이 아티팩트). 예외 2건(`UP042`·`SIM108`)과 함께 사유는
   `pyproject.toml` 에 적혀 있다.
-- **mypy**: SoT 커널인 `liot/core`·`liot/db` 를 strict 로 본다(임포트를 따라가
-  실제로는 12개 파일 검사). 레이어 전체로 넓히는 것은 점진 과제.
+- **mypy**: `liot`·`scripts`·`tests` 전체 88파일을 strict 로 본다. 테스트에만
+  '모든 함수에 주석' 요구를 뺐다 — 픽스처 수백 개에 주석을 다는 건 잡음이고,
+  값어치 있는 검사(잘못된 인자 타입·없는 속성·Any 누출)는 그대로 켜져 있다.
 - **커버리지**: 2026-08-29 실측 **85%**(4,206 구문 기준). 하한 83% 는 회귀
   방지선이지 목표가 아니다. 낮은 곳은 `serve.py`·`ollama_backend`·`demo.py` 로,
   전부 단위 테스트가 닿기 어려운 I/O 경계다.

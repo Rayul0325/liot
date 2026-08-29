@@ -40,7 +40,7 @@ from liot.layers.l2_context.feature_vector import (
 from liot.layers.l2_context.nl_directive import DirectiveStore, UserDirective
 from liot.layers.l2_context.proactive import ProactiveGenerator
 from liot.layers.l3_judgment.guardrail import _reset_floor_extensions_for_tests
-from liot.layers.l3_judgment.llm_judge import FakeLLM
+from liot.layers.l3_judgment.llm_judge import FakeLLM, LLMBackend
 from liot.layers.l3_judgment.ollama_backend import HTTPOllamaTransport, OllamaBackend
 from liot.layers.l4_execution.executor import ExecutionPolicy
 from liot.registry import RegistryError, RuntimeRegistry
@@ -299,7 +299,7 @@ def _catalog_view() -> dict[str, Any]:
     }
 
 
-def _build_backend(cfg: dict[str, Any]):
+def _build_backend(cfg: dict[str, Any]) -> tuple[LLMBackend, str | None]:
     """LLM 백엔드 구성. llm_enabled=false 면 결정론 FakeLLM(비교용)."""
     if not cfg.get("llm_enabled", True):
         return FakeLLM(), None
@@ -343,7 +343,7 @@ def _candidate_rows(cand_eval: dict[str, Any] | None) -> list[dict[str, Any]]:
 
 def _lines_view(cand_eval: dict[str, Any] | None) -> dict[str, Any]:
     """scored 후보의 origin 으로 Line A(규칙/ML) vs Line B(LLM) 제안을 분리."""
-    empty = {"line_a": [], "line_b": []}
+    empty: dict[str, list[Any]] = {"line_a": [], "line_b": []}
     if not cand_eval or cand_eval.get("evaluation") is None:
         return empty
     a: list[dict[str, Any]] = []

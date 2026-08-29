@@ -78,14 +78,30 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.11"
-# 코어(SoT 커널)만 엄격하게 본다. 레이어·데모는 점진 확대 대상.
-files = ["liot/core", "liot/db"]
+# 전체(liot·scripts·tests)를 strict 로 본다. 2026-08-29 코드리뷰가 "가장 많이
+# 바뀐 demo_server·serve·service 가 정작 검사 밖"이라고 지적해 범위를 넓혔다.
+# 실측: 전체 strict 로 켜도 오류는 12건뿐이었고(잘 타입이 붙은 코드베이스)
+# 전부 고쳤다 — 그중 escalate_only·sign_feedback 은 자기 docstring·MODULE_SPEC
+# 이 str/int 도 받는다고 적어 놓고 선언만 좁던 실제 불일치였다.
+files = ["liot", "scripts", "tests"]
 strict = true
 warn_unused_configs = true
 
 [[tool.mypy.overrides]]
-module = ["aiosqlite.*", "yaml.*"]
+module = ["aiosqlite.*", "yaml.*", "websockets.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# 테스트에는 '모든 함수에 주석' 요구만 뺀다. 픽스처·테스트 함수 수백 개에
+# 주석을 다는 건 잡음이고(그 요구만으로 365건), 정작 값어치 있는 검사 —
+# 잘못된 인자 타입·존재하지 않는 속성·Any 누출 — 은 그대로 켜져 있다.
+# 실제로 그렇게 켜서 30건을 찾았고, 그중엔 없는 속성에 값을 넣던 죽은 줄도
+# 있었다(ThreadingHTTPServer.poll_interval).
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+disallow_untyped_decorators = false
 
 [tool.coverage.run]
 source = ["liot"]

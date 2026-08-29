@@ -15,7 +15,7 @@ from liot.core.risk import SAFETY_CRITICAL_CATEGORIES, RiskTier
 from liot.layers.l3_judgment.guardrail import Guardrail
 
 
-def _ctx(structured: dict | None = None) -> ContextSnapshot:
+def _ctx(structured: dict[str, object] | None = None) -> ContextSnapshot:
     return ContextSnapshot(
         snapshot_id="s",
         trace_id="t",

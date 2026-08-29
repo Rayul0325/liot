@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any
 
 import pytest
 
@@ -55,8 +56,8 @@ def test_infer_category_gas_is_safety_critical() -> None:
 # --------------------------------------------------------------------------
 # 인증 핸드셰이크
 # --------------------------------------------------------------------------
-def _echo_result(extra: dict | None = None):
-    def _mk(sent: list[dict]) -> dict:
+def _echo_result(extra: dict[str, Any] | None = None):
+    def _mk(sent: list[dict[str, Any]]) -> dict[str, Any]:
         out = {"id": sent[-1]["id"], "type": "result", "success": True}
         if extra:
             out.update(extra)

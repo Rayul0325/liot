@@ -46,7 +46,7 @@ from liot.layers.l4_execution.risk_router import RiskRouter
 # --------------------------------------------------------------------------
 # 공용 헬퍼
 # --------------------------------------------------------------------------
-def _snapshot(structured: dict | None = None, *, trace_id: str = "t1") -> ContextSnapshot:
+def _snapshot(structured: dict[str, object] | None = None, *, trace_id: str = "t1") -> ContextSnapshot:
     return ContextSnapshot(
         snapshot_id="snap1",
         trace_id=trace_id,
@@ -161,12 +161,12 @@ async def test_invariant2_gate2_cannot_downgrade_gate1() -> None:
 # --------------------------------------------------------------------------
 def test_invariant3_executor_confined_to_dedicated_module() -> None:
     # 구체 Executor 는 전용 모듈(l4_execution.executor)에만 — 흩어지면 InvariantError.
-    assert assert_executor_confined() is None
+    assert_executor_confined()  # 위반이면 InvariantError 를 던진다
 
 
 def test_invariant8_execution_is_gated() -> None:
     # 기본 OFF + 안전 자동금지 + 여는방향 제외(불변식 8).
-    assert assert_execution_gated() is None
+    assert_execution_gated()  # 위반이면 InvariantError 를 던진다
 
 
 def test_forbidden_open_absent_from_effective_comfort_with_extras() -> None:
@@ -176,7 +176,7 @@ def test_forbidden_open_absent_from_effective_comfort_with_extras() -> None:
 
     injected = FORBIDDEN_OPEN | {("light", "turn_on"), ("valve", "close")}
     assert not (effective_comfort(injected) & FORBIDDEN_OPEN)
-    assert assert_execution_gated() is None  # 확장 주입 프로브 포함 통과
+    assert_execution_gated()  # 확장 주입 프로브 포함 통과(위반이면 던진다)
 
 
 # --------------------------------------------------------------------------
@@ -272,7 +272,7 @@ def test_assert_execution_gated_covers_runtime_safety_category() -> None:
     # 프로브 순회가 safety_categories()(내장 ∪ 확장)를 돌기 때문.
     register_safety_category("radon")
     assert "radon" in safety_categories()
-    assert assert_execution_gated() is None
+    assert_execution_gated()  # 위반이면 InvariantError 를 던진다
 
 
 def test_baked_safety_frozenset_unchanged_after_register_and_reset() -> None:

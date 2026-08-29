@@ -128,10 +128,11 @@ class StatePredicate:
             return False
         have = entities[self.entity_id]
         want = self.value
+        # have/want 는 Any(YAML·런타임 등록에서 온다) — 비교 결과를 bool 로 확정한다.
         if self.op == "eq":
-            return have == want
+            return bool(have == want)
         if self.op == "ne":
-            return have != want
+            return bool(have != want)
         # 순서 비교는 수치만(불리언 제외 — True<2 같은 함정 차단).
         if isinstance(have, bool) or isinstance(want, bool):
             return False

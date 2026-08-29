@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import pytest
 
@@ -369,7 +370,7 @@ def test_http_ntfy_transport_real_post() -> None:
 
     from liot.layers.l4_execution.ntfy_transport import HTTPNtfyTransport
 
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     class _Handler(BaseHTTPRequestHandler):
         def do_POST(self):  # noqa: N802

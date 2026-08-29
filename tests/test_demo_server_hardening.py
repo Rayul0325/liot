@@ -39,7 +39,6 @@ def _serve(timeout: int | None = None):
     if timeout is not None:
         demo_server.Handler.timeout = timeout
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), demo_server.Handler)
-    httpd.poll_interval = 0.05
     thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.05},
                               daemon=True)
     thread.start()
@@ -59,7 +58,7 @@ def port():
         yield p
 
 
-def _raw(port: int, request: bytes, *, wait: float = 3.0, hold: list | None = None) -> str:
+def _raw(port: int, request: bytes, *, wait: float = 3.0, hold: list[socket.socket] | None = None) -> str:
     """생 HTTP 요청을 던지고 응답 전체를 돌려준다(응답 없으면 빈 문자열).
 
     ``recv`` 한 번으로 끝내면 안 된다 — 헤더와 본문이 다른 TCP 세그먼트로

@@ -67,9 +67,9 @@ def detect_model() -> str | None:
         for t in tags:
             if pref in t.lower():
                 print(f"[detect] 모델 감지: {t}  (전체: {tags})")
-                return t
+                return str(t)
     print(f"[detect] gemma 없음 → 첫 모델 {tags[0]} (전체: {tags})")
-    return tags[0]
+    return str(tags[0])
 
 
 def _ctx() -> ContextSnapshot:

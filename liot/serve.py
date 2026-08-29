@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from typing import Protocol
 
 from liot.app import LiotApp
 from liot.core.clock import Clock
@@ -38,6 +39,14 @@ from liot.layers.l4_execution.ntfy_transport import build_ntfy_transport
 from liot.service import DEV_SIGNING_SECRET, LiotService
 
 DEV_SECRET_TEXT = DEV_SIGNING_SECRET.decode("utf-8")
+
+
+class FeedbackServing(Protocol):
+    """수신구를 열 수 있는 것. open_feedback_endpoint 는 이것만 필요하다."""
+
+    async def serve_feedback(
+        self, host: str, port: int
+    ) -> asyncio.AbstractServer: ...
 
 __all__ = [
     "feedback_block_reason",
@@ -84,7 +93,7 @@ def feedback_block_reason(secret: str, *, allow_dev_key: bool = False) -> str | 
 
 
 async def open_feedback_endpoint(
-    service: LiotService,
+    service: FeedbackServing,
     *,
     host: str,
     port: int,

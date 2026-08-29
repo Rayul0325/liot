@@ -40,7 +40,7 @@ def _judgment(
     )
 
 
-def _action(capability: str, action: str, *, category: str, params: dict | None = None) -> CandidateAction:
+def _action(capability: str, action: str, *, category: str, params: dict[str, object] | None = None) -> CandidateAction:
     return CandidateAction(
         capability=capability,
         action=action,

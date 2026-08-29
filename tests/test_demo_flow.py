@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import pytest
 
@@ -38,11 +39,11 @@ _VACANT_LIGHT_BODY = {
 }
 
 
-def _simulate(body: dict) -> dict:
+def _simulate(body: dict[str, Any]) -> dict[str, Any]:
     return asyncio.run(_run(body))
 
 
-def _keys(result: dict) -> set[tuple[str, str, str]]:
+def _keys(result: dict[str, Any]) -> set[tuple[str, str, str]]:
     return {
         (c["capability"], c["action"], c["entity_id"])
         for c in result.get("candidates", [])

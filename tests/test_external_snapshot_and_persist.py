@@ -90,7 +90,7 @@ async def _tick_hash(tmp_path, aqi: int) -> str:
     assert proposal is not None  # 조명 후보는 AQI 무관 — 제안은 유지
     ev = app.last_candidate_evaluation
     assert ev is not None and ev["context_snapshot_hash"]
-    return ev["context_snapshot_hash"]
+    return str(ev["context_snapshot_hash"])
 
 
 async def test_external_context_changes_tick_snapshot_hash(tmp_path) -> None:

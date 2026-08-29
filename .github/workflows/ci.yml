@@ -28,7 +28,7 @@ jobs:
       - name: Lint (ruff)
         run: uv run python -m ruff check liot tests scripts
 
-      - name: Typecheck (mypy — core + db, strict)
+      - name: Typecheck (mypy — liot + scripts + tests, strict)
         run: uv run python -m mypy
 
       - name: Test (pytest, incl. 6 invariants) + coverage floor

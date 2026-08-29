@@ -138,7 +138,7 @@ class HTTPOllamaTransport:
         )
         try:
             with urllib.request.urlopen(req, timeout=timeout_s) as resp:  # noqa: S310
-                raw = resp.read().decode("utf-8", "replace")
+                raw: str = resp.read().decode("utf-8", "replace")
         except (urllib.error.URLError, OSError, TimeoutError) as exc:
             raise LLMUnavailable(f"http ollama transport failed: {exc}") from exc
         try:

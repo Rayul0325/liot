@@ -32,6 +32,7 @@ from typing import Any
 import pytest
 
 from liot import demo_server
+from liot.layers.l2_context import feature_vector
 from liot.layers.l2_context.feature_vector import NEUTRAL_PREF
 from liot.registry import RegistryError
 
@@ -103,7 +104,8 @@ def post(base: str, path: str, payload: dict[str, Any]) -> tuple[int, dict[str, 
 
 def get(base: str, path: str) -> dict[str, Any]:
     with urllib.request.urlopen(base + path, timeout=10) as resp:  # noqa: S310
-        return json.loads(resp.read().decode("utf-8"))
+        body: dict[str, Any] = json.loads(resp.read().decode("utf-8"))
+        return body
 
 
 # ------------------------------------------- 1) 프리셋 롤백 vs 동시 센서 등록
@@ -147,7 +149,7 @@ def test_preset_rollback_does_not_erase_concurrent_registration(server, monkeypa
 # --------------------------------------------------- 2) 피드백 read-modify-write
 def test_concurrent_feedback_updates_are_not_lost(server, monkeypatch):
     """같은 셀에 대한 동시 피드백 두 건이 서로를 덮어쓰면 안 된다."""
-    real_apply_signal = demo_server.apply_signal
+    real_apply_signal = feature_vector.apply_signal
 
     def slow_apply_signal(cells, cell, signal):
         time.sleep(0.25)  # 읽기와 쓰기 사이를 벌린다(경합 창)

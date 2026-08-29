@@ -20,7 +20,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
+from typing import cast
 
 import pytest
 
@@ -33,14 +35,15 @@ REAL = "a-real-long-random-secret-value"
 
 
 class _FakeService:
-    """serve_feedback 이 불렸는지만 기록하는 최소 대역."""
+    """serve_feedback 이 불렸는지만 기록하는 최소 대역(FeedbackServing 프로토콜)."""
 
     def __init__(self) -> None:
         self.opened: list[tuple[str, int]] = []
 
-    async def serve_feedback(self, host: str, port: int) -> object:
+    async def serve_feedback(self, host: str, port: int) -> asyncio.AbstractServer:
         self.opened.append((host, port))
-        return object()
+        # 대역이라 실제 서버를 만들지 않는다 — 호출부는 None 여부만 본다.
+        return cast("asyncio.AbstractServer", object())
 
 
 # ───────────────────────────────────── 1) dev 키 상수가 갈라지지 않는다
@@ -49,7 +52,8 @@ def test_dev_secret_literal_is_not_duplicated_across_modules() -> None:
     # 진입점의 비교 대상은 상수에서 파생된다(별도 리터럴 없음).
     assert serve.DEV_SECRET_TEXT == DEV
     # LiotService 와 Notifier 의 기본값도 같은 상수여야 한다.
-    assert LiotService.__init__.__kwdefaults__["secret"] is DEV_SIGNING_SECRET
+    service_default = inspect.signature(LiotService.__init__).parameters["secret"].default
+    assert service_default is DEV_SIGNING_SECRET
     notifier_default = inspect.signature(Notifier.__init__).parameters["secret"].default
     assert notifier_default == DEV_SIGNING_SECRET, (
         "Notifier 의 dev 키 기본값이 DEV_SIGNING_SECRET 과 갈라졌다"

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 
 from liot.core.contracts import SensorReading
 
@@ -126,7 +126,7 @@ class FakeHAConnection:
     """
 
     def __init__(self, inbound: list[Any]) -> None:
-        self._inbound = list(inbound)
+        self._inbound: list[Any] = list(inbound)
         self.sent: list[dict[str, Any]] = []
         self.closed = False
 
@@ -139,9 +139,10 @@ class FakeHAConnection:
         if not self._inbound:
             raise HAConnectionError("no more scripted inbound messages")
         item = self._inbound.pop(0)
+        # 스크립트 항목은 dict 이거나 dict 를 만드는 callable 이다(클래스 계약).
         if callable(item):
-            return item(self.sent)
-        return item
+            return cast("dict[str, Any]", item(self.sent))
+        return cast("dict[str, Any]", item)
 
     async def close(self) -> None:
         self.closed = True
@@ -286,7 +287,7 @@ class HABridge:
         result = await self._request({"type": "get_states"})
         for st in result.get("result", []) or []:
             if st.get("entity_id") == entity_id:
-                return st
+                return cast("dict[str, Any]", st)
         return {}
 
     async def call_service(

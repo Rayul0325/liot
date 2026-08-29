@@ -332,9 +332,12 @@ class RuntimeRegistry:
             "kind": kind, "unit": None, "min": None, "max": None,
         }
         if kind == "number":
+            # None 이면 float() 이 TypeError 를 던져 아래에서 잡힌다(기존 동작).
+            raw_min: Any = meta.get("min")
+            raw_max: Any = meta.get("max")
             try:
-                mn = float(meta.get("min"))
-                mx = float(meta.get("max"))
+                mn = float(raw_min)
+                mx = float(raw_max)
             except (TypeError, ValueError):
                 raise RegistryError(
                     "수치 센서는 최소·최대값(숫자)이 필요합니다.", field="min"
@@ -549,7 +552,8 @@ class RuntimeRegistry:
         idx = self._device_index(entity_id)
         if idx is None:
             return None
-        return (self._raw.get("devices", []) or [])[idx].get("capability")
+        cap = (self._raw.get("devices", []) or [])[idx].get("capability")
+        return None if cap is None else str(cap)
 
     @staticmethod
     def _korean_rule_error(msg: str, capability: str, action: str) -> str:
