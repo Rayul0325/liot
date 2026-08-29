@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -44,6 +45,25 @@ from liot.layers.l4_execution.executor import ExecDecision, ExecutionPolicy
 from liot.core.risk import _reset_safety_extensions_for_tests
 from liot.layers.l3_judgment.guardrail import _reset_floor_extensions_for_tests
 from liot.registry import RegistryError, RuntimeRegistry
+
+# ── 세션 공유 상태와 그 잠금 ─────────────────────────────────────────────
+# 이 서버는 ThreadingHTTPServer 라 핸들러가 여러 스레드에서 동시에 돈다. 아래
+# 세 전역(_DIRECTIVES·_REGISTRY·_PREF_CELLS)과 프로세스 전역 안전 확장은 전부
+# 공유 가변 상태다. 잠금이 없으면 최소 두 가지가 실제로 깨진다:
+#   1) 프리셋 롤백이 남의 등록을 지운다 — _apply_preset 은 시작 시 스냅샷을
+#      뜨고 실패 시 restore 하므로, 그 사이 다른 요청이 등록한 센서·기기가
+#      함께 사라진다(lost update).
+#   2) 피드백 갱신이 유실된다 — _apply_feedback 은 _PREF_CELLS 를 읽어 새 dict
+#      로 갈아끼우는 read-modify-write 라, 동시 갱신 중 하나가 덮인다.
+# 그래서 공유 상태를 만지는 구간은 전부 이 락 아래에서만 돈다. 재진입 가능
+# (RLock)이라 락을 쥔 코어 함수끼리 중첩 호출해도 안전하다.
+#
+# 시뮬레이트(_run)도 통째로 이 락 아래에서 돈다 — 파이프라인이 레지스트리
+# 파생물(카탈로그·룰셋·카테고리·실행 확장분)을 실행 내내 읽기 때문이다.
+# 대가로 동시 시뮬레이트는 직렬화되지만, 단일 사용자 데모에서 동시 실행은
+# 실제 사용 형태가 아니고 찢어진 상태를 보는 것보다 낫다. 정적 자산 GET 은
+# 락을 잡지 않으므로 페이지 로딩은 그대로 병렬이다.
+STATE_LOCK = threading.RLock()
 
 # 활성 자연어 지시(세션 스코프). /api/directive 로 추가·초기화, /api/simulate tick 에 반영.
 _DIRECTIVES = DirectiveStore()
@@ -79,9 +99,10 @@ def _apply_feedback(cell: Any, signal: Any) -> dict[str, Any]:
             "ok": False, "error": f"알 수 없는 신호입니다: {signal or '(빈값)'}",
             "field": "signal",
         }
-    before = round(float(_PREF_CELLS.get(cell, NEUTRAL_PREF)), 3)
-    _PREF_CELLS = apply_signal(_PREF_CELLS, cell, signal)
-    after = round(float(_PREF_CELLS.get(cell, NEUTRAL_PREF)), 3)
+    with STATE_LOCK:
+        before = round(float(_PREF_CELLS.get(cell, NEUTRAL_PREF)), 3)
+        _PREF_CELLS = apply_signal(_PREF_CELLS, cell, signal)
+        after = round(float(_PREF_CELLS.get(cell, NEUTRAL_PREF)), 3)
     return {"ok": True, "cell": cell, "signal": signal, "before": before, "after": after}
 
 
@@ -117,46 +138,49 @@ def _apply_preset(payload: Any) -> tuple[dict[str, Any], int]:
     values = dict(payload.get("values") or {})
     reset = bool(payload.get("reset"))
 
-    snap = _REGISTRY.snapshot()
-    pref_snap = dict(_PREF_CELLS)
-    applied = {"sensors": 0, "devices": 0, "rules": 0}
-    stage = ""
-    try:
-        if reset:
-            _REGISTRY.reset()
+    # 스냅샷→등록→(실패 시)롤백 전체가 한 덩어리여야 한다. 락 밖에서 돌면
+    # 롤백이 그 사이 다른 요청이 등록한 것까지 되돌려 지운다(lost update).
+    with STATE_LOCK:
+        snap = _REGISTRY.snapshot()
+        pref_snap = dict(_PREF_CELLS)
+        applied = {"sensors": 0, "devices": 0, "rules": 0}
+        stage = ""
+        try:
+            if reset:
+                _REGISTRY.reset()
+                _PREF_CELLS.clear()
+            stage = "sensor"
+            for s in sensors:
+                _REGISTRY.add_sensor(dict(s))
+                applied["sensors"] += 1
+            stage = "device"
+            for d in devices:
+                d = dict(d)
+                _REGISTRY.add_device(
+                    entity_id=d.get("entity_id", ""),
+                    name=d.get("name", ""),
+                    capability=d.get("capability", ""),
+                    category=d.get("category", ""),
+                    actions=d.get("actions") or [],
+                    safety_critical=d.get("safety_critical", False),
+                    floor=d.get("floor"),
+                )
+                applied["devices"] += 1
+            stage = "rule"
+            for r in rules:
+                _REGISTRY.add_rule(dict(r))
+                applied["rules"] += 1
+        except RegistryError as exc:
+            # 원자 롤백: 프리셋이 건드린 등록 상태·선호 셀맵을 이전으로 되돌린다.
+            _REGISTRY.restore(snap)
             _PREF_CELLS.clear()
-        stage = "sensor"
-        for s in sensors:
-            _REGISTRY.add_sensor(dict(s))
-            applied["sensors"] += 1
-        stage = "device"
-        for d in devices:
-            d = dict(d)
-            _REGISTRY.add_device(
-                entity_id=d.get("entity_id", ""),
-                name=d.get("name", ""),
-                capability=d.get("capability", ""),
-                category=d.get("category", ""),
-                actions=d.get("actions") or [],
-                safety_critical=d.get("safety_critical", False),
-                floor=d.get("floor"),
-            )
-            applied["devices"] += 1
-        stage = "rule"
-        for r in rules:
-            _REGISTRY.add_rule(dict(r))
-            applied["rules"] += 1
-    except RegistryError as exc:
-        # 원자 롤백: 프리셋이 건드린 등록 상태·선호 셀맵을 이전으로 되돌린다.
-        _REGISTRY.restore(snap)
-        _PREF_CELLS.clear()
-        _PREF_CELLS.update(pref_snap)
-        where = _PRESET_STAGE_KO.get(stage, stage)
-        return {
-            "ok": False,
-            "error": f"프리셋 적용 실패({where}): {exc.message}",
-            "field": exc.field,
-        }, 400
+            _PREF_CELLS.update(pref_snap)
+            where = _PRESET_STAGE_KO.get(stage, stage)
+            return {
+                "ok": False,
+                "error": f"프리셋 적용 실패({where}): {exc.message}",
+                "field": exc.field,
+            }, 400
     return {"ok": True, "applied": applied, "values": values}, 200
 
 
@@ -207,25 +231,30 @@ def _catalog_view() -> dict[str, Any]:
       * 기기·행동 = ``_REGISTRY.to_catalog().available_actions()`` 를 entity_id 로 묶음.
       * 위험등급 legend = ``RiskTier.label_ko`` 단일 원천(한글 라벨 이중관리 없음).
     """
-    sensors = _REGISTRY.sensors_meta()
+    # 센서·카탈로그·기기명·규칙을 여러 번 나눠 읽으므로, 그 사이 등록이 끼면
+    # 서로 어긋난 조각이 한 응답에 섞인다. 한 스냅샷으로 묶어 읽는다.
+    with STATE_LOCK:
+        sensors = _REGISTRY.sensors_meta()
 
-    catalog = _REGISTRY.to_catalog()
-    grouped: dict[str, dict[str, Any]] = {}
-    for act in catalog.available_actions():
-        eid = str(act["entity_id"])
-        dev = grouped.get(eid)
-        if dev is None:
-            dev = grouped[eid] = {
-                "entity_id": eid,
-                "name": _REGISTRY.device_name(eid),
-                "category": act.get("category"),
-                "capability": act.get("capability"),
-                "actions": [],
-            }
-        tier = RiskTier.from_str(str(act["tier"]))
-        dev["actions"].append(
-            {"action": act["action"], "tier": act["tier"], "tier_ko": tier.label_ko}
-        )
+        catalog = _REGISTRY.to_catalog()
+        grouped: dict[str, dict[str, Any]] = {}
+        for act in catalog.available_actions():
+            eid = str(act["entity_id"])
+            dev = grouped.get(eid)
+            if dev is None:
+                dev = grouped[eid] = {
+                    "entity_id": eid,
+                    "name": _REGISTRY.device_name(eid),
+                    "category": act.get("category"),
+                    "capability": act.get("capability"),
+                    "actions": [],
+                }
+            tier = RiskTier.from_str(str(act["tier"]))
+            dev["actions"].append(
+                {"action": act["action"], "tier": act["tier"], "tier_ko": tier.label_ko}
+            )
+
+        rules = _REGISTRY.rules_meta()
 
     tiers = {
         str(int(t)): {"name": t.name.lower(), "label_ko": t.label_ko} for t in RiskTier
@@ -234,7 +263,7 @@ def _catalog_view() -> dict[str, Any]:
         "sensors": sensors,
         "devices": list(grouped.values()),
         "tiers": tiers,
-        "rules": _REGISTRY.rules_meta(),
+        "rules": rules,
     }
 
 
@@ -607,21 +636,20 @@ class Handler(BaseHTTPRequestHandler):
             body = self._read_json()
             if body is None:
                 return
-            if body.get("reset"):
-                _DIRECTIVES.clear()
-                self._json(200, {"ok": True, "parsed": [], "active": []})
-                return
-            parsed = _DIRECTIVES.add_text(
-                str(body.get("text") or ""), source=str(body.get("source") or "chat")
-            )
-            self._json(
-                200,
-                {
+            with STATE_LOCK:
+                if body.get("reset"):
+                    _DIRECTIVES.clear()
+                    self._json(200, {"ok": True, "parsed": [], "active": []})
+                    return
+                parsed = _DIRECTIVES.add_text(
+                    str(body.get("text") or ""), source=str(body.get("source") or "chat")
+                )
+                payload = {
                     "ok": True,
                     "parsed": [_directive_view(d) for d in parsed],
                     "active": [_directive_view(d) for d in _DIRECTIVES.active()],
-                },
-            )
+                }
+            self._json(200, payload)
             return
         if path == "/api/feedback":
             self._feedback_post()
@@ -636,7 +664,10 @@ class Handler(BaseHTTPRequestHandler):
         if body is None:
             return
         try:
-            result = asyncio.run(_run(body))
+            # 파이프라인은 카탈로그·룰셋·카테고리·실행 확장분을 실행 내내 읽는다.
+            # 중간에 등록이 끼면 앞뒤가 다른 상태로 판단하게 되므로 통째로 잠근다.
+            with STATE_LOCK:
+                result = asyncio.run(_run(body))
         except RegistryError as exc:  # 미등록 엔티티 값 등 → 400 구조화 에러
             self._json(400, {"ok": False, "error": exc.message, "field": exc.field})
             return
@@ -658,10 +689,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/registry/reset":
             # 데모 리셋 = 완전 초기화. 인스턴스 등록분(_REGISTRY)에 더해 프로세스
             # 전역 확장 안전 카테고리·카테고리 하한도 비운다(내장 set 은 불변).
-            _REGISTRY.reset()
-            _reset_safety_extensions_for_tests()
-            _reset_floor_extensions_for_tests()
-            _PREF_CELLS.clear()  # 세션 선호 셀맵도 초기화(중립 복귀)
+            # 네 가지를 한 덩어리로 비워야 반쯤 초기화된 상태가 노출되지 않는다.
+            with STATE_LOCK:
+                _REGISTRY.reset()
+                _reset_safety_extensions_for_tests()
+                _reset_floor_extensions_for_tests()
+                _PREF_CELLS.clear()  # 세션 선호 셀맵도 초기화(중립 복귀)
             self._json(200, {"ok": True})
             return
         body = self._read_json()
@@ -673,23 +706,26 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             if path == "/api/registry/sensor":
-                rec = _REGISTRY.add_sensor(body)
+                with STATE_LOCK:
+                    rec = _REGISTRY.add_sensor(body)
                 self._json(200, {"ok": True, "sensor": rec})
                 return
             if path == "/api/registry/device":
-                rec = _REGISTRY.add_device(
-                    entity_id=body.get("entity_id", ""),
-                    name=body.get("name", ""),
-                    capability=body.get("capability", ""),
-                    category=body.get("category", ""),
-                    actions=body.get("actions") or [],
-                    safety_critical=body.get("safety_critical", False),
-                    floor=body.get("floor"),
-                )
+                with STATE_LOCK:
+                    rec = _REGISTRY.add_device(
+                        entity_id=body.get("entity_id", ""),
+                        name=body.get("name", ""),
+                        capability=body.get("capability", ""),
+                        category=body.get("category", ""),
+                        actions=body.get("actions") or [],
+                        safety_critical=body.get("safety_critical", False),
+                        floor=body.get("floor"),
+                    )
                 self._json(200, {"ok": True, "device": rec})
                 return
             if path == "/api/registry/rule":
-                rec = _REGISTRY.add_rule(body)
+                with STATE_LOCK:
+                    rec = _REGISTRY.add_rule(body)
                 self._json(200, {"ok": True, "rule": rec})
                 return
         except RegistryError as exc:
