@@ -15,8 +15,9 @@ pre-bus 게이트다(새 버스 엣지 없음). 두 트랙:
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 __all__ = [
     "TriggerDecision",

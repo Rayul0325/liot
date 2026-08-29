@@ -9,9 +9,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover
     import aiosqlite
@@ -22,10 +23,10 @@ SCHEMA_SQL_PATH = Path(__file__).with_name("schema.sql")
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
-async def _ensure_version_table(db: "aiosqlite.Connection") -> None:
+async def _ensure_version_table(db: aiosqlite.Connection) -> None:
     await db.execute(
         """
         CREATE TABLE IF NOT EXISTS schema_version (
@@ -38,7 +39,7 @@ async def _ensure_version_table(db: "aiosqlite.Connection") -> None:
     await db.commit()
 
 
-async def current_version(db: "aiosqlite.Connection") -> int:
+async def current_version(db: aiosqlite.Connection) -> int:
     """현재 적용된 최대 스키마 버전(없으면 0)."""
     await _ensure_version_table(db)
     cur = await db.execute("SELECT MAX(version) FROM schema_version")
@@ -49,13 +50,13 @@ async def current_version(db: "aiosqlite.Connection") -> int:
     return int(row[0])
 
 
-async def _apply_baseline(db: "aiosqlite.Connection") -> None:
+async def _apply_baseline(db: aiosqlite.Connection) -> None:
     """schema.sql 의 기준 스키마(버전 1)를 적용한다."""
     sql = SCHEMA_SQL_PATH.read_text(encoding="utf-8")
     await db.executescript(sql)
 
 
-async def _add_candidate_evaluations(db: "aiosqlite.Connection") -> None:
+async def _add_candidate_evaluations(db: aiosqlite.Connection) -> None:
     """버전 2: 후보 평가 결과 보관(감사/데모/연구 로그).
 
     L5 평가기의 CandidateSet/EvaluationResult 를 trace 단위로 남긴다 — 어떤
@@ -81,7 +82,7 @@ async def _add_candidate_evaluations(db: "aiosqlite.Connection") -> None:
 
 
 # (version, async fn(db)) 순서대로 누적 적용한다. version 은 1부터 단조 증가.
-_MIGRATIONS: list[tuple[int, str, Callable[["aiosqlite.Connection"], object]]] = [
+_MIGRATIONS: list[tuple[int, str, Callable[[aiosqlite.Connection], object]]] = [
     (1, "baseline schema (schema.sql)", _apply_baseline),
     (2, "candidate_evaluations table", _add_candidate_evaluations),
 ]
@@ -89,7 +90,7 @@ _MIGRATIONS: list[tuple[int, str, Callable[["aiosqlite.Connection"], object]]] =
 LATEST_VERSION = max((v for v, _, _ in _MIGRATIONS), default=0)
 
 
-async def run_migrations(db: "aiosqlite.Connection") -> int:
+async def run_migrations(db: aiosqlite.Connection) -> int:
     """현재 버전보다 높은 마이그레이션을 순서대로 적용한다.
 
     반환: 적용 완료 후의 최신 버전. 이미 최신이면 그대로 반환(멱등).
@@ -102,7 +103,7 @@ async def run_migrations(db: "aiosqlite.Connection") -> int:
         result = fn(db)
         # 마이그레이션 함수는 코루틴을 반환한다(async).
         if hasattr(result, "__await__"):
-            await result  # type: ignore[misc]
+            await result
         await db.execute(
             "INSERT INTO schema_version (version, applied_at, note) VALUES (?, ?, ?)",
             (target, _now(), note),

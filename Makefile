@@ -1,4 +1,4 @@
-.PHONY: install test demo smoke lint clean
+.PHONY: install test demo smoke lint typecheck cov check clean
 
 VENV ?= .venv
 PY := $(VENV)/bin/python
@@ -11,7 +11,17 @@ test:
 	$(PY) -m pytest -q
 
 lint:
-	$(PY) -m compileall -q liot tests scripts
+	$(PY) -m ruff check liot tests scripts
+
+typecheck:
+	$(PY) -m mypy
+
+# 커버리지. 하한(83%)은 2026-08-29 실측 85% 기준의 회귀 방지선.
+cov:
+	$(PY) -m pytest -q --cov --cov-report=term-missing:skip-covered --cov-fail-under=83
+
+# 전체 게이트 — CI 와 같은 순서.
+check: lint typecheck test
 
 demo:
 	$(PY) -m liot.demo

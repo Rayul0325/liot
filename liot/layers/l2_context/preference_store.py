@@ -36,7 +36,7 @@ class PreferenceStore:
     격리는 ScopedRepo 가 보증한다(None/공백 home_id -> IsolationError).
     """
 
-    def __init__(self, home_id: str | None, db: "aiosqlite.Connection | None" = None) -> None:
+    def __init__(self, home_id: str | None, db: aiosqlite.Connection | None = None) -> None:
         # ScopedRepo 가 home_id None/공백을 IsolationError 로 거른다.
         self._repo = ScopedRepo(home_id)
         self._db = db

@@ -112,7 +112,7 @@ class ContextSnapshot(BaseModel):
     snapshot_hash: str = ""
 
     @model_validator(mode="after")
-    def _fill_snapshot_hash(self) -> "ContextSnapshot":
+    def _fill_snapshot_hash(self) -> ContextSnapshot:
         """snapshot_hash 가 비어 있으면 structured 에서 결정론적으로 계산한다."""
         if not self.snapshot_hash:
             object.__setattr__(
@@ -280,7 +280,7 @@ class CandidateSet(BaseModel):
     selected_index: int = 0
 
     @model_validator(mode="after")
-    def _validate(self) -> "CandidateSet":
+    def _validate(self) -> CandidateSet:
         if not self.candidates:
             raise ValueError("CandidateSet 은 비어 있을 수 없다(최소 무행동 후보 1개).")
         if not any(is_noop(c.candidate) for c in self.candidates):
@@ -346,7 +346,7 @@ class EvaluationResult(BaseModel):
     rationale: str
 
     @model_validator(mode="after")
-    def _validate(self) -> "EvaluationResult":
+    def _validate(self) -> EvaluationResult:
         if self.scored and not (0 <= self.selected_index < len(self.scored)):
             raise ValueError(
                 f"selected_index({self.selected_index})가 범위를 벗어났다"

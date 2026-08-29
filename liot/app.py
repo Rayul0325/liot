@@ -40,8 +40,8 @@ from liot.core.event_bus import InProcessBus
 from liot.core.risk import is_safety_category
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l1_sensing.state_cache import StateCache
-from liot.layers.l2_context.context_builder import ContextBuilder, derive_occupancy
 from liot.layers.l2_context.candidate_llm import LLMCandidateBackend
+from liot.layers.l2_context.context_builder import ContextBuilder, derive_occupancy
 from liot.layers.l2_context.evaluator import CandidateEvaluator
 from liot.layers.l2_context.event_detector import EventDetector, build_event_detector
 from liot.layers.l2_context.external_provider import ExternalDataProvider
@@ -52,17 +52,17 @@ from liot.layers.l2_context.feature_vector import (
 )
 from liot.layers.l2_context.feedback_store import FeedbackStore
 from liot.layers.l2_context.nl_directive import UserDirective, apply_directives
-from liot.layers.l2_context.proposal_lines import (
-    LLMProposalLine,
-    MLProposalLine,
-    ProposalLine,
-    augment_candidate_set,
-)
 from liot.layers.l2_context.proactive import (
     PROACTIVE_TIER_CEILING,
     ProactiveDecision,
     ProactiveGenerator,
     assert_proactive_candidate,
+)
+from liot.layers.l2_context.proposal_lines import (
+    LLMProposalLine,
+    MLProposalLine,
+    ProposalLine,
+    augment_candidate_set,
 )
 from liot.layers.l3_judgment.guardrail import Guardrail
 from liot.layers.l3_judgment.llm_judge import LLMBackend, LLMJudge

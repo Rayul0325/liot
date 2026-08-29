@@ -16,7 +16,8 @@ v1 은 결정론 Fake(네트워크 없음). 실모델 ML/LLM 라인은 같은 Pr
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence, runtime_checkable
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from liot.core.categories import resolve_category
 from liot.core.contracts import (
@@ -33,6 +34,7 @@ from .proactive import validate_proactive_candidate
 
 if TYPE_CHECKING:  # pragma: no cover
     from liot.layers.l4_execution.device_catalog import DeviceCatalog
+
     from .proactive_rules import ProactiveRuleSet
 
 __all__ = [
@@ -44,7 +46,7 @@ __all__ = [
 ]
 
 # "켜짐"으로 간주하는 정규화 값(조명 상태 판단).
-_ON_VALUES = frozenset({True, 1, "1", "on", "ON", "true", "True", "on_"})
+_ON_VALUES = frozenset({True, "1", "on", "ON", "true", "True", "on_"})
 
 # "끄기/줄이기" 방향으로 간주하는 action 이름 토큰. device_catalog._DECREASE_TOKENS
 # 정신을 공유하고 stop 을 보강한다 — action 이름에 이 토큰이 하나라도 들어가면
@@ -68,9 +70,9 @@ def _generic_candidates(
     cur: Mapping[str, Any],
     available_actions: Sequence[Mapping[str, Any]] | None,
     *,
-    ruleset: "ProactiveRuleSet | None" = None,
+    ruleset: ProactiveRuleSet | None = None,
     categories: Mapping[str, str] | None = None,
-    catalog: "DeviceCatalog | None" = None,
+    catalog: DeviceCatalog | None = None,
 ) -> list[CandidateAction]:
     """맥락에 맞는 컴포트 후보를 결정론적으로 만든다(양 라인이 공유하는 제네릭 엔진).
 
@@ -152,9 +154,9 @@ class MLProposalLine:
     def __init__(
         self,
         *,
-        ruleset: "ProactiveRuleSet | None" = None,
+        ruleset: ProactiveRuleSet | None = None,
         categories: Mapping[str, str] | None = None,
-        catalog: "DeviceCatalog | None" = None,
+        catalog: DeviceCatalog | None = None,
     ) -> None:
         self._ruleset = ruleset
         self._categories = categories
@@ -203,9 +205,9 @@ class LLMProposalLine:
     def __init__(
         self,
         *,
-        ruleset: "ProactiveRuleSet | None" = None,
+        ruleset: ProactiveRuleSet | None = None,
         categories: Mapping[str, str] | None = None,
-        catalog: "DeviceCatalog | None" = None,
+        catalog: DeviceCatalog | None = None,
     ) -> None:
         self._ruleset = ruleset
         self._categories = categories
@@ -252,7 +254,7 @@ def merge_candidate_set(
     facts: Mapping[str, Any],
     cur: Mapping[str, Any],
     lines: Sequence[ProposalLine],
-    catalog: "DeviceCatalog | None",
+    catalog: DeviceCatalog | None,
     embedder: PreferenceEmbedder | None = None,
     available_actions: Sequence[Mapping[str, Any]] | None = None,
     home_id: str = "singleton",
@@ -325,7 +327,7 @@ def augment_candidate_set(
     *,
     facts: Mapping[str, Any],
     cur: Mapping[str, Any],
-    catalog: "DeviceCatalog | None",
+    catalog: DeviceCatalog | None,
     embedder: PreferenceEmbedder | None = None,
     available_actions: Sequence[Mapping[str, Any]] | None = None,
 ) -> CandidateSet:

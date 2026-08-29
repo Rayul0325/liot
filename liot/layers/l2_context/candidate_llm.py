@@ -14,7 +14,8 @@ LLM 의 역할이 '거부권(Gate2)'에서 '후보 제안·설명'으로 이동�
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
+from collections.abc import Mapping, Sequence
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic import ValidationError
 

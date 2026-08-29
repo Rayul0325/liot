@@ -26,14 +26,10 @@ from typing import Any
 from liot.app import LiotApp
 from liot.core.clock import Clock
 from liot.core.contracts import SensorReading
-from liot.core.risk import RiskTier
+from liot.core.risk import RiskTier, _reset_safety_extensions_for_tests
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l2_context.context_builder import derive_occupancy
 from liot.layers.l2_context.external_provider import FakeExternalProvider
-from liot.layers.l2_context.proactive import ProactiveGenerator
-from liot.layers.l3_judgment.llm_judge import FakeLLM
-from liot.layers.l3_judgment.ollama_backend import HTTPOllamaTransport, OllamaBackend
-from liot.layers.l2_context.nl_directive import DirectiveStore, UserDirective
 from liot.layers.l2_context.feature_vector import (
     NEUTRAL_PREF,
     SIGNAL_TARGET,
@@ -41,9 +37,12 @@ from liot.layers.l2_context.feature_vector import (
     apply_signal,
     cell_key,
 )
-from liot.layers.l4_execution.executor import ExecDecision, ExecutionPolicy
-from liot.core.risk import _reset_safety_extensions_for_tests
+from liot.layers.l2_context.nl_directive import DirectiveStore, UserDirective
+from liot.layers.l2_context.proactive import ProactiveGenerator
 from liot.layers.l3_judgment.guardrail import _reset_floor_extensions_for_tests
+from liot.layers.l3_judgment.llm_judge import FakeLLM
+from liot.layers.l3_judgment.ollama_backend import HTTPOllamaTransport, OllamaBackend
+from liot.layers.l4_execution.executor import ExecutionPolicy
 from liot.registry import RegistryError, RuntimeRegistry
 
 # ── 세션 공유 상태와 그 잠금 ─────────────────────────────────────────────

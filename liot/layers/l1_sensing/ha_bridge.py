@@ -23,7 +23,8 @@ HA WebSocket API 흐름:
 from __future__ import annotations
 
 import json
-from typing import Any, AsyncIterator, Protocol, runtime_checkable
+from collections.abc import AsyncIterator
+from typing import Any, Protocol, runtime_checkable
 
 from liot.core.contracts import SensorReading
 

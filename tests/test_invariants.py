@@ -23,7 +23,6 @@ from liot.core.contracts import (
 )
 from liot.core.event_bus import InProcessBus
 from liot.core.invariants import (
-    InvariantError,
     MonotonicityError,
     TopologyViolation,
     assert_execution_gated,

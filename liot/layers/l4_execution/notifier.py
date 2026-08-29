@@ -32,7 +32,6 @@ from liot.core.egress_gate import Destination, emit_external
 from liot.core.risk import RiskTier
 
 if TYPE_CHECKING:  # pragma: no cover
-    import aiosqlite
 
     from liot.core.clock import Clock
 
@@ -157,7 +156,7 @@ def sign_deeplink(secret: bytes, proposal_id: str, risk_tier: RiskTier) -> str:
     action 까지 묶은 별도 서명(sign_feedback)을 쓴다.
     """
     tier_int = int(RiskTier.from_str(risk_tier))
-    message = f"{proposal_id}:{tier_int}".encode("utf-8")
+    message = f"{proposal_id}:{tier_int}".encode()
     sig = hmac.new(secret, message, hashlib.sha256).hexdigest()
     return f"liot://p/{proposal_id}?t={tier_int}&sig={sig}"
 
@@ -169,7 +168,7 @@ def sign_feedback(secret: bytes, proposal_id: str, risk_tier: RiskTier, action: 
     수행할 수 없다 — 도청자가 사용자의 선택을 뒤집지 못한다.
     """
     tier_int = int(RiskTier.from_str(risk_tier))
-    message = f"{proposal_id}:{tier_int}:{(action or '').strip().lower()}".encode("utf-8")
+    message = f"{proposal_id}:{tier_int}:{(action or '').strip().lower()}".encode()
     return hmac.new(secret, message, hashlib.sha256).hexdigest()
 
 
@@ -186,7 +185,7 @@ class Notifier:
         secret: bytes | str = b"liot-dev-signing-key",
         topic: str = "liot",
         channel: str = "ntfy",
-        clock: "Clock | None" = None,
+        clock: Clock | None = None,
     ) -> None:
         self._secret = secret.encode("utf-8") if isinstance(secret, str) else secret
         self._topic = topic

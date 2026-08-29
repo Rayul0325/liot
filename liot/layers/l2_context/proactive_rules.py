@@ -23,9 +23,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -64,7 +65,7 @@ class ProactiveRuleError(ValueError):
 SAFETY_ACTUATOR_CAPABILITIES: frozenset[str] = frozenset({"lock", "valve", "oven"})
 
 
-def derive_proactive_allowed(catalog: "DeviceCatalog") -> frozenset[tuple[str, str]]:
+def derive_proactive_allowed(catalog: DeviceCatalog) -> frozenset[tuple[str, str]]:
     """카탈로그 raw capabilities 맵에서 능동 허용목록을 파생한다(단일 원천).
 
     (capability, action) 을 포함하는 조건(둘 다 충족):

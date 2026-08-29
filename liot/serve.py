@@ -37,7 +37,6 @@ from liot.layers.l4_execution.executor import HAExecutor, build_execution_policy
 from liot.layers.l4_execution.ntfy_transport import build_ntfy_transport
 from liot.service import DEV_SIGNING_SECRET, LiotService
 
-
 DEV_SECRET_TEXT = DEV_SIGNING_SECRET.decode("utf-8")
 
 _LOOPBACK_HOSTNAMES = frozenset({"localhost", "ip6-localhost", "ip6-loopback"})

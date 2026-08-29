@@ -18,11 +18,11 @@ from __future__ import annotations
 
 import asyncio
 
+from liot.app import LiotApp
 from liot.core.clock import Clock
 from liot.core.contracts import Proposal, SensorReading
 from liot.core.risk import RiskTier
 from liot.layers.l1_sensing.normalizer import normalize
-from liot.app import LiotApp
 
 
 def _reading(

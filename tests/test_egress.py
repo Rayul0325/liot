@@ -11,9 +11,9 @@ from __future__ import annotations
 import pytest
 
 from liot.core.egress_gate import (
+    NTFY_ALLOWED_KEYS,
     AliasMap,
     Destination,
-    NTFY_ALLOWED_KEYS,
     emit_external,
     pseudonymize_recursive,
 )

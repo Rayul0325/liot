@@ -13,8 +13,9 @@ v1 파서는 결정론 키워드 규칙(네트워크 없음); 실 LLM 파싱은 
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, Sequence, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from liot.core.contracts import CandidateAction, CandidateSet, is_noop
 from liot.core.risk import is_safety_category

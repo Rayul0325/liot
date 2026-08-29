@@ -27,7 +27,6 @@ from typing import TYPE_CHECKING, Any
 from liot.app import LiotApp
 from liot.core.clock import Clock
 from liot.core.scoped_repo import ScopedRepo
-from liot.layers.l2_context.feedback_store import InMemoryFeedbackStore
 from liot.layers.l2_context.feature_vector import (
     apply_decay,
     apply_signal,
@@ -35,6 +34,7 @@ from liot.layers.l2_context.feature_vector import (
     load_cells,
     save_cells,
 )
+from liot.layers.l2_context.feedback_store import InMemoryFeedbackStore
 from liot.layers.l2_context.preference_store import PreferenceStore
 from liot.layers.l4_execution.executor import (
     ExecDecision,
@@ -80,7 +80,7 @@ class DispatchResult:
 
     def __init__(
         self,
-        proposal: "Proposal",
+        proposal: Proposal,
         decision: str,
         sent: bool,
         error: str | None = None,
@@ -105,7 +105,7 @@ class LiotService:
     def __init__(
         self,
         app: LiotApp,
-        db: "aiosqlite.Connection",
+        db: aiosqlite.Connection,
         *,
         home_id: str = "singleton",
         clock: Clock | None = None,
@@ -179,7 +179,7 @@ class LiotService:
     # ------------------------------------------------------------------
     # 디스패치(영속 + 발화 + 송신)
     # ------------------------------------------------------------------
-    async def dispatch(self, proposal: "Proposal") -> DispatchResult:
+    async def dispatch(self, proposal: Proposal) -> DispatchResult:
         """제안을 영속화하고 발화 게이트를 적용해 (가능하면) 실제 송신한다.
 
         조작이 활성(executor+policy)이면, 정책이 AUTO(비안전 ≤BREATH)로 판정한
@@ -223,7 +223,7 @@ class LiotService:
     # ------------------------------------------------------------------
     # 조작(불변식 8) — fail-closed: 실행 실패는 파이프라인을 죽이지 않는다.
     # ------------------------------------------------------------------
-    async def _try_execute(self, proposal: "Proposal") -> bool:
+    async def _try_execute(self, proposal: Proposal) -> bool:
         """executor 로 실제 조작. 이전 상태를 캡처(되돌리기용). 실패는 False."""
         if self._executor is None:
             return False
@@ -235,7 +235,7 @@ class LiotService:
             self._prior[proposal.proposal_id] = res.prior_state
         return res.ok
 
-    async def _on_approved(self, proposal: "Proposal") -> str:
+    async def _on_approved(self, proposal: Proposal) -> str:
         """승인(accepted) 피드백 후 정책에 따라 실행한다.
 
         CONFIRM(DUSK) → 즉시 실행. DOUBLE_CONFIRM(EMBER/안전) → 1차는 보류하고
@@ -277,7 +277,7 @@ class LiotService:
     # ------------------------------------------------------------------
     # 진입점들
     # ------------------------------------------------------------------
-    async def handle_reading(self, reading: "SensorReading") -> DispatchResult | None:
+    async def handle_reading(self, reading: SensorReading) -> DispatchResult | None:
         """단일 센서 읽기를 파이프라인에 흘리고, 제안이 나오면 디스패치."""
         proposal = await self.app.process_reading(reading)
         if proposal is None:
@@ -310,7 +310,7 @@ class LiotService:
         cells = await load_cells(self.prefs)
         self.app.set_preference_cells(cells)
 
-    def _remember_proposal_cell(self, proposal: "Proposal") -> None:
+    def _remember_proposal_cell(self, proposal: Proposal) -> None:
         """제안이 만들어진 맥락+행동의 셀 키를 기억한다(해소 시 신호 반영용)."""
         facts = self.app.last_facts
         if not facts:
@@ -387,7 +387,7 @@ class LiotService:
 
     async def run(
         self,
-        bridge: "HABridge | None" = None,
+        bridge: HABridge | None = None,
         *,
         tick_seconds: float = 300.0,
         max_events: int | None = None,
@@ -407,7 +407,7 @@ class LiotService:
             for t in tasks:
                 t.cancel()
 
-    async def _stream_loop(self, bridge: "HABridge", max_events: int | None) -> None:
+    async def _stream_loop(self, bridge: HABridge, max_events: int | None) -> None:
         n = 0
         async for reading in bridge.stream():
             await self.handle_reading(reading)
@@ -427,7 +427,7 @@ class LiotService:
     # ------------------------------------------------------------------
     # 피드백 HTTP 수신구(서명 검증). 같은 이벤트 루프·DB 공유.
     # ------------------------------------------------------------------
-    async def serve_feedback(self, host: str = "127.0.0.1", port: int = 8099) -> "asyncio.AbstractServer":
+    async def serve_feedback(self, host: str = "127.0.0.1", port: int = 8099) -> asyncio.AbstractServer:
         """최소 HTTP GET /feedback?p=&t=&sig=&a= 수신구를 연다(무의존)."""
         return await asyncio.start_server(self._handle_feedback_conn, host, port)
 
@@ -439,7 +439,7 @@ class LiotService:
             request = line.decode("latin-1", "replace").strip()
             # "GET /feedback?p=..&t=..&sig=..&a=.. HTTP/1.1"
             status, body = await self._route_feedback(request)
-        except (asyncio.TimeoutError, ValueError):
+        except (TimeoutError, ValueError):
             status, body = "400 Bad Request", "bad request"
         except Exception:  # pragma: no cover - 수신구는 절대 죽지 않는다
             status, body = "500 Internal Server Error", "error"

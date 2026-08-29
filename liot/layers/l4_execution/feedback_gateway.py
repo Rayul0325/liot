@@ -43,7 +43,7 @@ def verify_deeplink_sig(secret: bytes, proposal_id: str, tier: str | int, sig: s
         tier_int = int(tier)
     except (TypeError, ValueError):
         return False
-    message = f"{proposal_id}:{tier_int}".encode("utf-8")
+    message = f"{proposal_id}:{tier_int}".encode()
     expected = hmac.new(secret, message, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, str(sig))
 
@@ -60,7 +60,7 @@ def verify_feedback_sig(
         tier_int = int(tier)
     except (TypeError, ValueError):
         return False
-    message = f"{proposal_id}:{tier_int}:{(action or '').strip().lower()}".encode("utf-8")
+    message = f"{proposal_id}:{tier_int}:{(action or '').strip().lower()}".encode()
     expected = hmac.new(secret, message, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, str(sig))
 
@@ -79,7 +79,7 @@ class FeedbackGateway:
         "stop": "stop",
     }
 
-    def __init__(self, secret: bytes | str, proposal_service: "ProposalService") -> None:
+    def __init__(self, secret: bytes | str, proposal_service: ProposalService) -> None:
         self._secret = secret.encode("utf-8") if isinstance(secret, str) else secret
         self._svc = proposal_service
 
@@ -91,7 +91,7 @@ class FeedbackGateway:
         action: str,
         *,
         latency_ms: int | None = None,
-    ) -> "Proposal | None":
+    ) -> Proposal | None:
         """서명(action-bound) 검증 후 피드백을 적용한다.
 
         - action 이 시스템 매핑 밖이면 FeedbackAuthError.

@@ -8,9 +8,9 @@ AliasMap 가명 토큰만으로 구성해 식별 정보 누출을 구조적으�
 from __future__ import annotations
 
 from .context_builder import (
-    ContextBuilder,
     SUMMARY_TEMPLATE,
     SUMMARY_TEMPLATE_SHA,
+    ContextBuilder,
     semantic_delta,
     should_snapshot,
 )

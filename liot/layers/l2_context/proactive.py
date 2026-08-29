@@ -25,9 +25,10 @@ trigger 로 삼아 snapshot_hash 가 판단된 후보를 고정한다.
 from __future__ import annotations
 
 import weakref
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any
 
 from liot.core.categories import resolve_category
 from liot.core.clock import Clock
@@ -72,14 +73,14 @@ PROACTIVE_TIER_CEILING = RiskTier.BREATH
 # 카탈로그 인스턴스별 파생 허용목록 메모(약한 참조 키 — 카탈로그가 GC 되면 자동 제거).
 # 데모는 요청마다 새 DeviceCatalog(registry.to_catalog())를 만들지만, 한 생성기의
 # 수명 안에선 같은 catalog 로 후보 검증이 반복되므로 재파생을 피한다.
-_ALLOWED_MEMO: "weakref.WeakKeyDictionary[DeviceCatalog, frozenset[tuple[str, str]]]" = (
+_ALLOWED_MEMO: weakref.WeakKeyDictionary[DeviceCatalog, frozenset[tuple[str, str]]] = (
     weakref.WeakKeyDictionary()
 )
 # catalog=None 경로(카탈로그 미주입 생성기)의 출하 기본 허용목록(첫 사용 시 1회 파생).
 _DEFAULT_ALLOWED: frozenset[tuple[str, str]] | None = None
 
 
-def _proactive_allowed(catalog: "DeviceCatalog | None") -> frozenset[tuple[str, str]]:
+def _proactive_allowed(catalog: DeviceCatalog | None) -> frozenset[tuple[str, str]]:
     """catalog 에서 파생한 능동 허용목록(인스턴스별 메모). catalog=None → 출하 기본.
 
     catalog 가 없으면 출하 ``load_device_catalog()`` 파생분(=구 고정 6튜플 허용목록)
@@ -100,7 +101,7 @@ def _proactive_allowed(catalog: "DeviceCatalog | None") -> frozenset[tuple[str, 
 
 
 def validate_proactive_candidate(
-    candidate: CandidateAction, catalog: "DeviceCatalog | None"
+    candidate: CandidateAction, catalog: DeviceCatalog | None
 ) -> str | None:
     """능동 후보의 금지 사유를 반환한다(None = 통과). deny-by-default.
 
@@ -138,7 +139,7 @@ def validate_proactive_candidate(
 
 
 def assert_proactive_candidate(
-    candidate: CandidateAction, catalog: "DeviceCatalog | None"
+    candidate: CandidateAction, catalog: DeviceCatalog | None
 ) -> None:
     """app 경계의 방어 심층: 금지 능동 후보는 InvariantError (불변식 7)."""
     reason = validate_proactive_candidate(candidate, catalog)
@@ -223,7 +224,7 @@ class ProactiveGenerator:
         ruleset: ProactiveRuleSet | None = None,
         rules_dir: str | None = None,
         *,
-        catalog: "DeviceCatalog | None" = None,
+        catalog: DeviceCatalog | None = None,
         categories: Mapping[str, str] | None = None,
         state: ProactiveState | None = None,
         clock: Clock | None = None,

@@ -68,7 +68,7 @@ def test_missing_gate1_verdict_is_rejected() -> None:
     ],
 )
 def test_required_confirmation_mapping(tier: RiskTier, expected: str) -> None:
-    router = RiskRouter()
+    # 모듈 수준 route() 를 검증하는 테스트다(라우터 인스턴스 불필요).
     act = _action("light", "turn_on", category="ambient")
     j = _judgment(risk_tier=tier, action=act)
     proposal = route(j, created_at="2026-06-01T12:00:00+00:00")

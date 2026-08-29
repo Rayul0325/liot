@@ -9,7 +9,7 @@ False 가 되며, 시각에 의존하는 판단을 보수적으로(승격 쪽으
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 __all__ = ["Clock", "TimeBucket"]
 
@@ -48,13 +48,13 @@ class Clock:
                 text = text[:-1] + "+00:00"
             dt = datetime.fromisoformat(text)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
 
     def _raw_now(self) -> datetime:
         if self._fixed is not None:
             return self._fixed
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
     def now_utc(self) -> str:
         """현재(또는 고정된) 시각의 UTC ISO8601 문자열.

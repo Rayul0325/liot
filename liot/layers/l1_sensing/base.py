@@ -6,7 +6,8 @@ SensorSource 는 ``SensorReading`` 을 비동기로 스트리밍하는 모든 �
 
 from __future__ import annotations
 
-from typing import AsyncIterator, Protocol, runtime_checkable
+from collections.abc import AsyncIterator
+from typing import Protocol, runtime_checkable
 
 from liot.core.contracts import SensorReading
 

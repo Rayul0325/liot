@@ -35,10 +35,10 @@ from liot.layers.l2_context.proactive_rules import (
     derive_proactive_allowed,
     load_proactive_ruleset,
 )
-from liot.registry import RuntimeRegistry
 from liot.layers.l3_judgment.llm_judge import LLMResult
 from liot.layers.l3_judgment.ollama_backend import OllamaBackend
 from liot.layers.l4_execution.device_catalog import load_device_catalog
+from liot.registry import RuntimeRegistry
 
 DAY = "2026-06-02T12:00:00+00:00"  # time_bucket 'day'
 CLOCK = Clock(fixed=DAY)

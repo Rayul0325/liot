@@ -42,7 +42,7 @@ class ScopedRepo:
 
     def __init__(self, home_id: str | None) -> None:
         if home_id is None or not str(home_id).strip():
-            raise IsolationError("home_id must be a non-empty string (got %r)" % (home_id,))
+            raise IsolationError(f"home_id must be a non-empty string (got {home_id!r})")
         self._home_id = str(home_id)
 
     @property
@@ -66,7 +66,7 @@ class ScopedRepo:
 
     async def fetchall(
         self,
-        db: "aiosqlite.Connection",
+        db: aiosqlite.Connection,
         table: str,
         *,
         columns: str = "*",
@@ -97,7 +97,7 @@ class ScopedRepo:
 
     async def insert(
         self,
-        db: "aiosqlite.Connection",
+        db: aiosqlite.Connection,
         table: str,
         values: dict[str, Any],
     ) -> None:
@@ -112,7 +112,7 @@ class ScopedRepo:
         await db.execute(sql, tuple(row.values()))
 
 
-async def assert_no_null_tenants(db: "aiosqlite.Connection") -> None:
+async def assert_no_null_tenants(db: aiosqlite.Connection) -> None:
     """모든 테넌트 테이블에 home_id NULL/공백 행이 없음을 검증한다.
 
     하나라도 발견되면 IsolationError.

@@ -29,6 +29,7 @@ from .intervention import CONFIRMATION_ORDER, InterventionPolicy, TieredInterven
 
 if TYPE_CHECKING:  # pragma: no cover
     from liot.core.clock import Clock
+
     from .device_catalog import DeviceCatalog
 
 __all__ = ["RiskRouter", "route"]
@@ -43,8 +44,8 @@ class RiskRouter:
 
     def __init__(
         self,
-        catalog: "DeviceCatalog | None" = None,
-        clock: "Clock | None" = None,
+        catalog: DeviceCatalog | None = None,
+        clock: Clock | None = None,
         intervention: InterventionPolicy | None = None,
     ) -> None:
         self._catalog = catalog
@@ -123,8 +124,8 @@ class RiskRouter:
 def route(
     judgment: Judgment,
     *,
-    catalog: "DeviceCatalog | None" = None,
-    clock: "Clock | None" = None,
+    catalog: DeviceCatalog | None = None,
+    clock: Clock | None = None,
     perishable: bool = False,
     expires_at: str | None = None,
     created_at: str | None = None,

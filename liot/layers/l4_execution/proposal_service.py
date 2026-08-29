@@ -11,20 +11,18 @@ Phase1 불변식: 실행 코드 없음. 이 서비스는 제안을 만들고 그
 
 from __future__ import annotations
 
-import uuid
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from liot.core.clock import Clock
 from liot.core.contracts import CandidateAction, FeedbackEvent, Judgment, Proposal
 from liot.core.invariants import InvariantError
+from liot.core.risk import RiskTier
 from liot.core.scoped_repo import DEFAULT_HOME_ID, ScopedRepo
-from .notifier import dedup_key
 
 if TYPE_CHECKING:  # pragma: no cover
     import aiosqlite
 
-    from .device_catalog import DeviceCatalog
     from .risk_router import RiskRouter
 
 __all__ = ["ProposalService", "FEEDBACK_STATE_MAP"]
@@ -49,10 +47,10 @@ class ProposalService:
 
     def __init__(
         self,
-        db: "aiosqlite.Connection",
+        db: aiosqlite.Connection,
         home_id: str = DEFAULT_HOME_ID,
         clock: Clock | None = None,
-        router: "RiskRouter | None" = None,
+        router: RiskRouter | None = None,
     ) -> None:
         # ScopedRepo(None/빈문자열) -> IsolationError (생성자에서 강제).
         self._repo = ScopedRepo(home_id)
@@ -210,7 +208,8 @@ class ProposalService:
         )
         keys: set[str] = set()
         for r in rows:
-            d = {k: r[k] for k in r.keys()} if _is_mapping(r) else None
+            # sqlite3.Row 는 그냥 반복하면 컬럼명이 아니라 '값'이 나온다 → .keys() 필수
+            d = {k: r[k] for k in r.keys()} if _is_mapping(r) else None  # noqa: SIM118
             if d is None:  # pragma: no cover - row_factory 방어
                 continue
             try:
@@ -235,7 +234,8 @@ class ProposalService:
         )
         buckets: dict[str, dict[str, int]] = {}
         for r in rows:
-            d = {k: r[k] for k in r.keys()} if _is_mapping(r) else None
+            # sqlite3.Row 는 그냥 반복하면 컬럼명이 아니라 '값'이 나온다 → .keys() 필수
+            d = {k: r[k] for k in r.keys()} if _is_mapping(r) else None  # noqa: SIM118
             if d is None:  # pragma: no cover
                 continue
             state = d["state"]
@@ -394,7 +394,8 @@ class ProposalService:
     @staticmethod
     def _row_to_proposal(row: Any) -> Proposal:
         if _is_mapping(row):
-            d = {k: row[k] for k in row.keys()}
+            # sqlite3.Row 는 그냥 반복하면 컬럼명이 아니라 '값'이 나온다 → .keys() 필수
+            d = {k: row[k] for k in row.keys()}  # noqa: SIM118
         else:  # pragma: no cover - row_factory 가 Row 가 아닐 때 방어
             raise InvariantError("expected aiosqlite.Row mapping for proposals")
         action = CandidateAction.model_validate_json(d["action_json"])
@@ -402,7 +403,7 @@ class ProposalService:
             proposal_id=d["proposal_id"],
             judgment_id=d["judgment_id"],
             home_id=d["home_id"],
-            risk_tier=int(d["risk_tier"]),
+            risk_tier=RiskTier.from_str(d["risk_tier"]),
             action=action,
             rationale=d["rationale"],
             required_confirmation=d["required_confirmation"],

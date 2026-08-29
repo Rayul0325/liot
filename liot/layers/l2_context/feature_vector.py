@@ -11,7 +11,8 @@ Phase 0 은 표현 + 인터페이스 + 조회 스텁(셀맵 없으면 중립 0.5
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Mapping, Protocol, runtime_checkable
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from liot.core.contracts import CandidateAction, is_noop
 
@@ -127,7 +128,7 @@ def apply_decay(
     return out
 
 
-async def load_cells(store: "PreferenceStore") -> dict[str, float]:
+async def load_cells(store: PreferenceStore) -> dict[str, float]:
     """PreferenceStore(scope=pref_embed)에서 셀맵을 로드한다(없으면 빈)."""
     data = await store.get("cells", {}, scope=PREF_EMBED_SCOPE)
     if not isinstance(data, dict):
@@ -142,7 +143,7 @@ async def load_cells(store: "PreferenceStore") -> dict[str, float]:
 
 
 async def save_cells(
-    store: "PreferenceStore", cells: Mapping[str, float], *, updated_at: str = ""
+    store: PreferenceStore, cells: Mapping[str, float], *, updated_at: str = ""
 ) -> None:
     """셀맵을 PreferenceStore(scope=pref_embed)에 영속한다."""
     await store.set(
@@ -165,10 +166,10 @@ class EmbedderFeedbackStore:
 
     def __init__(
         self,
-        embedder: "PreferenceEmbedder",
+        embedder: PreferenceEmbedder,
         facts: Mapping[str, Any],
         *,
-        base: "FeedbackStore | None" = None,
+        base: FeedbackStore | None = None,
     ) -> None:
         self._embedder = embedder
         self._facts = dict(facts)

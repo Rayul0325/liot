@@ -10,7 +10,7 @@ home_id 별로 격리된 캐시를 권장한다(인스턴스를 home 단위로 �
 
 from __future__ import annotations
 
-from typing import Iterable, Iterator
+from collections.abc import Iterable, Iterator
 
 from liot.core.contracts import SensorReading
 

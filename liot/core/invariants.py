@@ -89,9 +89,7 @@ def _is_abstract_executor(obj: object) -> bool:
     if getattr(obj, "_is_protocol", False):
         return True
     # ABC 를 상속하면서 추상 메서드가 남아 있으면 추상으로 본다.
-    if issubclass(obj, ABC) and bool(getattr(obj, "__abstractmethods__", frozenset())):
-        return True
-    return False
+    return issubclass(obj, ABC) and bool(getattr(obj, "__abstractmethods__", frozenset()))
 
 
 def assert_executor_confined(
@@ -128,7 +126,7 @@ def assert_executor_confined(
             module = importlib.import_module(mod_name)
         except ModuleNotFoundError:
             continue
-        for attr_name, obj in vars(module).items():
+        for obj in vars(module).values():
             if not inspect.isclass(obj):
                 continue
             if obj.__module__ != mod_name:  # 임포트된 것 제외, 정의된 것만

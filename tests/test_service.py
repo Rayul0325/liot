@@ -19,23 +19,21 @@ import pytest
 from liot.app import LiotApp
 from liot.core.clock import Clock
 from liot.core.contracts import FeedbackEvent, SensorReading
+from liot.core.risk import RiskTier
 from liot.db.database import init_db
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l2_context.proactive import ProactiveGenerator
 from liot.layers.l2_context.proactive_rules import load_proactive_ruleset
 from liot.layers.l4_execution.feedback_gateway import (
     FeedbackAuthError,
-    FeedbackGateway,
     verify_deeplink_sig,
 )
 from liot.layers.l4_execution.notifier import (
     NotificationBudget,
-    Notifier,
     sign_deeplink,
     sign_feedback,
 )
 from liot.layers.l4_execution.ntfy_transport import FakeNtfyTransport
-from liot.core.risk import RiskTier
 from liot.service import LiotService
 
 DAY = "2026-06-02T12:00:00+00:00"
@@ -374,7 +372,7 @@ def test_http_ntfy_transport_real_post() -> None:
             length = int(self.headers.get("Content-Length", "0"))
             captured["path"] = self.path
             captured["body"] = self.rfile.read(length).decode("utf-8")
-            captured["headers"] = {k: v for k, v in self.headers.items()}
+            captured["headers"] = dict(self.headers.items())
             self.send_response(200)
             self.end_headers()
 

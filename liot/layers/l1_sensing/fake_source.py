@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import AsyncIterator, Iterable, Sequence
+from collections.abc import AsyncIterator, Iterable, Sequence
 
 from liot.core.contracts import SensorReading
 
@@ -36,7 +36,7 @@ class FakeSensorSource:
         *,
         default_source: str = "fake",
         home_id: str = "singleton",
-    ) -> "FakeSensorSource":
+    ) -> FakeSensorSource:
         """원시 dict 행들에서 SensorReading 리스트를 만들어 소스를 구성한다.
 
         각 행 필수 키: entity_id, raw_value, ts_utc. 선택: source, unit,

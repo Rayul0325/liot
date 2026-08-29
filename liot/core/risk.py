@@ -35,7 +35,7 @@ class RiskTier(IntEnum):
     EMBER = 3
 
     @classmethod
-    def from_str(cls, value: str | "RiskTier" | int) -> "RiskTier":
+    def from_str(cls, value: str | RiskTier | int) -> RiskTier:
         """문자열/정수/RiskTier 를 RiskTier 로 정규화한다.
 
         대소문자와 양옆 공백을 무시한다. 알 수 없는 값은 ``ValueError``.

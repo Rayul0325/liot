@@ -10,7 +10,8 @@ catalog 는 인자로만 받는다(TYPE_CHECKING 임포트) — 이 모듈은 �
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Mapping
+from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover
     from liot.layers.l4_execution.device_catalog import DeviceCatalog
@@ -21,7 +22,7 @@ __all__ = ["resolve_category"]
 def resolve_category(
     entity_id: str,
     categories: Mapping[str, str] | None,
-    catalog: "DeviceCatalog | None",
+    catalog: DeviceCatalog | None,
 ) -> str:
     """엔티티의 카테고리를 결정한다(우선순위 고정).
 

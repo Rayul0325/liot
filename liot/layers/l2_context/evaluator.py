@@ -97,7 +97,7 @@ class CandidateEvaluator:
     def __init__(
         self,
         *,
-        catalog: "DeviceCatalog | None" = None,
+        catalog: DeviceCatalog | None = None,
         llm: LLMCandidateBackend | None = None,
         weights: type[EvalWeights] = EvalWeights,
     ) -> None:

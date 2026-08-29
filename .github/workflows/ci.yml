@@ -21,11 +21,16 @@ jobs:
       - name: Install (editable + dev)
         run: uv pip install -e ".[dev]"
 
-      - name: Lint (syntax)
-        run: uv run python -m compileall -q liot tests scripts
+      - name: Lint (ruff)
+        run: uv run python -m ruff check liot tests scripts
 
-      - name: Test (pytest, incl. 6 invariants)
-        run: uv run python -m pytest -q
+      - name: Typecheck (mypy — core + db, strict)
+        run: uv run python -m mypy
+
+      - name: Test (pytest, incl. 6 invariants) + coverage floor
+        run: >-
+          uv run python -m pytest -q --cov
+          --cov-report=term-missing:skip-covered --cov-fail-under=83
 
       - name: Invariant gate — executor confined + execution gated (opt-in OFF)
         run: |

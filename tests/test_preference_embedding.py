@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from liot.app import LiotApp
 from liot.core.clock import Clock
 from liot.core.contracts import (
     ActionCandidate,
@@ -34,7 +35,6 @@ from liot.layers.l2_context.feedback_store import REJECTED_SIGNAL, InMemoryFeedb
 from liot.layers.l2_context.proactive import ProactiveGenerator
 from liot.layers.l2_context.proactive_rules import load_proactive_ruleset
 from liot.layers.l4_execution.device_catalog import load_device_catalog
-from liot.app import LiotApp
 from liot.service import LiotService
 
 DAY = "2026-06-02T12:00:00+00:00"

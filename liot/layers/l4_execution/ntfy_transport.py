@@ -119,7 +119,7 @@ class HTTPNtfyTransport:
             base = self.feedback_base_url
 
             def _sig(action: str) -> str:
-                msg = f"{pid}:{t}:{action}".encode("utf-8")
+                msg = f"{pid}:{t}:{action}".encode()
                 return hmac.new(self._secret, msg, hashlib.sha256).hexdigest()
 
             accept = f"{base}/feedback?p={pid}&t={t}&sig={_sig('accept')}&a=accept"
@@ -137,7 +137,7 @@ class HTTPNtfyTransport:
         # 본문은 위험도 라벨/글리프만(디바이스/방/rationale 부재). UTF-8 허용.
         glyph = str(sanitized.get("glyph", ""))
         label = str(sanitized.get("label", ""))
-        return f"{glyph} {label} 제안이 도착했어요. 열어서 확인해 주세요.".encode("utf-8")
+        return f"{glyph} {label} 제안이 도착했어요. 열어서 확인해 주세요.".encode()
 
     def send(self, topic: str, sanitized: dict[str, Any]) -> None:
         import urllib.error

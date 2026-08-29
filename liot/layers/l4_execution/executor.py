@@ -23,9 +23,10 @@ LIOT 의 기본은 제안-만(불변식 3)이다. 이 모듈은 그 위에 *옵�
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from liot.core.contracts import CandidateAction
 from liot.core.risk import RiskTier, is_safety_category

@@ -19,7 +19,7 @@ from liot.core.clock import Clock
 from liot.core.contracts import CandidateAction
 from liot.core.risk import RiskTier
 from liot.layers.l2_context.candidate_llm import FakeCandidateLLM
-from liot.layers.l2_context.proactive import ProactiveDecision, ProactiveGenerator
+from liot.layers.l2_context.proactive import ProactiveGenerator
 from liot.layers.l2_context.proactive_rules import load_proactive_ruleset
 from liot.layers.l3_judgment.guardrail import Guardrail, SafetyGate
 from liot.layers.l4_execution.device_catalog import load_device_catalog
@@ -76,7 +76,7 @@ def test_safety_gate_is_guardrail_alias() -> None:
 
 def test_gate_floor_ignores_candidate_origin() -> None:
     gate = SafetyGate()
-    base = dict(capability="valve", action="open", entity_id="switch.gas_valve", category="gas")
+    base = {"capability": "valve", "action": "open", "entity_id": "switch.gas_valve", "category": "gas"}
     from_rule = CandidateAction(**base, params={"__origin__": "proactive:rule:x@y"})
     from_llm = CandidateAction(**base, params={"__origin__": "proactive:llm"})
     r_rule = gate.evaluate(from_rule)

@@ -20,6 +20,9 @@ dependencies = [
 dev = [
     "pytest",
     "pytest-asyncio",
+    "pytest-cov",
+    "ruff",
+    "mypy",
     "websockets>=12",
 ]
 # Home Assistant WebSocket 연동(실연동 시에만 필요). 단위 테스트는 미설치여도 동작.
@@ -39,3 +42,51 @@ include = ["liot*"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-q"
+
+# ── 품질 도구 ────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# 결함을 잡는 규칙만 켠다. 줄 길이(E5)는 **의도적으로 뺐다** — 이 저장소는
+# 한계를 두고 쓰이지 않아 555줄이 100자를 넘고 최대 213자다. 줄 길이는 결함이
+# 아니고, 일괄 재포매팅은 1만 줄짜리 별건이라 게이트에 섞지 않는다.
+#   E4/E7/E9 임포트·문법 오류 · F 정의/미사용 · B 버그 유발 패턴 ·
+#   SIM 불필요한 복잡도 · C4 컴프리헨션 · I 임포트 정렬 · UP 구식 문법
+select = ["E4", "E7", "E9", "F", "B", "SIM", "C4", "I", "UP"]
+ignore = [
+    # str+Enum → StrEnum. 기능 이득이 없는데 멤버 문자열화·pydantic 직렬화가
+    # 조용히 바뀔 수 있다(Layer·Destination·ExecDecision 은 계약 경계에 있다).
+    # 안전 파이프라인에서 위험 대비 실익이 없어 제외한다.
+    "UP042",
+    # if/else → 삼항. 순수 취향이라 '결함 게이트' 성격에 맞지 않는다.
+    "SIM108",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 테스트는 적대적 케이스를 일부러 만든다(광범위 예외 단언 등).
+"tests/*" = ["B017"]
+
+[tool.mypy]
+python_version = "3.11"
+# 코어(SoT 커널)만 엄격하게 본다. 레이어·데모는 점진 확대 대상.
+files = ["liot/core", "liot/db"]
+strict = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = ["aiosqlite.*", "yaml.*"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["liot"]
+omit = ["*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]

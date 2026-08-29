@@ -13,7 +13,8 @@
 
 from __future__ import annotations
 
-from typing import Mapping, Protocol, runtime_checkable
+from collections.abc import Mapping
+from typing import Protocol, runtime_checkable
 
 from liot.core.contracts import CandidateAction, is_noop
 

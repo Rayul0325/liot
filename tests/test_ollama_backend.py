@@ -11,8 +11,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from liot.core.contracts import CandidateAction, ContextSnapshot
 from liot.core.egress_gate import AliasMap
 from liot.core.risk import RiskTier
