@@ -111,8 +111,11 @@ class HTTPNtfyTransport:
         # 피드백 http 액션(수락/거절). 각 액션마다 action-bound 서명을 새로
         # 계산해 싣는다 → 한 버튼 서명으로 다른 액션을 못 한다(선택 뒤집기 방어).
         # 서명 비밀키가 없으면 버튼을 만들지 않는다(상태 변경 불가, 안전한 기본값).
-        parsed = _parse_deeplink(deeplink) if (self.feedback_base_url and self._secret) else None
-        if parsed:
+        # 지역 변수로 묶어 둔다: self._secret 은 bytes | None 이라, 바깥 가드로
+        # 런타임엔 안전해도 클로저 안에서는 타입이 좁혀지지 않는다(mypy 지적).
+        secret = self._secret
+        parsed = _parse_deeplink(deeplink) if (self.feedback_base_url and secret) else None
+        if parsed and secret is not None:
             import hashlib
             import hmac
 
@@ -123,7 +126,7 @@ class HTTPNtfyTransport:
                 # nonce 를 서명에 묶는다(sign_feedback 과 동일 규약) — 서비스가
                 # 성공한 피드백마다 nonce 를 소비하므로 링크가 1회용이 된다.
                 msg = f"{pid}:{t}:{action}:{nonce}".encode()
-                return hmac.new(self._secret, msg, hashlib.sha256).hexdigest()
+                return hmac.new(secret, msg, hashlib.sha256).hexdigest()
 
             qs = f"p={pid}&t={t}&n={nonce}"
             accept = f"{base}/feedback?{qs}&sig={_sig('accept')}&a=accept"

@@ -336,6 +336,7 @@ class LiotService:
         """
         await self.proposals.expire_due()
         await self._apply_expired_signals()  # 만료 = 약한 비선호 신호
+        await self._sweep_nonces()
         await self._refresh_feedback()
         await self._load_pref_cells()  # 영속 선호 셀 → 임베더(개인화 반영)
         proposal = await self.app.tick()
@@ -387,9 +388,21 @@ class LiotService:
             p = await self.proposals.get(pid)
             if p is not None and (p.state or "").lower() == "expired":
                 await self._apply_pref_signal(pid, "expired")
-                # 만료된 제안의 1회용 토큰은 더 쓸 일이 없다. 지워 두면 (a) 상시
-                # 데몬에서 _nonce 가 무한히 자라지 않고, (b) 만료 후 도착한
-                # 링크가 확실히 거부된다.
+
+    async def _sweep_nonces(self) -> None:
+        """더 이상 pending 이 아닌 제안의 1회용 토큰을 버린다.
+
+        상태를 직접 보는 이유: 선호 셀 추적(_prop_cell)은 tick 제안만 담는다
+        (_remember_proposal_cell 이 app.last_facts 를 요구하는데 그건 tick 에서만
+        채워진다). 거기에 정리를 얹으면 **이벤트 기반 제안**(가스 경보 등)의
+        토큰이 영원히 남아 상시 데몬에서 _nonce 가 무한히 자란다.
+
+        읽기 횟수는 살아 있는 토큰 수만큼이고, 한 번 정리되면 맵이 작게
+        유지되므로 자기교정된다.
+        """
+        for pid in list(self._nonce):
+            proposal = await self.proposals.get(pid)
+            if proposal is None or (proposal.state or "").lower() != "pending":
                 self._nonce.pop(pid, None)
 
     async def _refresh_feedback(self) -> None:

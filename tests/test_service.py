@@ -428,3 +428,38 @@ async def test_run_tick_only_daemon_bounded(tmp_path) -> None:
         assert any(p.action.action == "turn_off" for p in pend)
     finally:
         await db.close()
+
+
+# ── 1회용 토큰의 수명: 이벤트 기반 제안도 정리된다 ──────────────────────
+async def test_nonce_sweep_covers_event_driven_proposals(tmp_path) -> None:
+    """해소된 제안의 nonce 는 스윕에서 사라진다 — tick 제안이 아니어도.
+
+    처음 구현은 정리를 `_apply_expired_signals` 에 얹었는데, 그 경로는
+    `_prop_cell` 에 있는 제안만 훑는다. `_remember_proposal_cell` 은
+    `app.last_facts` 를 요구하고 그건 `tick()` 에서만 채워지므로,
+    **이벤트 기반 제안(가스 경보 등)은 아예 담기지 않는다** — 그 토큰들이
+    상시 데몬에서 영원히 쌓였다. 지금은 제안 상태를 직접 보고 버린다.
+    """
+    svc, db = await _make_service(tmp_path)
+    try:
+        res = await svc.handle_reading(_reading("binary_sensor.kitchen_gas", "on"))
+        pid = res.proposal.proposal_id
+
+        assert pid in svc._nonce, "디스패치가 토큰을 발급하지 않았다"
+        # 이 제안이 옛 정리 경로에 안 잡힌다는 사실 자체를 고정한다.
+        assert pid not in svc._prop_cell, (
+            "이벤트 기반 제안이 _prop_cell 에 담겼다 — 이 테스트의 전제가 바뀌었다"
+        )
+
+        # 스윕: 아직 pending 이면 토큰을 유지해야 한다(살아 있는 링크를 죽이지 않는다).
+        await svc._sweep_nonces()
+        assert pid in svc._nonce, "pending 제안의 토큰이 잘못 회수됐다"
+
+        # 해소되면 회수된다.
+        await svc.proposals.apply_feedback(
+            FeedbackEvent(proposal_id=pid, trace_id=f"fb-{pid}", user_action="dismissed")
+        )
+        await svc._sweep_nonces()
+        assert pid not in svc._nonce, "해소된 제안의 토큰이 남았다(무한 증가)"
+    finally:
+        await db.close()
