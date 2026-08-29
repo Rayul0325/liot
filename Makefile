@@ -1,4 +1,4 @@
-.PHONY: install test demo smoke lint typecheck cov check clean
+.PHONY: install test demo smoke lint typecheck cov check hooks clean
 
 VENV ?= .venv
 PY := $(VENV)/bin/python
@@ -22,6 +22,12 @@ cov:
 
 # 전체 게이트 — CI 와 같은 순서.
 check: lint typecheck test
+
+# 푸시 전 게이트 설치. GitHub Actions 가 push 로 발화하지 않는 동안(README 참고)
+# 실제로 검사가 도는 자리는 이 훅이다.
+hooks:
+	git config core.hooksPath .githooks
+	@echo "pre-push 훅 활성화됨 (건너뛰려면 git push --no-verify)"
 
 demo:
 	$(PY) -m liot.demo

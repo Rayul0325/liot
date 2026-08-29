@@ -1,0 +1,29 @@
+#!/bin/sh
+# 푸시 전 품질 게이트 — CI 와 같은 검사를 로컬에서 먼저 돌린다.
+#
+# 왜 있나: 이 저장소의 GitHub Actions 는 workflow_dispatch(수동)로는 돌지만
+# push 이벤트로는 발화하지 않는다(2026-08-29 확인: main 에 3회 푸시, push 이벤트
+# 실행 0건·커밋 체크런 0건, 설정은 전부 정상). 원인이 GitHub 쪽에 있어 고칠 수
+# 없는 동안, 게이트가 실제로 도는 자리는 여기다.
+#
+# 설치: make hooks   (git config core.hooksPath .githooks)
+# 건너뛰기: git push --no-verify   (급할 때만)
+
+set -e
+
+PY="${VENV:-.venv}/bin/python"
+if [ ! -x "$PY" ]; then
+    echo "[pre-push] $PY 가 없어 게이트를 건너뜁니다 (make install 로 환경을 만드세요)."
+    exit 0
+fi
+
+echo "[pre-push] lint (ruff)"
+"$PY" -m ruff check liot tests scripts
+
+echo "[pre-push] typecheck (mypy)"
+"$PY" -m mypy
+
+echo "[pre-push] test (pytest)"
+"$PY" -m pytest -q
+
+echo "[pre-push] 통과 — 푸시를 진행합니다."

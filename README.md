@@ -121,10 +121,23 @@ make cov       # 커버리지 + 하한 83% 게이트
   (`UP042`·`SIM108`)은 `pyproject.toml` 에 사유와 함께 적혀 있다.
 - **mypy**: SoT 커널인 `liot/core`·`liot/db` 를 strict 로 본다(임포트를 따라가
   실제로는 12개 파일 검사). 레이어 전체로 넓히는 것은 점진 과제.
-- **커버리지**: 2026-08-29 실측 **84.9%**. 하한 83% 는 회귀 방지선이지 목표가
-  아니다. 낮은 곳은 `serve.py`(43%, 데몬 진입점)·`ollama_backend`(54%, 실
+- **커버리지**: 2026-08-29 실측 **84.9%**(CI 85.0%). 하한 83% 는 회귀 방지선이지
+  목표가 아니다. 낮은 곳은 `serve.py`(43%, 데몬 진입점)·`ollama_backend`(54%, 실
   네트워크 경로)·`demo.py`(0%, CLI 데모)로, 전부 단위 테스트가 닿기 어려운
   I/O 경계다.
+
+> [!warning] CI 가 푸시로 발화하지 않는다 (2026-08-29 확인)
+> GitHub Actions 는 **수동 실행(`workflow_dispatch`)으로는 정상 통과**하지만
+> `push` 이벤트로는 실행되지 않는다. main 에 3회 푸시했으나 push 이벤트 실행
+> 0건·커밋 체크런 0건이었고, 저장소 설정(Actions 활성·`on: push` 정상·fork/
+> archived/disabled 아님·기본 브랜치 main)은 모두 정상이라 원인은 GitHub 쪽에
+> 있다. 그래서 **게이트가 실제로 도는 자리는 `make hooks` 로 설치하는 pre-push
+> 훅**이다. 새로 클론하면 `make install && make hooks` 를 한 번 돌린다. 푸시
+> 트리거가 살아나면 이 경고를 지운다.
+
+```bash
+make hooks   # 푸시 전 lint+typecheck+test 자동 실행(git push --no-verify 로 우회)
+```
 
 ---
 
