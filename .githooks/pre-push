@@ -2,19 +2,47 @@
 # 푸시 전 품질 게이트 — CI 와 같은 검사를 로컬에서 먼저 돌린다.
 #
 # 왜 있나: 이 저장소의 GitHub Actions 는 workflow_dispatch(수동)로는 돌지만
-# push 이벤트로는 발화하지 않는다(2026-08-29 확인: main 에 3회 푸시, push 이벤트
-# 실행 0건·커밋 체크런 0건, 설정은 전부 정상). 원인이 GitHub 쪽에 있어 고칠 수
-# 없는 동안, 게이트가 실제로 도는 자리는 여기다.
+# push 이벤트로는 발화하지 않는다(2026-08-29 확인: main 에 여러 번 푸시, push
+# 이벤트 실행 0건·커밋 체크런 0건, 설정은 전부 정상). 원인이 GitHub 쪽에 있어
+# 고칠 수 없는 동안, 게이트가 실제로 도는 자리는 여기다.
+#
+# 한계(알고 쓰는 것): 검사 대상은 **작업트리**이지 푸시되는 커밋이 아니다.
+# git 의 editable 설치가 이 트리를 가리키고 있어 임시 워크트리로 갈아끼울 수
+# 없기 때문이다. 그래서 트리가 더러우면 아래에서 경고를 띄운다 — 그때의 통과는
+# '지금 이 트리'에 대한 것이지 푸시되는 커밋에 대한 보증이 아니다.
 #
 # 설치: make hooks   (git config core.hooksPath .githooks)
 # 건너뛰기: git push --no-verify   (급할 때만)
 
 set -e
 
+# 브랜치 삭제(로컬 sha 가 0)만 있는 푸시면 검사할 게 없다. git 은 훅 stdin 으로
+# `<local-ref> <local-sha> <remote-ref> <remote-sha>` 를 준다.
+only_deletes=1
+saw_ref=0
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+    [ -z "$local_sha" ] && continue
+    saw_ref=1
+    case "$local_sha" in
+        *[!0]*) only_deletes=0 ;;
+    esac
+done
+if [ "$saw_ref" -eq 1 ] && [ "$only_deletes" -eq 1 ]; then
+    echo "[pre-push] 브랜치 삭제만 있는 푸시 — 검사 생략."
+    exit 0
+fi
+
 PY="${VENV:-.venv}/bin/python"
 if [ ! -x "$PY" ]; then
-    echo "[pre-push] $PY 가 없어 게이트를 건너뜁니다 (make install 로 환경을 만드세요)."
-    exit 0
+    echo "[pre-push] 게이트를 돌릴 수 없습니다: $PY 가 없습니다."
+    echo "[pre-push] 'make install' 로 환경을 만든 뒤 다시 푸시하세요."
+    echo "[pre-push] (검사 없이 밀어야 한다면 git push --no-verify)"
+    exit 1
+fi
+
+if [ -n "$(git status --porcelain)" ]; then
+    echo "[pre-push] ⚠ 작업트리에 커밋되지 않은 변경이 있습니다."
+    echo "[pre-push]   아래 결과는 '현재 트리' 기준이며, 푸시되는 커밋의 보증이 아닙니다."
 fi
 
 echo "[pre-push] lint (ruff)"
@@ -23,7 +51,10 @@ echo "[pre-push] lint (ruff)"
 echo "[pre-push] typecheck (mypy)"
 "$PY" -m mypy
 
-echo "[pre-push] test (pytest)"
-"$PY" -m pytest -q
+echo "[pre-push] test + coverage floor"
+"$PY" -m pytest -q --cov --cov-report= --cov-fail-under=83
+
+echo "[pre-push] secret scan"
+./scripts/secret_scan.sh
 
 echo "[pre-push] 통과 — 푸시를 진행합니다."

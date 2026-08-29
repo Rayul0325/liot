@@ -10,9 +10,13 @@
   2) **피드백 갱신이 유실된다** — `_apply_feedback` 은 `_PREF_CELLS` 를 읽어 새
      dict 로 갈아끼우는 read-modify-write 라, 동시 갱신 중 하나가 덮인다.
 
-두 테스트 모두 느린 지점을 주입해 경합 창을 넓히므로 타이밍에 기대지 않는다
-(잠금이 없으면 결정적으로 적색). 루프백 HTTP 왕복만 쓰고 외부 네트워크는
-호출하지 않는다 — `tests/test_service.py` 의 실 HTTP 왕복과 같은 방식이다.
+두 테스트 모두 **동기화 프리미티브로 경합 시점을 고정한다** — 느린 지점을
+주입해 창을 넓히되, 그 창에 들어갔는지는 sleep 으로 추측하지 않고 Event·Barrier
+로 확인한다. 이게 중요한 이유는 빗나가는 방향이 false green 이기 때문이다:
+등록이 스냅샷 전에 끝나면 롤백이 그걸 보존해, 락이 없어도 통과해 버린다.
+
+루프백 HTTP 왕복만 쓰고 외부 네트워크는 호출하지 않는다 —
+`tests/test_service.py` 의 실 HTTP 왕복과 같은 방식이다.
 """
 
 from __future__ import annotations
@@ -106,7 +110,13 @@ def get(base: str, path: str) -> dict[str, Any]:
 def test_preset_rollback_does_not_erase_concurrent_registration(server, monkeypatch):
     """실패한 프리셋의 롤백이, 그 사이 등록된 센서까지 되돌려 지우면 안 된다."""
 
+    # 경합 창에 '들어갔음'을 신호로 확인한다. sleep 으로 때를 맞추면 빗나갔을 때
+    # 센서 등록이 스냅샷 이전에 끝나 롤백이 그걸 보존해 버리고, 락이 없어도
+    # 테스트가 통과한다(false green). 그래서 추측 대신 동기화를 쓴다.
+    in_rule_stage = threading.Event()
+
     def slow_failing_add_rule(spec: dict[str, Any]) -> dict[str, Any]:
+        in_rule_stage.set()  # 스냅샷·기기 등록을 마치고 규칙 단계에 진입했다
         time.sleep(0.4)  # 롤백 직전 구간을 넓힌다(경합 창)
         raise RegistryError("의도적 실패(동시성 테스트)", field="capability")
 
@@ -119,7 +129,7 @@ def test_preset_rollback_does_not_erase_concurrent_registration(server, monkeypa
 
     worker = threading.Thread(target=apply_preset)
     worker.start()
-    time.sleep(0.1)  # 프리셋이 규칙 단계(느린 실패)에 들어간 뒤
+    assert in_rule_stage.wait(timeout=10), "프리셋이 규칙 단계에 도달하지 못했다"
     out["sensor"] = post(server, "/api/registry/sensor", SENSOR)
     worker.join(timeout=10)
 
@@ -145,11 +155,18 @@ def test_concurrent_feedback_updates_are_not_lost(server, monkeypatch):
 
     monkeypatch.setattr(demo_server, "apply_signal", slow_apply_signal)
 
-    payload = {"cell": "night|away", "signal": "accepted"}
+    # 실제 cell_key() 형식(time_bucket|occupancy|capability:action). 3분절이 아닌
+    # 키는 /api/simulate 가 절대 조회하지 못해, 통과해도 아무것도 증명하지 않는다.
+    payload = {"cell": "evening|vacant|light:turn_off", "signal": "accepted"}
     results: list[dict[str, Any]] = []
     lock = threading.Lock()
 
+    # 두 요청이 실제로 겹치도록 배리어로 출발을 맞춘다. 한쪽이 늦게 출발해
+    # 앞선 갱신이 이미 끝나 있으면, 락이 없어도 값이 정상으로 보인다(false green).
+    start = threading.Barrier(2, timeout=10)
+
     def send() -> None:
+        start.wait()
         _, body = post(server, "/api/feedback", payload)
         with lock:
             results.append(body)

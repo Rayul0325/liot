@@ -48,9 +48,5 @@ jobs:
           print("OK: executor confined to sanctioned module; execution gated (opt-in OFF)")
           PY
 
-      - name: Secret scan (no plaintext keys committed)
-        run: |
-          if git grep -nE 'sk-ant-[A-Za-z0-9_-]{8}' -- . ; then
-            echo "::error::potential Anthropic key committed"; exit 1
-          fi
-          echo "OK: no obvious secrets"
+      - name: Secret scan (shared with the pre-push hook)
+        run: ./scripts/secret_scan.sh

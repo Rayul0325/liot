@@ -388,54 +388,70 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
             outdoor_aqi=outdoor.get("aqi"),
         )
 
-    categories = _REGISTRY.categories()
-    catalog = _REGISTRY.to_catalog()
-    # 능동 생성기에 레지스트리 병합 룰셋(config 베이스라인 + 런타임 임계 규칙)을
-    # 공급한다 — 등록한 규칙이 다음 tick 부터 propose()/후보집합에 흐른다(D5).
-    proactive = ProactiveGenerator(
-        ruleset=_REGISTRY.proactive_ruleset(),
-        catalog=catalog,
-        categories=categories,
-        clock=clock,
-    )
-    app = LiotApp(
-        clock=clock,
-        catalog=catalog,
-        categories=categories,
-        llm_backend=backend,
-        condition=str(cfg.get("condition") or "B"),
-        external_provider=external,
-        proactive=proactive,
-    )
-    # 폰 피드백으로 갱신된 세션 선호 셀맵을 이번 틱에 주입한다. 빈 맵이면 중립만
-    # 반환(기존 동작 동일) — 수락 피드백 후엔 해당 셀의 user_preference_fit 이 상승해
-    # 평가·embedding 트레이스에 반영된다.
-    app.set_preference_cells(dict(_PREF_CELLS))
+    # ── 공유 상태 스냅샷 (락은 여기까지만) ─────────────────────────────
+    # 레지스트리 파생물은 전부 새 객체(to_catalog=deepcopy, categories/ruleset=
+    # 새로 조립)라, 락 아래에서 한 번 떠 두면 이후 등록이 끼어도 이번 판단은
+    # 일관된 상태 위에서 끝난다. 값 강제변환(coerce)도 레지스트리를 읽으므로
+    # 여기서 미리 마친다 — 미등록 엔티티면 파이프라인 시작 전에 RegistryError.
+    #
+    # **파이프라인 자체는 락 밖에서 돈다.** 안에서 LLM 네트워크 호출이 일어나고
+    # (OllamaBackend, 기본 timeout 60초) 락을 쥔 채 돌면 그 시간 동안
+    # /api/catalog·/api/feedback·등록까지 전부 멈춘다 — 보드가 통째로 얼어붙는다.
+    with STATE_LOCK:
+        categories = _REGISTRY.categories()
+        catalog = _REGISTRY.to_catalog()
+        # 능동 생성기에 레지스트리 병합 룰셋(config 베이스라인 + 런타임 임계 규칙)을
+        # 공급한다 — 등록한 규칙이 다음 tick 부터 propose()/후보집합에 흐른다(D5).
+        proactive = ProactiveGenerator(
+            ruleset=_REGISTRY.proactive_ruleset(),
+            catalog=catalog,
+            categories=categories,
+            clock=clock,
+        )
+        app = LiotApp(
+            clock=clock,
+            catalog=catalog,
+            categories=categories,
+            llm_backend=backend,
+            condition=str(cfg.get("condition") or "B"),
+            external_provider=external,
+            proactive=proactive,
+        )
+        # 폰 피드백으로 갱신된 세션 선호 셀맵을 이번 틱에 주입한다. 빈 맵이면 중립만
+        # 반환(기존 동작 동일) — 수락 피드백 후엔 해당 셀의 user_preference_fit 이 상승해
+        # 평가·embedding 트레이스에 반영된다.
+        app.set_preference_cells(dict(_PREF_CELLS))
+        # 활성 자연어 지시를 앱에 반영(tick 의 comfort 후보 억제; 안전은 억제 불가).
+        # tick() 에서만 쓰이므로 seeding 앞에 둬도 동작이 같다.
+        app.set_directives(_DIRECTIVES.active())
+        # 카탈로그 파생 실행 확장분 — 응답 조립 단계에서 쓴다.
+        exec_extras = _REGISTRY.executable_extras()
+
+        seed_readings = [_reading(eid, val, ts) for eid, val in sensors.items()]
+        event_reading = None
+        event_action = None
+        if mode == "event":
+            ev = dict(body.get("event") or {})
+            eid = ev.get("entity")
+            if not eid:
+                return {"ok": False, "error": "event 에 entity 가 없습니다"}
+            event_action = ev.get("action")  # None → 카테고리 기본(안전=alert)
+            event_reading = _reading(eid, ev.get("value", sensors.get(eid)), ts)
 
     # 1) 모든 센서를 관찰로 주입(맥락/캐시 갱신, 대개 침묵).
-    #    미등록 센서 값이면 _reading 이 RegistryError → HTTP 400 으로 매핑된다.
-    for eid, val in sensors.items():
-        await app.process_reading(_reading(eid, val, ts), force_snapshot=False)
+    for reading in seed_readings:
+        await app.process_reading(reading, force_snapshot=False)
 
     # seeding 관찰들이 남긴 last_trace 를 비운다 — tick 이 무행동(NoOp)으로
     # 조기 종료하면 last_trace 를 안 채우므로, 비우지 않으면 마지막 seed 트레이스가
     # stale 로 표시된다. 이렇게 해야 침묵 틱은 후보/평가만 보이고 stale 스냅샷은 안 뜬다.
-    # 활성 자연어 지시를 앱에 반영(tick 의 comfort 후보 억제; 안전은 억제 불가).
-    app.set_directives(_DIRECTIVES.active())
-
     app.last_trace = None
     llm_ms: float | None = None
     t0 = time.time()
 
-    if mode == "event":
-        ev = dict(body.get("event") or {})
-        eid = ev.get("entity")
-        if not eid:
-            return {"ok": False, "error": "event 에 entity 가 없습니다"}
-        val = ev.get("value", sensors.get(eid))
-        action = ev.get("action")  # None → 카테고리 기본(안전=alert)
+    if event_reading is not None:
         proposal = await app.process_reading(
-            _reading(eid, val, ts), action=action, force_snapshot=True
+            event_reading, action=event_action, force_snapshot=True
         )
     else:  # proactive tick
         proposal = await app.tick()
@@ -543,7 +559,7 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
         # FORBIDDEN_OPEN(lock.unlock·valve.open)은 어떤 확장에도 못 든다(불변).
         exec_policy = ExecutionPolicy(
             enabled=bool(cfg.get("execution_enabled", False)),
-            extra_executable=_REGISTRY.executable_extras(),
+            extra_executable=exec_extras,
         )
         decision = exec_policy.decide(proposal.action, tier)
         out["proposal"] = {
@@ -663,10 +679,9 @@ class Handler(BaseHTTPRequestHandler):
         if body is None:
             return
         try:
-            # 파이프라인은 카탈로그·룰셋·카테고리·실행 확장분을 실행 내내 읽는다.
-            # 중간에 등록이 끼면 앞뒤가 다른 상태로 판단하게 되므로 통째로 잠근다.
-            with STATE_LOCK:
-                result = asyncio.run(_run(body))
+            # _run 이 앞머리에서 레지스트리 스냅샷만 잠그고 파이프라인은 락 밖에서
+            # 돈다(LLM 호출 동안 다른 요청을 막지 않기 위해).
+            result = asyncio.run(_run(body))
         except RegistryError as exc:  # 미등록 엔티티 값 등 → 400 구조화 에러
             self._json(400, {"ok": False, "error": exc.message, "field": exc.field})
             return
@@ -688,12 +703,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/registry/reset":
             # 데모 리셋 = 완전 초기화. 인스턴스 등록분(_REGISTRY)에 더해 프로세스
             # 전역 확장 안전 카테고리·카테고리 하한도 비운다(내장 set 은 불변).
-            # 네 가지를 한 덩어리로 비워야 반쯤 초기화된 상태가 노출되지 않는다.
+            # 다섯 가지를 한 덩어리로 비워야 반쯤 초기화된 상태가 노출되지 않는다.
+            # _DIRECTIVES 를 빼먹으면 리셋했다고 믿는 세션에서 옛 지시가 계속
+            # comfort 후보를 억눌러, tick 이 이유 없이 침묵한다.
             with STATE_LOCK:
                 _REGISTRY.reset()
                 _reset_safety_extensions_for_tests()
                 _reset_floor_extensions_for_tests()
                 _PREF_CELLS.clear()  # 세션 선호 셀맵도 초기화(중립 복귀)
+                _DIRECTIVES.clear()  # 활성 자연어 지시도 초기화
             self._json(200, {"ok": True})
             return
         body = self._read_json()

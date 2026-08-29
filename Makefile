@@ -1,4 +1,4 @@
-.PHONY: install test demo smoke lint typecheck cov check hooks clean
+.PHONY: install test demo smoke lint typecheck cov secrets check hooks clean
 
 VENV ?= .venv
 PY := $(VENV)/bin/python
@@ -20,8 +20,12 @@ typecheck:
 cov:
 	$(PY) -m pytest -q --cov --cov-report=term-missing:skip-covered --cov-fail-under=83
 
-# 전체 게이트 — CI 와 같은 순서.
-check: lint typecheck test
+secrets:
+	./scripts/secret_scan.sh
+
+# 전체 게이트 — CI 와 같은 순서·같은 검사(커버리지 하한·시크릿 스캔 포함).
+# 여기서 빠진 게 있으면 '로컬 통과 = CI 통과' 가 거짓이 된다.
+check: lint typecheck cov secrets
 
 # 푸시 전 게이트 설치. GitHub Actions 가 push 로 발화하지 않는 동안(README 참고)
 # 실제로 검사가 도는 자리는 이 훅이다.

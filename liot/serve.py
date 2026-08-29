@@ -11,9 +11,11 @@
     LIOT_NTFY_URL       : ntfy 서버. 있으면 실제 알림 송신(미설정 시 sanitize-only).
     LIOT_NTFY_TOPIC     : 토픽(기본 'liot').
     LIOT_NTFY_FEEDBACK_URL : 알림 액션 버튼이 가리킬 피드백 base URL.
-    LIOT_NOTIFY_SECRET  : 딥링크 HMAC 서명 비밀키. 미설정 시 소스에 공개된 dev
-                          기본값이 쓰이며, 그 상태로 피드백 수신구가 외부에서
-                          닿는 구성이면 수신구를 아예 열지 않는다(fail-closed).
+    LIOT_NOTIFY_SECRET  : 딥링크 HMAC 서명 비밀키. 미설정(빈 값·공백 포함)이면
+                          소스에 공개된 dev 키가 쓰이고, 그 동안에는 피드백
+                          수신구를 아예 열지 않는다(fail-closed).
+    LIOT_FEEDBACK_ALLOW_DEV_KEY : dev 키인 채로 수신구를 여는 로컬 확인용 탈출구
+                          (기본 꺼짐. 켜면 위조 가능한 서명을 받아들인다).
     LIOT_TICK_SECONDS   : 능동 틱 주기(기본 300).
     LIOT_FEEDBACK_HOST/PORT : 피드백 수신구(기본 127.0.0.1:8099; 0=비활성).
 
@@ -24,10 +26,8 @@ ntfy 알림만 나간다.
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import os
 import sys
-from urllib.parse import urlsplit
 
 from liot.app import LiotApp
 from liot.core.clock import Clock
@@ -39,66 +39,92 @@ from liot.service import DEV_SIGNING_SECRET, LiotService
 
 DEV_SECRET_TEXT = DEV_SIGNING_SECRET.decode("utf-8")
 
-_LOOPBACK_HOSTNAMES = frozenset({"localhost", "ip6-localhost", "ip6-loopback"})
+__all__ = [
+    "feedback_block_reason",
+    "open_feedback_endpoint",
+    "resolve_notify_secret",
+    "main",
+]
 
-__all__ = ["is_loopback_host", "feedback_block_reason", "main"]
 
+def resolve_notify_secret(raw: str | None) -> str:
+    """LIOT_NOTIFY_SECRET 값을 정규화한다. 빈 값·공백은 '미설정'과 같다.
 
-def is_loopback_host(host: str) -> bool:
-    """host 가 루프백(외부에서 닿지 않음)인가.
-
-    빈 문자열은 '모든 인터페이스 바인드'라 외부 노출로 본다. 해석 못 하는
-    호스트명은 보수적으로 외부로 본다(fail-closed).
+    주변 공백을 벗겨 내는 이유는 두 가지다.
+      - 빈 문자열이 '진짜 비밀키가 설정됨'으로 오인되면 아래 게이트가 통과하고,
+        HMAC 이 빈 키로 계산돼 누구나 링크를 위조할 수 있다.
+      - 서명(ntfy_transport)은 이미 .strip() 한 값을 쓴다. 검증 쪽이 안 벗기면
+        `LIOT_NOTIFY_SECRET="abc "` 같은 값에서 모든 버튼이 403 이 된다.
     """
-    h = (host or "").strip().strip("[]").lower()
-    if not h:
-        return False
-    if h in _LOOPBACK_HOSTNAMES:
-        return True
-    try:
-        return ipaddress.ip_address(h).is_loopback
-    except ValueError:
-        return False
+    return (raw or "").strip() or DEV_SECRET_TEXT
 
 
-def feedback_block_reason(
-    secret: str, fb_host: str, feedback_base_url: str = ""
-) -> str | None:
+def feedback_block_reason(secret: str, *, allow_dev_key: bool = False) -> str | None:
     """피드백 수신구를 열면 안 되는 이유(한 줄) 또는 None(열어도 됨).
 
-    소스에 공개된 dev 서명 키를 쓰는 채로 수신구가 외부에서 닿으면, 저장소를
-    읽은 누구나 수락/거절/undo 링크를 위조해 제안 상태를 바꿀 수 있다. 그래서
-    (a) 비루프백 바인드이거나 (b) 알림 버튼이 가리킬 base URL 이 비루프백이면
-    수신구를 열지 않는다. 실제 비밀키가 설정돼 있으면 아무것도 막지 않는다.
+    규칙은 하나다: **소스에 공개된 dev 키를 쓰는 동안에는 열지 않는다.**
+
+    이전 판(2026-08-29 오전)은 '루프백 바인드면 안전'으로 봤지만 그건 틀린
+    전제였다. 프로세스 안에서는 앞단의 리버스 프록시·터널(nginx·Cloudflare
+    Tunnel·ngrok)을 알 수 없고, README 가 안내하는 폰 연동 구성이 바로 그
+    형태다 — 루프백에 바인드한 채로 공개돼 있으면 게이트가 통과해 버렸다.
+    그래서 도달 가능성을 추정하지 않고, 위조 가능한 키인지만 본다.
+
+    로컬에서 수신구를 굳이 띄워 봐야 한다면 LIOT_FEEDBACK_ALLOW_DEV_KEY=1 로
+    명시적으로 켠다(기본 꺼짐 — 침묵이 아니라 선언을 요구한다).
     """
     if secret.strip() != DEV_SECRET_TEXT:
         return None
-    if not is_loopback_host(fb_host):
-        return (
-            f"LIOT_NOTIFY_SECRET 이 dev 기본값인데 바인드 호스트가 {fb_host or '(전체 인터페이스)'} "
-            "라 외부에서 닿습니다. 서명이 위조 가능하므로 열지 않습니다"
+    if allow_dev_key:
+        return None
+    return (
+        "LIOT_NOTIFY_SECRET 이 설정되지 않아 소스에 공개된 dev 키를 쓰고 있습니다. "
+        "이 키로 서명한 수락/거절 링크는 저장소를 읽은 누구나 위조할 수 있습니다"
+    )
+
+
+async def open_feedback_endpoint(
+    service: LiotService,
+    *,
+    host: str,
+    port: int,
+    secret: str,
+    allow_dev_key: bool = False,
+) -> asyncio.AbstractServer | None:
+    """피드백 수신구를 연다 — 열어도 되는 경우에만. 아니면 사유를 찍고 None.
+
+    가드와 개방을 **한 함수 안에** 둔다. 둘이 떨어져 있으면 리팩터 중에 가드만
+    조용히 빠져도 아무 테스트가 울지 않는다(2026-08-29 실측: 호출부 한 줄을
+    지워도 310 테스트 전원 통과했다). 여기서는 가드를 지우면 곧바로 적색이다.
+    """
+    if not port:
+        return None
+    blocked = feedback_block_reason(secret, allow_dev_key=allow_dev_key)
+    if blocked:
+        print(f"[feedback] 수신구를 열지 않습니다 — {blocked}.")
+        print(
+            "[feedback] LIOT_NOTIFY_SECRET 에 임의의 긴 비밀키를 넣으면 열립니다"
+            " (로컬 확인용으로만 열려면 LIOT_FEEDBACK_ALLOW_DEV_KEY=1)."
         )
-    if feedback_base_url:
-        host = urlsplit(feedback_base_url).hostname or ""
-        if not is_loopback_host(host):
-            return (
-                f"LIOT_NOTIFY_SECRET 이 dev 기본값인데 알림 버튼이 외부 주소"
-                f"({feedback_base_url})를 가리킵니다. 서명이 위조 가능하므로 열지 않습니다"
-            )
-    return None
+        return None
+    server = await service.serve_feedback(host, port)
+    print(f"[feedback] http://{host}:{port}/feedback 수신 대기")
+    return server
 
 
 async def _amain() -> int:
     home_id = os.environ.get("LIOT_HOME_ID", "singleton").strip() or "singleton"
     db_path = os.environ.get("LIOT_DB_PATH", "liot.db").strip() or "liot.db"
     tick_seconds = float(os.environ.get("LIOT_TICK_SECONDS", "300") or "300")
-    secret = os.environ.get("LIOT_NOTIFY_SECRET", "liot-dev-signing-key")
+    secret = resolve_notify_secret(os.environ.get("LIOT_NOTIFY_SECRET"))
     topic = os.environ.get("LIOT_NTFY_TOPIC", "liot").strip() or "liot"
     ha_url = os.environ.get("LIOT_HA_URL", "").strip()
     ha_token = os.environ.get("LIOT_HA_TOKEN", "").strip()
     fb_host = os.environ.get("LIOT_FEEDBACK_HOST", "127.0.0.1").strip()
     fb_port = int(os.environ.get("LIOT_FEEDBACK_PORT", "8099") or "8099")
-    fb_base_url = os.environ.get("LIOT_NTFY_FEEDBACK_URL", "").strip()
+    allow_dev_key = os.environ.get("LIOT_FEEDBACK_ALLOW_DEV_KEY", "").strip().lower() in (
+        "1", "true", "yes", "on"
+    )
 
     clock = Clock()
     db = await init_db(db_path, durable=True)
@@ -140,17 +166,9 @@ async def _amain() -> int:
         f"exec={'ON' if executor else 'off(제안-만)'} tick={tick_seconds}s db={db_path}"
     )
 
-    fb_server = None
-    if fb_port:
-        blocked = feedback_block_reason(secret, fb_host, fb_base_url)
-        if blocked:
-            print(f"[feedback] 수신구를 열지 않습니다 — {blocked}.")
-            print(
-                "[feedback] LIOT_NOTIFY_SECRET 에 임의의 긴 비밀키를 넣고 다시 실행하면 열립니다."
-            )
-        else:
-            fb_server = await service.serve_feedback(fb_host, fb_port)
-            print(f"[feedback] http://{fb_host}:{fb_port}/feedback 수신 대기")
+    fb_server = await open_feedback_endpoint(
+        service, host=fb_host, port=fb_port, secret=secret, allow_dev_key=allow_dev_key
+    )
 
     try:
         await service.run(bridge, tick_seconds=tick_seconds)
