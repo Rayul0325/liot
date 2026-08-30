@@ -128,20 +128,24 @@ make cov       # 커버리지 + 하한 84% 게이트
   아니다. 낮은 곳은 `serve.py`·`ollama_backend`·`demo.py` 로,
   전부 단위 테스트가 닿기 어려운 I/O 경계다.
 
-> [!WARNING]
-> **CI 가 푸시로 발화하지 않는다 (2026-08-29 확인)**
->
-> GitHub Actions 는 **수동 실행(`workflow_dispatch`)으로는 정상 통과**하지만
-> `push` 이벤트로는 실행되지 않는다. main 에 3회 푸시했으나 push 이벤트 실행
-> 0건·커밋 체크런 0건이었고, 저장소 설정(Actions 활성·`on: push` 정상·fork/
-> archived/disabled 아님·기본 브랜치 main)은 모두 정상이라 원인은 GitHub 쪽에
-> 있다. 그래서 **게이트가 실제로 도는 자리는 `make hooks` 로 설치하는 pre-push
-> 훅**이다. 새로 클론하면 `make install && make hooks` 를 한 번 돌린다. 푸시
-> 트리거가 살아나면 이 경고를 지운다.
+### pre-push 훅
+
+CI 가 원격에서 도는 것과 별개로, 푸시 전에 같은 검사를 로컬에서 먼저 돌린다.
+적색을 원격까지 들고 가지 않는 게 목적이다(피드백이 25초가 아니라 5초).
 
 ```bash
-make hooks   # 푸시 전 lint+typecheck+test 자동 실행(git push --no-verify 로 우회)
+make hooks   # 푸시 전 lint+typecheck+test+시크릿 스캔 (git push --no-verify 로 우회)
 ```
+
+새로 클론하면 `make install && make hooks` 를 한 번 돌린다. 검사 대상은
+**작업트리**이지 푸시되는 커밋이 아니므로(editable 설치가 이 트리를 가리킨다),
+트리가 더러우면 훅이 그 사실을 경고한다 — 푸시되는 커밋의 보증은 CI 가 한다.
+
+> [!NOTE]
+> 2026-08-29 에는 `push` 이벤트로 CI 가 발화하지 않았다(수동 실행만 동작).
+> 저장소 설정은 모두 정상이었고, 2026-08-30 에 Actions 를 껐다 켜니
+> (`PUT /repos/:owner/:repo/actions/permissions`) 곧바로 정상화됐다.
+> 같은 증상이 재발하면 그 토글을 먼저 시도한다.
 
 ---
 

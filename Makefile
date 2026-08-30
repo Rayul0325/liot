@@ -27,8 +27,7 @@ secrets:
 # 여기서 빠진 게 있으면 '로컬 통과 = CI 통과' 가 거짓이 된다.
 check: lint typecheck cov secrets
 
-# 푸시 전 게이트 설치. GitHub Actions 가 push 로 발화하지 않는 동안(README 참고)
-# 실제로 검사가 도는 자리는 이 훅이다.
+# 푸시 전 게이트 설치. 적색을 원격까지 들고 가지 않기 위한 로컬 1차 관문.
 hooks:
 	git config core.hooksPath .githooks
 	@echo "pre-push 훅 활성화됨 (건너뛰려면 git push --no-verify)"
