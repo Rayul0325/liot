@@ -112,7 +112,7 @@ CI 가 도는 것과 같은 검사를 로컬에서 그대로 돌린다.
 make check     # lint + typecheck + test (CI 와 같은 순서)
 make lint      # ruff — 결함 규칙만(줄 길이 E5 는 의도적으로 제외)
 make typecheck # mypy strict — liot·scripts·tests 전체(88파일)
-make cov       # 커버리지 + 하한 83% 게이트
+make cov       # 커버리지 + 하한 84% 게이트
 ```
 
 - **ruff**: 미사용 임포트·죽은 변수·버그 유발 패턴·구식 문법을 막는다. 줄
@@ -124,8 +124,8 @@ make cov       # 커버리지 + 하한 83% 게이트
 - **mypy**: `liot`·`scripts`·`tests` 전체 88파일을 strict 로 본다. 테스트에만
   '모든 함수에 주석' 요구를 뺐다 — 픽스처 수백 개에 주석을 다는 건 잡음이고,
   값어치 있는 검사(잘못된 인자 타입·없는 속성·Any 누출)는 그대로 켜져 있다.
-- **커버리지**: 2026-08-29 실측 **85%**(4,206 구문 기준). 하한 83% 는 회귀
-  방지선이지 목표가 아니다. 낮은 곳은 `serve.py`·`ollama_backend`·`demo.py` 로,
+- **커버리지**: 2026-08-30 실측 **85.7%**. 하한 84% 는 회귀 방지선이지 목표가
+  아니다. 낮은 곳은 `serve.py`·`ollama_backend`·`demo.py` 로,
   전부 단위 테스트가 닿기 어려운 I/O 경계다.
 
 > [!WARNING]

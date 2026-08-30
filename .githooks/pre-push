@@ -52,7 +52,7 @@ echo "[pre-push] typecheck (mypy)"
 "$PY" -m mypy
 
 echo "[pre-push] test + coverage floor"
-"$PY" -m pytest -q --cov --cov-report= --cov-fail-under=83
+"$PY" -m pytest -q --cov --cov-report= --cov-fail-under=84
 
 echo "[pre-push] secret scan"
 ./scripts/secret_scan.sh

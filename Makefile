@@ -16,9 +16,9 @@ lint:
 typecheck:
 	$(PY) -m mypy
 
-# 커버리지. 하한(83%)은 2026-08-29 실측 85% 기준의 회귀 방지선.
+# 커버리지. 하한(84%)은 2026-08-30 실측 85.7% 기준의 회귀 방지선(여유 1.7%p).
 cov:
-	$(PY) -m pytest -q --cov --cov-report=term-missing:skip-covered --cov-fail-under=83
+	$(PY) -m pytest -q --cov --cov-report=term-missing:skip-covered --cov-fail-under=84
 
 secrets:
 	./scripts/secret_scan.sh

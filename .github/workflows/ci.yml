@@ -34,7 +34,7 @@ jobs:
       - name: Test (pytest, incl. 6 invariants) + coverage floor
         run: >-
           uv run python -m pytest -q --cov
-          --cov-report=term-missing:skip-covered --cov-fail-under=83
+          --cov-report=term-missing:skip-covered --cov-fail-under=84
 
       - name: Invariant gate — executor confined + execution gated (opt-in OFF)
         run: |
