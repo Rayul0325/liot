@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import uuid
+from urllib.parse import parse_qs, urlsplit
 
 from liot.app import LiotApp
 from liot.core.clock import Clock
@@ -210,5 +211,68 @@ async def test_second_confirmation_uses_a_freshly_issued_link():
         # 새 링크로는 정상 실행된다(정당한 흐름은 막히지 않는다).
         assert "2/2" in await _approve(svc, prop)
         assert len(fx.executed) == 1
+    finally:
+        await db.close()
+
+
+def _delivered_nonce(svc: LiotService) -> str:
+    """사용자 폰에 마지막으로 도착한 알림의 링크에 박힌 nonce 를 읽는다."""
+    transport = svc.transport
+    assert isinstance(transport, FakeNtfyTransport)
+    link = str(transport.sent[-1][1]["signed_deeplink"])
+    return parse_qs(urlsplit(link).query)["n"][0]
+
+
+async def _click(svc: LiotService, prop: Proposal, action: str, nonce: str) -> tuple[str, str]:
+    """주어진 nonce 가 박힌 링크를 그대로 누른다(서비스 내부 상태를 읽지 않는다)."""
+    tier_int = int(prop.risk_tier)
+    sig = sign_feedback(SECRET, prop.proposal_id, tier_int, action, nonce)
+    line = (
+        f"GET /feedback?p={prop.proposal_id}&t={tier_int}"
+        f"&n={nonce}&sig={sig}&a={action} HTTP/1.1"
+    )
+    return await svc._route_feedback(line)
+
+
+# ── R2-01: 틱이 한 번 돌아도 2차 확인 링크는 살아 있다 ──────────────────
+async def test_second_confirmation_link_survives_a_tick():
+    """1차 수락 → 틱(스윕) → 2차 알림의 링크 → 실행.
+
+    2026-09-01 리뷰 R2-01: 1차 수락이 상태를 accepted 로 옮기므로, pending 만
+    살려 두던 스윕이 방금 발급한 2차 링크의 nonce 를 회수했다. 상시 데몬은 매
+    틱 스윕하므로 사람이 2차 알림을 누를 즈음엔 403 이었고 실행은 일어나지 않았다.
+    """
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        await svc.dispatch(prop)
+        status, first = await _click(svc, prop, "accept", _delivered_nonce(svc))
+        assert "200" in status and "1/2" in first and fx.executed == []
+
+        second_nonce = _delivered_nonce(svc)  # 2차 확인 알림의 새 링크
+        await svc.run_tick()  # 데몬은 매 틱 _sweep_nonces 를 돈다
+
+        status, second = await _click(svc, prop, "accept", second_nonce)
+        assert "200" in status, f"2차 링크가 틱 뒤에 죽었다: {status} {second}"
+        assert "2/2" in second and len(fx.executed) == 1
+    finally:
+        await db.close()
+
+
+async def test_sweep_still_revokes_second_link_once_proposal_is_superseded():
+    """2차 대기라도 제안이 accepted 를 벗어나면(대체·만료) 링크는 회수된다."""
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        await svc.dispatch(prop)
+        await _click(svc, prop, "accept", _delivered_nonce(svc))
+        second_nonce = _delivered_nonce(svc)
+        await svc.proposals.set_state(prop.proposal_id, "superseded")
+
+        await svc.run_tick()
+
+        assert prop.proposal_id not in svc._nonce
+        status, _ = await _click(svc, prop, "accept", second_nonce)
+        assert "403" in status and fx.executed == []
     finally:
         await db.close()

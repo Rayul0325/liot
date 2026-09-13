@@ -390,20 +390,39 @@ class LiotService:
                 await self._apply_pref_signal(pid, "expired")
 
     async def _sweep_nonces(self) -> None:
-        """더 이상 pending 이 아닌 제안의 1회용 토큰을 버린다.
+        """더 이상 쓸 수 없는 제안의 1회용 토큰을 버린다.
 
         상태를 직접 보는 이유: 선호 셀 추적(_prop_cell)은 tick 제안만 담는다
         (_remember_proposal_cell 이 app.last_facts 를 요구하는데 그건 tick 에서만
         채워진다). 거기에 정리를 얹으면 **이벤트 기반 제안**(가스 경보 등)의
         토큰이 영원히 남아 상시 데몬에서 _nonce 가 무한히 자란다.
 
+        살아 있는 토큰의 기준은 _nonce_is_live 가 정한다.
+
         읽기 횟수는 살아 있는 토큰 수만큼이고, 한 번 정리되면 맵이 작게
         유지되므로 자기교정된다.
         """
         for pid in list(self._nonce):
             proposal = await self.proposals.get(pid)
-            if proposal is None or (proposal.state or "").lower() != "pending":
+            if proposal is None or not self._nonce_is_live(pid, proposal.state):
                 self._nonce.pop(pid, None)
+
+    def _nonce_is_live(self, pid: str, state: str | None) -> bool:
+        """이 제안의 토큰이 아직 사람이 누를 링크에 실려 있을 수 있는가.
+
+        두 경우만 살아 있다.
+          - pending: 첫 알림의 링크.
+          - accepted + 이중확인 2차 대기: 1차 수락이 상태를 이미 accepted 로
+            옮긴 뒤 _request_second_confirmation 이 새로 발급한 2차 링크.
+            상태만 보고 버리면 틱 한 번에 이 링크가 죽어 EMBER·안전 행동이
+            영원히 2/2 에 닿지 못한다(2026-09-01 리뷰 R2-01).
+        accepted 조건을 함께 보는 이유: 2차 대기 중에 만료·대체(expired/
+        superseded)된 제안의 링크는 살려 두면 안 된다.
+        """
+        st = (state or "").lower()
+        if st == "pending":
+            return True
+        return st == "accepted" and pid in self._awaiting_second
 
     async def _refresh_feedback(self) -> None:
         """DB 의 거절/수용 이력을 동기 스냅샷으로 빚어 앱에 주입한다.
