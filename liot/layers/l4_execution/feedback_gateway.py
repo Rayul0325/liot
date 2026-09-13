@@ -79,9 +79,15 @@ def verify_feedback_sig(
     action 을 묶으므로 한 버튼 서명으로 다른 액션을 수행할 수 없고, nonce 를
     묶으므로 서비스가 그 nonce 를 소비한 뒤에는 같은 링크가 통하지 않는다.
     상수 시간 비교(compare_digest).
+
+    tier 강제변환은 서명 쪽과 **같은 함수**(notifier.tier_int)를 쓴다. 예전엔 여기는
+    bare ``int(tier)``, 서명 쪽은 ``RiskTier.from_str`` 이라 받아 주는 값이 갈렸다 —
+    한쪽만 고치면 그 비대칭이 조용히 되살아난다(2026-09-13 리뷰 R-4).
     """
+    from .notifier import tier_int as _tier_int  # 순환 import 회피(지연 import)
+
     try:
-        tier_int = int(tier)
+        tier_int = _tier_int(tier)
     except (TypeError, ValueError):
         return False
     action_key = (action or "").strip().lower()

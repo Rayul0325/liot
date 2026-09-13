@@ -617,3 +617,23 @@ def test_tier_int_keeps_the_range_check() -> None:
     for bad in (99, -1, "42"):
         with pytest.raises(ValueError):
             tier_int(bad)
+
+
+def test_signer_and_verifier_agree_on_tier_coercion() -> None:
+    """서명·검증이 같은 tier 강제변환을 쓴다(리뷰 R-4 잔여).
+
+    한쪽만 bare int() 로 남으면 받아 주는 값이 다시 갈린다: 범위 밖 tier 를
+    검증 쪽이 조용히 계산해 '서명 불일치'로만 돌려주고, 서명 쪽은 예외를 던진다.
+    """
+    from liot.layers.l4_execution.feedback_gateway import verify_feedback_sig
+    from liot.layers.l4_execution.notifier import tier_int
+
+    sig = sign_feedback(SECRET, "p-1", 3, "accept", "n1")
+    # 같은 tier 를 어떻게 적어도 같은 서명으로 검증된다.
+    for spelling in (3, "3", " 3 ", "ember"):
+        assert verify_feedback_sig(SECRET, "p-1", spelling, "accept", sig, "n1") is True, spelling
+    # 범위 밖 tier 는 양쪽 모두 거부한다(검증은 False, 서명은 ValueError).
+    for bad in (99, -1, "42", "nope"):
+        assert verify_feedback_sig(SECRET, "p-1", bad, "accept", sig, "n1") is False, bad
+        with pytest.raises(ValueError):
+            tier_int(bad)
