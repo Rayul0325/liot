@@ -155,29 +155,36 @@ class ProposalService:
             return None
         return self._row_to_proposal(rows[0])
 
-    async def states_for(self, proposal_ids: Sequence[str]) -> dict[str, str]:
-        """여러 제안의 상태만 한 번의 SELECT 로 읽는다(없는 id 는 결과에 없음).
+    async def states_for(self, proposal_ids: Sequence[str]) -> dict[str, tuple[str, str | None]]:
+        """여러 제안의 (상태, expires_at)을 한 번의 SELECT 로 읽는다.
 
-        1회용 토큰 스윕이 토큰 하나마다 get() 을 돌리면 틱마다 N 번 조회가 된다
-        (2026-09-01 리뷰 R2-21: 토큰 300개에 37ms). 상태만 필요하므로 행 전체를
-        Proposal 로 빚지 않는다. SQLite 바인딩 상한(기본 999)을 넘지 않게 끊어 묻는다.
+        없는 id 는 결과에 없다. 1회용 토큰 스윕이 토큰 하나마다 get() 을 돌리면
+        틱마다 N 번 조회가 된다(2026-09-01 리뷰 R2-21: 토큰 300개에 37ms). 상태와
+        만료시각만 필요하므로 행 전체를 Proposal 로 빚지 않는다. expires_at 도
+        같이 주는 이유: 이중확인 2차 링크는 상태가 accepted 라 상태만으로는
+        만료를 알 수 없고(expire_due 는 pending 만 전이한다), 그러면 링크에
+        상한이 없어진다. SQLite 바인딩 상한(기본 999)을 넘지 않게 끊어 묻는다.
         """
         ids = [str(p) for p in proposal_ids]
         if not ids:
             return {}
-        out: dict[str, str] = {}
+        out: dict[str, tuple[str, str | None]] = {}
         for start in range(0, len(ids), 500):
             chunk = ids[start : start + 500]
             placeholders = ",".join("?" for _ in chunk)
             rows = await self._repo.fetchall(
                 self._db,
                 "proposals",
-                columns="proposal_id, state",
+                columns="proposal_id, state, expires_at",
                 extra_where=f"proposal_id IN ({placeholders})",
                 extra_params=tuple(chunk),
             )
             for row in rows:
-                out[str(row["proposal_id"])] = str(row["state"] or "")
+                expires = row["expires_at"]
+                out[str(row["proposal_id"])] = (
+                    str(row["state"] or ""),
+                    None if expires is None else str(expires),
+                )
         return out
 
     async def list_pending(self, limit: int | None = None) -> list[Proposal]:

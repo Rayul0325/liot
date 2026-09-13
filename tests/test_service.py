@@ -529,7 +529,11 @@ async def test_states_for_returns_only_known_ids(tmp_path) -> None:
         assert res is not None
         pid = res.proposal.proposal_id
         states = await svc.proposals.states_for([pid, "p-does-not-exist"])
-        assert states == {pid: "pending"}
+        assert list(states) == [pid]
+        state, expires_at = states[pid]
+        assert state == "pending"
+        # expires_at 도 함께 온다(2차 확인 링크의 상한 판정에 필요).
+        assert expires_at == (await svc.proposals.get(pid)).expires_at
         assert await svc.proposals.states_for([]) == {}
     finally:
         await db.close()

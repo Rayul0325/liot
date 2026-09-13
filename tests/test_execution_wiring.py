@@ -439,3 +439,87 @@ async def test_old_signature_cannot_ride_a_freshly_issued_nonce():
         assert len(fx.executed) == 1
     finally:
         await db.close()
+
+
+# ── 2차 확인 링크의 상한: 창(window) ────────────────────────────────────
+async def test_second_confirmation_link_dies_after_the_window():
+    """1차 수락 뒤 시간이 충분히 지나면 2차 링크는 403 이고 실행되지 않는다.
+
+    R2-01 수정(2차 링크가 틱 한 번에 죽던 문제)이 '영원히 유효'로 뒤집히지 않게
+    하는 상한이다 — accepted 상태는 expire_due 가 건드리지 않으므로 상태만으로는
+    이 링크가 절대 죽지 않는다.
+    """
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        await svc.dispatch(prop)
+        first = _delivered_nonce(svc)
+        assert "1/2" in (await _click(svc, prop, "accept", first))[1]
+        second = _delivered_nonce(svc)
+
+        svc.clock.set_fixed("2026-06-02T12:16:00+00:00")  # 창(15분) 초과
+        status, body = await _click(svc, prop, "accept", second)
+        assert "403" in status, f"{status} {body}"
+        assert fx.executed == [], "만료된 2차 링크로 실행됐다"
+        # 죽은 토큰의 대기 표식·발급시각도 함께 사라진다(새는 상태 없음).
+        assert prop.proposal_id not in svc._nonce
+        assert prop.proposal_id not in svc._nonce_issued
+        assert prop.proposal_id not in svc._awaiting_second
+    finally:
+        await db.close()
+
+
+async def test_second_confirmation_link_still_works_inside_the_window():
+    """창 안에서는(그리고 틱이 돌아도) 2차 링크가 그대로 실행된다."""
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        await svc.dispatch(prop)
+        assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
+        second = _delivered_nonce(svc)
+        svc.clock.set_fixed("2026-06-02T12:14:00+00:00")  # 창 안
+        await svc._sweep_nonces()
+        status, body = await _click(svc, prop, "accept", second)
+        assert "200" in status and "executed(2/2)" in body, f"{status} {body}"
+        assert len(fx.executed) == 1
+    finally:
+        await db.close()
+
+
+# ── 2차 확인 링크의 상한: 제안 자신의 만료 ──────────────────────────────
+async def test_second_confirmation_link_dies_when_the_proposal_expires():
+    """제안의 expires_at 이 지나면 창이 남아 있어도 2차 링크는 죽는다."""
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = prop.model_copy(update={"expires_at": "2026-06-02T12:05:00+00:00"})
+        await svc.dispatch(prop)
+        assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
+        second = _delivered_nonce(svc)
+
+        svc.clock.set_fixed("2026-06-02T12:06:00+00:00")  # 만료 뒤, 창(15분) 안
+        status, body = await _click(svc, prop, "accept", second)
+        assert "403" in status, f"{status} {body}"
+        assert fx.executed == [], "만료된 제안이 2차 링크로 실행됐다"
+    finally:
+        await db.close()
+
+
+async def test_sweep_drops_the_dead_second_confirmation_link(monkeypatch):
+    """스윕도 같은 상한으로 죽은 2차 토큰을 버린다(클릭 없이도 정리된다)."""
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        await svc.dispatch(prop)
+        assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
+        pid = prop.proposal_id
+        assert pid in svc._nonce and pid in svc._awaiting_second
+
+        svc.clock.set_fixed("2026-06-02T12:16:00+00:00")
+        await svc._sweep_nonces()
+        assert pid not in svc._nonce
+        assert pid not in svc._nonce_issued
+        assert pid not in svc._awaiting_second
+        assert fx.executed == []
+    finally:
+        await db.close()

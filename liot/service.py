@@ -69,6 +69,13 @@ __all__ = ["DEV_SIGNING_SECRET", "DispatchResult", "LiotService"]
 
 _DEDUP_WINDOW = timedelta(hours=2)
 
+# 이중확인 2차 링크(와 2차 미발송 재시도 링크)의 수명 상한. 사람이 방금 누른
+# 버튼에 대한 후속 확인이라 짧아야 한다: 길면 캡처된 링크가 그만큼 오래 유효하고,
+# 없으면(예전 판) 상태가 accepted 로 고정돼 영원히 유효해진다. 짧아도 안 된다 —
+# 0 에 가까우면 R2-01 처럼 다음 틱에 죽어 안전 행동이 2/2 에 닿지 못한다.
+# comfort 규칙의 기본 ttl(15분)과 같은 크기로 둔다(운영에서 조정 가능한 기본값).
+_SECOND_CONFIRM_WINDOW = timedelta(minutes=15)
+
 # 개발·테스트 전용 서명 키. 소스에 있으므로 **비밀이 아니다** — 이 값으로 서명된
 # 딥링크는 저장소를 읽은 누구나 위조할 수 있다. 배포 진입점(liot.serve)은 피드백
 # 수신구가 외부에서 닿는 구성일 때 이 값을 거부한다(fail-closed).
@@ -153,6 +160,9 @@ class LiotService:
         # pending 으로 남기는 피드백(스누즈)과, 2차 알림이 나가지 못한 1차 수락.
         # 둘 다 사람 손에 다른 링크가 없어서, 소비하면 흐름이 끊긴다.
         self._nonce: dict[str, str] = {}
+        # nonce 발급 시각(pid → datetime). 이중확인 2차 링크의 수명 상한을 재는 데
+        # 쓴다 — 상태(accepted)만으로는 그 링크가 언제 죽어야 하는지 알 수 없다.
+        self._nonce_issued: dict[str, datetime] = {}
         # 개인화 루프(Phase3): 제안 → 선호 셀 키(맥락+행동), 신호 중복 방지.
         self._prop_cell: dict[str, str] = {}  # proposal_id → cell_key
         self._pref_signaled: set[str] = set()  # 이미 신호 반영된 proposal_id
@@ -255,7 +265,20 @@ class LiotService:
         """제안에 새 1회용 피드백 토큰을 발급한다(이전 토큰은 즉시 무효)."""
         nonce = secrets.token_hex(16)
         self._nonce[proposal_id] = nonce
+        self._nonce_issued[proposal_id] = self.clock.now_dt()
         return nonce
+
+    def _drop_nonce(self, proposal_id: str) -> None:
+        """죽은 토큰과 그에 딸린 대기 표식을 한 덩어리로 버린다.
+
+        따로 지우면 남는 쪽이 새는 상태가 된다 — _awaiting_second 가 남으면
+        '2차 대기'라는 이유로 다음에 발급되는 토큰이 창 없이 살아나고,
+        _nonce_issued 가 남으면 맵이 무한히 자란다.
+        """
+        self._nonce.pop(proposal_id, None)
+        self._nonce_issued.pop(proposal_id, None)
+        self._awaiting_second.discard(proposal_id)
+        self._second_undelivered.discard(proposal_id)
 
     async def _request_second_confirmation(self, proposal: Proposal) -> bool:
         """이중확인 2차용 **새 링크**를 발급해 다시 알린다.
@@ -312,6 +335,7 @@ class LiotService:
             # 2차 링크가 실제로 나간 뒤에만 채워진다 — 그때 새 nonce 가 이 링크를
             # 대체하므로 1차 링크 재생으로 2/2 를 채우는 길은 여전히 없다.
             self._nonce[pid] = used_nonce
+            self._nonce_issued[pid] = self.clock.now_dt()  # 되살린 링크에도 같은 상한
             self._second_undelivered.add(pid)
             return " · second-confirm-not-sent(retry)"
         return ""
@@ -427,32 +451,61 @@ class LiotService:
         pids = list(self._nonce)
         if not pids:
             return
-        states = await self.proposals.states_for(pids)
+        rows = await self.proposals.states_for(pids)
+        now_dt = self.clock.now_dt()
+        now_iso = self.clock.now_utc()
         for pid in pids:
-            # 없는 제안(states 에 없음)은 상태 ''→ 살아 있지 않음으로 판정된다.
-            if not self._nonce_is_live(pid, states.get(pid)):
-                self._nonce.pop(pid, None)
-                self._second_undelivered.discard(pid)
+            # 없는 제안(rows 에 없음)은 상태 ''→ 살아 있지 않음으로 판정된다.
+            state, expires_at = rows.get(pid, ("", None))
+            if not self._nonce_is_live(
+                pid, state, expires_at, now_dt=now_dt, now_iso=now_iso
+            ):
+                self._drop_nonce(pid)
 
-    def _nonce_is_live(self, pid: str, state: str | None) -> bool:
+    def _nonce_is_live(
+        self,
+        pid: str,
+        state: str | None,
+        expires_at: str | None = None,
+        *,
+        now_dt: datetime | None = None,
+        now_iso: str | None = None,
+    ) -> bool:
         """이 제안의 토큰이 아직 사람이 누를 링크에 실려 있을 수 있는가.
 
         세 경우만 살아 있다.
-          - pending: 첫 알림의 링크(스누즈 뒤에도 같은 링크).
+          - pending: 첫 알림의 링크(스누즈 뒤에도 같은 링크). 만료는 expire_due
+            가 상태로 옮기므로 여기서 따로 보지 않는다.
           - accepted + 이중확인 2차 대기: 1차 수락이 상태를 이미 accepted 로
             옮긴 뒤 _request_second_confirmation 이 새로 발급한 2차 링크.
             상태만 보고 버리면 틱 한 번에 이 링크가 죽어 EMBER·안전 행동이
             영원히 2/2 에 닿지 못한다(2026-09-01 리뷰 R2-01).
           - accepted + 2차 알림 미발송: 발송 재시도용으로 되살린 1차 링크(R2-17).
-        accepted 조건을 함께 보는 이유: 2차 대기 중에 만료·대체(expired/
-        superseded)된 제안의 링크는 살려 두면 안 된다.
+
+        accepted 두 경우에는 **상한이 둘** 있다. 상태가 accepted 인 제안은
+        expire_due 가 건드리지 않아서(pending 만 전이) 상태만으로는 절대 죽지
+        않기 때문이다 — 그대로 두면 R2-01 수정이 '한 틱 뒤 사망'을 '영원히 유효'
+        로 바꿔 놓는다.
+          1. 제안 자신의 expires_at 이 지나면 죽는다.
+          2. 발급 후 _SECOND_CONFIRM_WINDOW 가 지나면 죽는다(expires_at 이 없는
+             제안에도 상한을 준다).
+        판정 시각을 인자로 받는 이유: 스윕은 토큰 전체를 한 시각으로 보고,
+        클릭 경로는 그 클릭 시각으로 본다.
         """
         st = (state or "").lower()
         if st == "pending":
             return True
-        return st == "accepted" and (
-            pid in self._awaiting_second or pid in self._second_undelivered
-        )
+        if st != "accepted":
+            return False
+        if pid not in self._awaiting_second and pid not in self._second_undelivered:
+            return False
+        now_iso = now_iso or self.clock.now_utc()
+        if expires_at is not None and str(expires_at) <= now_iso:
+            return False  # 제안 자체가 만료 시각을 지났다
+        issued = self._nonce_issued.get(pid)
+        if issued is None:
+            return False  # 발급 시각을 모르는 토큰은 상한을 걸 수 없다 → fail-closed
+        return ((now_dt or self.clock.now_dt()) - issued) <= _SECOND_CONFIRM_WINDOW
 
     async def _refresh_feedback(self) -> None:
         """DB 의 거절/수용 이력을 동기 스냅샷으로 빚어 앱에 주입한다.
@@ -592,6 +645,16 @@ class LiotService:
         if not expected or not compare_token(expected, nonce):
             return "403 Forbidden", "stale or already-used link"
 
+        # 토큰이 맞아도 **수명**을 넘겼으면 거부한다. 스윕은 틱에만 도는데 클릭은
+        # 언제든 오므로, 여기서도 같은 기준으로 본다 — 안 그러면 틱이 뜸한 동안
+        # 2차 링크가 창·만료를 넘겨서도 통한다.
+        current = await self.proposals.get(pid)
+        if current is None:
+            return "404 Not Found", "no such proposal"
+        if not self._nonce_is_live(pid, current.state, current.expires_at):
+            self._drop_nonce(pid)
+            return "403 Forbidden", "expired link"
+
         try:
             proposal = await self.feedback.verify_and_apply(
                 pid, tier, sig, action, nonce=nonce
@@ -608,7 +671,10 @@ class LiotService:
         # 되고 제안은 pending 으로 영원히 남는다(R2-05). 그 링크를 재생해도 상태가
         # pending 그대로라 얻는 것이 없다.
         if (proposal.state or "").lower() != "pending":
+            # _drop_nonce 를 쓰지 않는다: 그건 _awaiting_second 까지 비우는데,
+            # 바로 아래 _on_approved 가 그 표식으로 2/2 를 판정한다.
             self._nonce.pop(pid, None)
+            self._nonce_issued.pop(pid, None)
             self._second_undelivered.discard(pid)  # 재시도 링크도 여기서 끝(재발급은 아래)
 
         # 승인 시 정책에 따라 실제 조작(불변식 8). 거절/스누즈는 실행 없음.
