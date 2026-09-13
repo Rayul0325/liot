@@ -90,6 +90,17 @@ def test_real_secret_is_never_blocked() -> None:
     assert serve.feedback_block_reason(REAL) is None
 
 
+@pytest.mark.parametrize("padded", [DEV + " ", "  " + DEV, "\t" + DEV + "\n"])
+def test_whitespace_padded_dev_key_is_still_the_dev_key(padded: str) -> None:
+    """공개 함수는 정규화 전 값을 받을 수 있다 — 공백을 두른 dev 키도 dev 키다.
+
+    2026-09-01 리뷰 R2-12: feedback_block_reason 의 .strip() 을 지워도 모든
+    테스트가 통과했다. resolve_notify_secret 이 먼저 벗기는 호출부에선 무해하지만,
+    이 함수에 원시 값을 넘기는 호출자에게는 dev 키 게이트가 공백 한 칸으로 열린다.
+    """
+    assert serve.feedback_block_reason(padded) is not None
+
+
 def test_dev_key_opens_only_with_explicit_optin() -> None:
     """로컬 확인용 탈출구는 침묵이 아니라 선언을 요구한다."""
     assert serve.feedback_block_reason(DEV, allow_dev_key=True) is None

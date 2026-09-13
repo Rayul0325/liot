@@ -253,6 +253,28 @@ def test_verify_deeplink_sig_roundtrip() -> None:
     assert verify_deeplink_sig(b"wrong", "p-123", 3, sig) is False  # 키 변조
 
 
+def test_feedback_sig_is_bound_to_the_nonce() -> None:
+    """R2-28: 한 nonce 로 만든 서명은 다른 nonce 에 대해 검증되지 않는다.
+
+    서명·검증 양쪽에서 nonce 를 빼도(뮤턴트 M2) 이전엔 346 테스트가 전부 통과했다.
+    """
+    from liot.layers.l4_execution.feedback_gateway import verify_feedback_sig
+
+    sig_a = sign_feedback(SECRET, "p-123", 3, "accept", "nonce-a")
+    assert verify_feedback_sig(SECRET, "p-123", 3, "accept", sig_a, "nonce-a") is True
+    assert verify_feedback_sig(SECRET, "p-123", 3, "accept", sig_a, "nonce-b") is False
+    assert verify_feedback_sig(SECRET, "p-123", 3, "accept", sig_a, "") is False
+
+
+@pytest.mark.parametrize("bad_sig", ["é", "sig-with-한글", "ÿ" * 64])
+def test_verifiers_reject_non_ascii_signatures_without_raising(bad_sig: str) -> None:
+    """R2-02: 비-ASCII 서명은 TypeError 가 아니라 '불일치'다(수신구 500 방지)."""
+    from liot.layers.l4_execution.feedback_gateway import verify_feedback_sig
+
+    assert verify_feedback_sig(SECRET, "p-123", 3, "accept", bad_sig, "n") is False
+    assert verify_deeplink_sig(SECRET, "p-123", 3, bad_sig) is False
+
+
 async def test_feedback_gateway_applies_and_rejects_forgery(tmp_path) -> None:
     transport = FakeNtfyTransport()
     svc, db = await _make_service(tmp_path, transport=transport)

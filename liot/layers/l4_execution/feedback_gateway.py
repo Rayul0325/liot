@@ -25,6 +25,7 @@ if TYPE_CHECKING:  # pragma: no cover
 __all__ = [
     "FeedbackAuthError",
     "FeedbackGateway",
+    "compare_token",
     "verify_deeplink_sig",
     "verify_feedback_sig",
 ]
@@ -32,6 +33,23 @@ __all__ = [
 
 class FeedbackAuthError(Exception):
     """서명 검증 실패(위조/변조/형식 오류)."""
+
+
+def compare_token(expected: str, given: object) -> bool:
+    """상수 시간 비교 — 비-ASCII 입력은 예외 대신 '불일치'로 본다.
+
+    hmac.compare_digest 는 비-ASCII 문자가 든 str 에 TypeError 를 던진다. 피드백
+    URL 의 n=/sig= 는 요청자가 고르는 값이라(%C3%A9 한 글자면 된다) 그대로 넘기면
+    수신구가 500 을 내고, 403 과 갈리는 그 차이가 '이 pid 에 살아 있는 nonce 가
+    있는가'를 알려 주는 신호가 됐다(2026-09-01 리뷰 R2-02).
+
+    조기 반환이 새는 것은 없다: 기대값(hex 다이제스트·token_hex)은 항상 ASCII 라
+    비-ASCII 입력과 같을 수 없고, 분기는 요청자 자신의 입력에만 달려 있다.
+    """
+    text = str(given)
+    if not text.isascii():
+        return False
+    return hmac.compare_digest(expected, text)
 
 
 def verify_deeplink_sig(secret: bytes, proposal_id: str, tier: str | int, sig: str) -> bool:
@@ -45,7 +63,7 @@ def verify_deeplink_sig(secret: bytes, proposal_id: str, tier: str | int, sig: s
         return False
     message = f"{proposal_id}:{tier_int}".encode()
     expected = hmac.new(secret, message, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, str(sig))
+    return compare_token(expected, sig)
 
 
 def verify_feedback_sig(
@@ -69,7 +87,7 @@ def verify_feedback_sig(
     action_key = (action or "").strip().lower()
     message = f"{proposal_id}:{tier_int}:{action_key}:{nonce}".encode()
     expected = hmac.new(secret, message, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, str(sig))
+    return compare_token(expected, sig)
 
 
 class FeedbackGateway:

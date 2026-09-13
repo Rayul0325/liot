@@ -20,7 +20,6 @@ LiotApp(두뇌, 네트워크 없음·결정만)을 둘러싸고 부수효과를 
 from __future__ import annotations
 
 import asyncio
-import hmac
 import json
 import secrets
 from datetime import datetime, timedelta
@@ -48,6 +47,7 @@ from liot.layers.l4_execution.executor import (
 from liot.layers.l4_execution.feedback_gateway import (
     FeedbackAuthError,
     FeedbackGateway,
+    compare_token,
     verify_feedback_sig,
 )
 from liot.layers.l4_execution.notifier import (
@@ -585,7 +585,7 @@ class LiotService:
         # 캡처한 수락 링크가 영구 권한이 되고, 두 번 재생하는 것만으로 EMBER 의
         # 이중확인이 충족된다(1차 보류 → 2차 실행).
         expected = self._nonce.get(pid, "")
-        if not expected or not hmac.compare_digest(expected, nonce):
+        if not expected or not compare_token(expected, nonce):
             return "403 Forbidden", "stale or already-used link"
 
         try:

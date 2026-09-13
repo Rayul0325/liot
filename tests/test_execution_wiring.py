@@ -13,6 +13,8 @@ from __future__ import annotations
 import uuid
 from urllib.parse import parse_qs, urlsplit
 
+import pytest
+
 from liot.app import LiotApp
 from liot.core.clock import Clock
 from liot.core.contracts import CandidateAction, Proposal
@@ -365,5 +367,75 @@ async def test_snooze_keeps_the_delivered_links_alive():
         # 수락은 여전히 소비한다(1회용 보장은 그대로).
         replay_status, _ = await _click(svc, prop, "accept", nonce)
         assert "403" in replay_status
+    finally:
+        await db.close()
+
+
+# ── R2-02: 비-ASCII n=/sig= 는 예외(→500)가 아니라 403 ──────────────────
+@pytest.mark.parametrize("field", ["nonce", "sig", "undo_sig"])
+async def test_non_ascii_link_fields_are_403_for_live_and_unknown_pid_alike(field: str):
+    """%C3%A9 한 글자로 500 을 내던 요청이 이제 403 이고, pid 가 살아 있든 없든 같다.
+
+    2026-09-01 리뷰 R2-02: hmac.compare_digest 는 비-ASCII str 에 TypeError 를
+    던진다. 살아 있는 nonce 가 있는 pid 에서만 그 비교까지 가므로, 500 과 403 의
+    차이가 'nonce 가 살아 있는가'를 알려 주는 신호였다(수신구는 예외를 500 으로 바꾼다).
+    """
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        await svc.dispatch(prop)
+        nonce = _delivered_nonce(svc)
+        tier_int = int(prop.risk_tier)
+        good_sig = sign_feedback(SECRET, prop.proposal_id, tier_int, "accept", nonce)
+        non_ascii = "%C3%A9"  # 'é'
+
+        def line(pid: str) -> str:
+            if field == "nonce":
+                return f"GET /feedback?p={pid}&t={tier_int}&n={non_ascii}&sig={good_sig}&a=accept HTTP/1.1"
+            if field == "sig":
+                return f"GET /feedback?p={pid}&t={tier_int}&n={nonce}&sig={non_ascii}&a=accept HTTP/1.1"
+            return f"GET /feedback?p={pid}&t={tier_int}&sig={non_ascii}&a=undo HTTP/1.1"
+
+        live_status, _ = await svc._route_feedback(line(prop.proposal_id))
+        unknown_status, _ = await svc._route_feedback(line("p_does_not_exist"))
+        assert live_status.startswith("403"), live_status
+        assert unknown_status == live_status, "살아 있는 pid 와 없는 pid 의 응답이 갈린다"
+        assert fx.executed == [] and fx.undone == []
+        assert (await svc.proposals.get(prop.proposal_id)).state == "pending"
+    finally:
+        await db.close()
+
+
+# ── R2-28: 서명은 nonce 에 묶인다 — 옛 서명에 새 nonce 를 붙여도 통하지 않는다 ──
+async def test_old_signature_cannot_ride_a_freshly_issued_nonce():
+    """캡처한 1차 수락 서명 + 2차 알림의 새 nonce 조합은 거부된다.
+
+    2차 알림의 '열기' 딥링크는 nonce 를 서명 없이 운반한다(sign_deeplink). 서명이
+    nonce 를 묶지 않으면, 1차 링크를 캡처한 사람이 2차 알림에서 새 nonce 만 읽어
+    옛 서명에 붙이는 것으로 이중확인 2차를 채울 수 있다. 서버 쪽 nonce 비교는 이
+    조합을 못 막는다(nonce 자체는 지금 유효한 값이다) — 서명의 nonce 바인딩이 막는다.
+    """
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        await svc.dispatch(prop)
+        tier_int = int(prop.risk_tier)
+        first_nonce = _delivered_nonce(svc)
+        captured_sig = sign_feedback(SECRET, prop.proposal_id, tier_int, "accept", first_nonce)
+        status, body = await _click(svc, prop, "accept", first_nonce)
+        assert "1/2" in body
+
+        fresh_nonce = _delivered_nonce(svc)  # 2차 알림 딥링크에서 누구나 읽는 값
+        forged = (
+            f"GET /feedback?p={prop.proposal_id}&t={tier_int}"
+            f"&n={fresh_nonce}&sig={captured_sig}&a=accept HTTP/1.1"
+        )
+        status, body = await svc._route_feedback(forged)
+        assert "403" in status, f"옛 서명이 새 nonce 로 통했다: {status} {body}"
+        assert fx.executed == []
+
+        # 정당한 2차 링크는 그 거부에 영향받지 않는다.
+        assert "2/2" in (await _click(svc, prop, "accept", fresh_nonce))[1]
+        assert len(fx.executed) == 1
     finally:
         await db.close()
