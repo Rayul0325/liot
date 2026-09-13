@@ -402,6 +402,7 @@ class DirectiveStore:        # 세션 스코프 in-memory 활성 지시
         # until: ISO8601 시각(tz 없으면 UTC). 형식 오류면 저장 없이 ValueError. 기간 표기 미지원.
     def active(self, now: datetime | str | None = None) -> list[UserDirective]
         # until 시각부터 만료(경계 포함) → 제외. now 미지정 시 주입 Clock. 조회는 목록을 지우지 않음.
+    def all(self) -> list[UserDirective]   # 만료분까지 담은 사본. 기준 시각을 모르는 호출자용
     def clear(self) -> None
 # 활성 directive 는 comfort 후보만 억제(안전 카테고리·EMBER 는 억제 불가). Phase5.
 
@@ -422,7 +423,7 @@ class DeviceCatalog:
 | 2     | 아비터(evaluator 재사용) + `app.tick()` 재작성 + 데모 트레이스                  | ✅ 완료   | `app.py` `evaluator.evaluate(...)` → `last_candidate_evaluation`           |
 | 3     | 개인화 루프(피드백→임베딩 EMA+감쇠, `_refresh_feedback` 훅)                     | ✅ 완료   | `service.py` `_refresh_feedback()` · `feature_vector.apply_signal`         |
 | 4     | 트리거 감지 배선(규칙 상시 + LLM 옵트인)                                        | ✅ 완료   | `app.py` `_event_detector.detect(cur)` · `tests/test_event_detector.py`    |
-| 5     | 자연어 지시 오버라이드(`/api/directive` + 음성 옵션)                            | ◐ 부분    | 채팅=`demo_server.py` `/api/directive`. **음성 입력 미구현**(아래)         |
+| 5     | 자연어 지시 오버라이드(`/api/directive` + `until` 만료 + 음성 옵션)             | ◐ 부분    | 채팅·`until`=`demo_server.py` `/api/directive`(시뮬레이션 시각 기준 만료) · `tests/test_nl_directive.py`. **음성 입력 미구현**(아래) |
 | 6     | 데모 시각화 + 문서·불변식 스윕                                                  | ✅ 완료   | `web/assets/app.js` 파이프라인 시각화 · CI 불변식 게이트                   |
 
 > **Phase 5 의 잔여분**: `nl_directive` 는 `source: chat | voice` 를 *데이터

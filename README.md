@@ -331,7 +331,7 @@ LLM 폭주 → 침묵 + 안전 경로 무손상 / egress 불출 / occupancy fact
 - **자연어 지시 오버라이드**(`nl_directive`): "오늘 밤 불 켜놔줘" 같은 지시를
   구조화 `UserDirective` 로 파싱해 자율 제안을 억제/제약. **comfort 후보만** 억제
   가능 — 안전 카테고리·EMBER 는 어떤 지시로도 못 낮춘다. 채팅(`/api/directive`)
-  실동작 + 음성(Web Speech API STT/TTS) 옵션.
+  실동작 + `until`(ISO8601 시각) 시간만료. 음성 입력(STT/TTS)은 **미구현**.
 
 **안전 불변식(확장 2′)**: 모델·임베딩·지시는 전부 선호 층위. `safety_risk` 는
 언제나 catalog 결정론이고, 가스/누수 등 안전 임계는 LLM 이 꺼져 있어도·사용자가
@@ -417,13 +417,16 @@ class RuntimeRegistry:
 | `POST /api/registry/preset`     | 프리셋(등록 번들) 원자적 적용.                                   |
 | `POST /api/registry/reset`      | 세션 등록·선호 임베딩 전체 초기화.                              |
 | `POST /api/feedback`            | 폰 알림 응답(수락/거부/무시) → 선호 임베딩 EMA 갱신(개인화).     |
-| `POST /api/directive`           | 자연어 지시 파싱 → 자율 후보 억제(comfort 만, 안전 제외).        |
+| `POST /api/directive`           | 자연어 지시 파싱 → 자율 후보 억제(comfort 만, 안전 제외). `until` 로 시간만료. |
 
 - **선호 피드백 루프**: `/api/feedback` 가 셀맵(`(시간대,재실,cap:action)→0~1`)을
   온라인 EMA 로 갱신하고, 다음 `/api/simulate` 가 `set_preference_cells` 로 주입해
   선호 차원과 embedding 트레이스에 반영한다(빈 맵이면 중립 0.5).
 - **지시 채팅**: `/api/directive` 로 "오늘 밤 불 켜놔줘" 같은 지시를 구조화해
   자율 제안을 억제하되, 안전 카테고리·EMBER 는 어떤 지시로도 못 낮춘다.
+  선택 필드 `until`(ISO8601 시각, tz 없으면 UTC)을 주면 그 시각부터 지시가
+  자동 해제된다 — 데모는 **시뮬레이션 시각**(보드의 시간대 설정) 기준으로
+  판정한다. 형식이 틀리면 400(`field: until`)이고 아무것도 저장되지 않는다.
 
 > 데모 서버는 **절대 액추에이터를 호출하지 않는다**(제안-만; 실행 옵트인도 판정만
 > 표시). 실 ML/LLM 후보 생성·임베딩 학습은 인터페이스 뒤 결정론 Fake + env 슬롯
