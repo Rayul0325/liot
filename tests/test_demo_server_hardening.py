@@ -15,12 +15,13 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import socket
 import threading
 import time
 from contextlib import contextmanager
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -29,17 +30,18 @@ from liot import demo_server
 
 
 @contextmanager
-def _serve(timeout: int | None = None):
+def _serve(timeout: int | None = None, handler: type[BaseHTTPRequestHandler] | None = None):
     """임시 데모 서버(루프백). timeout 을 주면 Handler 소켓 타임아웃을 덮어쓴다.
 
     ``shutdown()`` 은 serve_forever 의 폴링 간격만큼 기다리므로, 테스트마다
     서버를 새로 띄우면 그 대기가 그대로 쌓인다(29개 × 0.5초 = 15초). 기본
     타임아웃을 쓰는 테스트는 아래 모듈 스코프 ``port`` 픽스처를 공유한다.
+    ``handler`` 는 모듈 사본의 Handler 로 띄울 때만 준다(심볼릭 링크 테스트).
     """
     original = demo_server.Handler.timeout
     if timeout is not None:
         demo_server.Handler.timeout = timeout
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), demo_server.Handler)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler or demo_server.Handler)
     thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.05},
                               daemon=True)
     thread.start()
@@ -208,6 +210,34 @@ def test_parent_traversal_is_not_served(port) -> None:
 def test_real_static_file_is_still_served(port) -> None:
     resp = _raw(port, b"GET /app.html HTTP/1.1\r\nHost: x\r\n\r\n")
     assert "200 OK" in resp, resp[:200]
+
+
+def test_symlinked_web_dir_still_serves_files(tmp_path: Path) -> None:
+    """`web` 자체가 심볼릭 링크여도 정적 파일이 404 가 되지 않는다(R2-13).
+
+    WEB_DIR 은 모듈을 읽을 때 한 번 정해지므로 몽키패치로는 검증할 수 없다.
+    그래서 `<tmp>/root/liot/demo_server.py` 에 모듈 사본을 두고 `<tmp>/root/web` 을
+    실제 디렉터리를 가리키는 링크로 만든 뒤, 그 사본을 불러 실제로 GET 한다.
+    """
+    real_web = tmp_path / "real_web"
+    real_web.mkdir()
+    (real_web / "probe.html").write_text("SYMLINK-OK", encoding="utf-8")
+    root = tmp_path / "root"
+    (root / "liot").mkdir(parents=True)
+    (root / "web").symlink_to(real_web, target_is_directory=True)
+    module_copy = root / "liot" / "demo_server.py"
+    module_copy.write_bytes(Path(demo_server.__file__).read_bytes())
+
+    spec = importlib.util.spec_from_file_location("_demo_server_symlink_probe", module_copy)
+    assert spec is not None and spec.loader is not None
+    probe = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(probe)
+
+    assert real_web.resolve() == probe.WEB_DIR, probe.WEB_DIR
+    with _serve(handler=probe.Handler) as probe_port:
+        resp = _raw(probe_port, b"GET /probe.html HTTP/1.1\r\nHost: x\r\n\r\n")
+    assert "200 OK" in resp, resp[:200]
+    assert "SYMLINK-OK" in resp, resp[-200:]
 
 
 # ───────────────────────────────── 4) 잘못된 입력은 끊김이 아니라 구조화 400

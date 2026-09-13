@@ -17,10 +17,16 @@
 
 루프백 HTTP 왕복만 쓰고 외부 네트워크는 호출하지 않는다 —
 `tests/test_service.py` 의 실 HTTP 왕복과 같은 방식이다.
+
+3) **락은 스냅샷 구간만, 응답은 락 밖에서** — 파이프라인이 락을 쥔 채 돌거나
+   응답을 락 아래에서 쓰면 다른 요청이 전부 멈춘다. 반대로 스냅샷을 떠 놓고도
+   응답 조립이 전역 상태를 다시 읽으면, 판단이 쓰지 않은 값이 화면에 섞인다.
+   `STATE_LOCK` 을 기록용 대역으로 바꿔 '어디서 락을 쥐었나'를 직접 단언한다.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 import time
@@ -32,6 +38,7 @@ from typing import Any
 import pytest
 
 from liot import demo_server
+from liot.app import LiotApp
 from liot.layers.l2_context import feature_vector
 from liot.layers.l2_context.feature_vector import NEUTRAL_PREF
 from liot.registry import RegistryError
@@ -83,12 +90,16 @@ def _clean_registry():
     """전역 레지스트리·선호 셀맵을 테스트마다 초기화(순서 의존 제거)."""
     demo_server._REGISTRY.reset()
     demo_server._PREF_CELLS.clear()
+    demo_server._DIRECTIVES.clear()
     yield
     demo_server._REGISTRY.reset()
     demo_server._PREF_CELLS.clear()
+    demo_server._DIRECTIVES.clear()
 
 
-def post(base: str, path: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+def post(
+    base: str, path: str, payload: dict[str, Any], *, timeout: float = 10
+) -> tuple[int, dict[str, Any]]:
     req = urllib.request.Request(
         base + path,
         data=json.dumps(payload).encode("utf-8"),
@@ -96,7 +107,7 @@ def post(base: str, path: str, payload: dict[str, Any]) -> tuple[int, dict[str, 
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 - 루프백
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - 루프백
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))
@@ -186,3 +197,170 @@ def test_concurrent_feedback_updates_are_not_lost(server, monkeypatch):
         "두 번째 갱신이 첫 번째 결과 위에 쌓이지 않았다 — 갱신 유실"
     )
     assert second["after"] > second["before"], "수락 신호는 선호를 올려야 한다"
+
+
+# ------------------------------------- 3) 락은 스냅샷 구간만, 응답은 락 밖에서
+# 빈집 + 조명 on → vacant-light-off 규칙이 light.turn_off 를 제안한다(FakeLLM).
+VACANT_LIGHT_BODY: dict[str, Any] = {
+    "mode": "tick",
+    "config": {"time": "evening", "llm_enabled": False},
+    "sensors": {"binary_sensor.living_motion": "off", "light.living_room": "on"},
+}
+
+
+class _ProbeLock:
+    """STATE_LOCK 대역 — 스레드별로 '지금 쥐고 있나'와 총 획득 횟수를 기록한다."""
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._local = threading.local()
+        self.acquired = 0
+
+    def held(self) -> bool:
+        return int(getattr(self._local, "depth", 0)) > 0
+
+    def __enter__(self) -> _ProbeLock:
+        self._lock.acquire()
+        self._local.depth = int(getattr(self._local, "depth", 0)) + 1
+        self.acquired += 1
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._local.depth -= 1
+        self._lock.release()
+
+
+def test_simulate_pipeline_does_not_hold_state_lock(server, monkeypatch):
+    """파이프라인(느린 LLM 대기 포함)이 도는 동안 다른 요청이 락에 막히지 않는다(R1-04).
+
+    파이프라인 안에서 멈추는 tick 대역을 끼우고, 그 사이 /api/directive 가 2초 안에
+    답하는지 본다. asyncio.run(_run(...)) 을 락으로 감싸던 옛 구조로 되돌리면
+    지시 요청이 tick 이 풀릴 때까지 묶여 시간 초과로 빨갛다.
+    """
+    entered = threading.Event()
+    release = threading.Event()
+
+    async def blocking_tick(self):
+        entered.set()
+        release.wait(timeout=10)  # 느린 LLM 호출 대역 — 이 요청 스레드만 묶는다
+        return None
+
+    monkeypatch.setattr(LiotApp, "tick", blocking_tick)
+    out: dict[str, Any] = {}
+
+    def simulate() -> None:
+        out["sim"] = post(server, "/api/simulate", VACANT_LIGHT_BODY)
+
+    worker = threading.Thread(target=simulate)
+    worker.start()
+    try:
+        assert entered.wait(timeout=10), "simulate 가 파이프라인에 도달하지 못했다"
+        started = time.monotonic()
+        status, body = post(server, "/api/directive", {"text": "불 켜놔줘"}, timeout=2)
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+        worker.join(timeout=10)
+
+    assert status == 200 and body["ok"] is True, body
+    assert elapsed < 2, f"지시 요청이 {elapsed:.1f}초 묶였다"
+    assert out["sim"][0] == 200, out
+
+
+def test_registry_reset_also_clears_directives(server):
+    """/api/registry/reset 은 활성 지시도 비운다(R1-14) — 남으면 tick 이 이유 없이 침묵."""
+    status, body = post(server, "/api/directive", {"text": "불 켜놔줘"})
+    assert status == 200 and len(body["active"]) == 1, body
+
+    status, _ = post(server, "/api/registry/reset", {})
+    assert status == 200
+
+    status, body = post(server, "/api/directive", {"text": ""})
+    assert status == 200 and body["active"] == [], f"리셋 뒤에도 옛 지시가 남았다: {body}"
+
+
+@pytest.mark.parametrize("payload", [{"reset": True}, {"text": "불 켜놔줘"}])
+def test_directive_response_is_written_outside_state_lock(server, monkeypatch, payload):
+    """지시 변경은 락 아래에서, 응답 쓰기는 락 밖에서(R1-05).
+
+    예전엔 초기화 분기가 락을 쥔 채 응답을 써서 느린 수신자가 소켓 타임아웃까지
+    전역 락을 붙들 수 있었다.
+    """
+    probe = _ProbeLock()
+    monkeypatch.setattr(demo_server, "STATE_LOCK", probe)
+    sent_while_held: list[bool] = []
+    real_send = demo_server.Handler._send
+
+    def spy_send(self, code, body, ctype):
+        sent_while_held.append(probe.held())
+        real_send(self, code, body, ctype)
+
+    monkeypatch.setattr(demo_server.Handler, "_send", spy_send)
+
+    status, body = post(server, "/api/directive", payload)
+
+    assert status == 200 and body["ok"] is True, body
+    assert probe.acquired >= 1, "지시 변경이 락 없이 일어났다"
+    assert sent_while_held == [False], f"응답을 락을 쥔 채 썼다: {sent_while_held}"
+
+
+def test_event_payload_validation_does_not_take_state_lock(monkeypatch):
+    """entity 없는 event 는 순수 페이로드 오류 — 전역 락을 잡기 전에 거절한다(R2-35)."""
+    probe = _ProbeLock()
+    monkeypatch.setattr(demo_server, "STATE_LOCK", probe)
+
+    out = asyncio.run(
+        demo_server._run({"mode": "event", "event": {}, "config": {"llm_enabled": False}})
+    )
+
+    assert out["ok"] is False and "entity" in out["error"], out
+    assert probe.acquired == 0, "순수 페이로드 검증이 전역 락을 잡았다"
+
+
+def test_simulate_reads_directives_once_under_the_lock(monkeypatch):
+    """활성 지시는 락 아래에서 한 번만 읽고, 응답도 그 스냅샷을 쓴다(R2-10).
+
+    예전엔 판단용으로 한 번(락 안), 응답용으로 두 번 더(락 밖) 읽어 그 사이의
+    변경이나 만료가 판단과 다른 목록을 화면에 보여줄 수 있었다.
+    """
+    probe = _ProbeLock()
+    monkeypatch.setattr(demo_server, "STATE_LOCK", probe)
+    demo_server._DIRECTIVES.add_text("불 켜놔줘")
+    calls: list[bool] = []
+    real_active = demo_server._DIRECTIVES.active
+
+    def spy_active(*args, **kwargs):
+        calls.append(probe.held())
+        return real_active(*args, **kwargs)
+
+    monkeypatch.setattr(demo_server._DIRECTIVES, "active", spy_active)
+
+    out = asyncio.run(demo_server._run(dict(VACANT_LIGHT_BODY)))
+
+    assert out["ok"] is True, out
+    assert calls == [True], f"지시를 락 밖에서 또는 여러 번 읽었다: {calls}"
+    assert [d["raw_text"] for d in out["directives"]["active"]] == ["불 켜놔줘"], out
+
+
+def test_embedding_trace_uses_the_preference_snapshot_the_pipeline_saw(monkeypatch):
+    """파이프라인이 도는 사이 들어온 피드백이 이번 응답의 임베딩 표시를 바꾸면 안 된다(R2-09).
+
+    tick 대역이 스냅샷 이후(락 밖) 같은 셀에 수락 피드백을 넣는다. 평가는 스냅샷
+    (중립 0.5)을 썼으므로 트레이스도 0.5 여야 한다 — 전역 셀맵을 다시 읽으면 0.65.
+    """
+    cell = "evening|vacant|light:turn_off"
+    real_tick = LiotApp.tick
+
+    async def tick_with_concurrent_feedback(self):
+        assert demo_server._apply_feedback(cell, "accepted")["ok"] is True
+        return await real_tick(self)
+
+    monkeypatch.setattr(LiotApp, "tick", tick_with_concurrent_feedback)
+
+    out = asyncio.run(demo_server._run(dict(VACANT_LIGHT_BODY)))
+
+    assert demo_server._PREF_CELLS[cell] > NEUTRAL_PREF, "피드백이 실제로 반영되지 않았다"
+    assert out["embedding"]["cell"] == cell, out.get("embedding")
+    assert out["embedding"]["preference"] == pytest.approx(NEUTRAL_PREF), (
+        f"임베딩 표시가 판단이 쓰지 않은 최신 셀맵을 읽었다: {out['embedding']}"
+    )

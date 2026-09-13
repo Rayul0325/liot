@@ -58,11 +58,12 @@ from liot.registry import RegistryError, RuntimeRegistry
 # 그래서 공유 상태를 만지는 구간은 전부 이 락 아래에서만 돈다. 재진입 가능
 # (RLock)이라 락을 쥔 코어 함수끼리 중첩 호출해도 안전하다.
 #
-# 시뮬레이트(_run)도 통째로 이 락 아래에서 돈다 — 파이프라인이 레지스트리
-# 파생물(카탈로그·룰셋·카테고리·실행 확장분)을 실행 내내 읽기 때문이다.
-# 대가로 동시 시뮬레이트는 직렬화되지만, 단일 사용자 데모에서 동시 실행은
-# 실제 사용 형태가 아니고 찢어진 상태를 보는 것보다 낫다. 정적 자산 GET 은
-# 락을 잡지 않으므로 페이지 로딩은 그대로 병렬이다.
+# 시뮬레이트(_run)는 **앞머리의 스냅샷 구간만** 이 락 아래에서 돈다 — 레지스트리
+# 파생물(카탈로그·룰셋·카테고리·실행 확장분)·선호 셀맵·활성 지시를 한 번에 떠
+# 두고, 파이프라인(LLM 네트워크 호출 포함)과 응답 조립은 락 밖에서 그 스냅샷만
+# 읽는다. 락을 쥔 채 파이프라인을 돌리면 LLM 을 기다리는 동안 등록·피드백·카탈로그
+# 조회까지 전부 멈춘다. HTTP 응답 쓰기도 락 밖에서 한다 — 느린 수신자가 소켓
+# 타임아웃까지 락을 붙들지 못하게. 정적 자산 GET 은 락을 잡지 않는다.
 STATE_LOCK = threading.RLock()
 
 # 활성 자연어 지시(세션 스코프). /api/directive 로 추가·초기화, /api/simulate tick 에 반영.
@@ -268,7 +269,34 @@ def _directive_view(d: UserDirective) -> dict[str, Any]:
         "raw_text": d.raw_text,
     }
 
-WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+
+def _apply_directive(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """자연어 지시 추가·초기화(``/api/directive``). 반환은 ``(응답 dict, HTTP 상태)``.
+
+    엔드포인트와 테스트가 공유하는 코어. 락은 여기서만 쥐고, 응답 쓰기는 호출자가
+    락 밖에서 한다 — 예전엔 초기화 분기가 락을 쥔 채 응답을 써서, 느린 수신자가
+    소켓 타임아웃(Handler.timeout)까지 전역 락을 붙들 수 있었다.
+    """
+    if body.get("reset"):
+        with STATE_LOCK:
+            _DIRECTIVES.clear()
+        return {"ok": True, "parsed": [], "active": []}, 200
+    text = str(body.get("text") or "")
+    source = str(body.get("source") or "chat")
+    with STATE_LOCK:
+        parsed = _DIRECTIVES.add_text(text, source=source)
+        active = _DIRECTIVES.active()
+    return {
+        "ok": True,
+        "parsed": [_directive_view(d) for d in parsed],
+        "active": [_directive_view(d) for d in active],
+    }, 200
+
+
+# 끝까지 resolve 한다. `web` 자체가 심볼릭 링크면 do_GET 의 `(WEB_DIR / rel).resolve()`
+# 는 링크 너머 실제 경로가 되는데 WEB_DIR 은 링크 경로 그대로라, is_relative_to 가
+# 늘 False 여서 정적 파일이 전부 404 가 된다.
+WEB_DIR = (Path(__file__).resolve().parent.parent / "web").resolve()
 
 # 요청 본문 상한. 이 서버가 받는 건 센서 값·등록 폼·프리셋 번들뿐이라 1MiB 면
 # 넉넉하다. 상한이 없으면 Content-Length 만 크게 불러 놓고 본문을 안 보내는
@@ -430,16 +458,21 @@ def _arbiter_view(cand_eval: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 def _embedding_view(
-    cand_eval: dict[str, Any] | None, facts: dict[str, Any]
+    cand_eval: dict[str, Any] | None, facts: dict[str, Any], pref_cells: dict[str, float]
 ) -> dict[str, Any] | None:
-    """선택 후보의 선호 임베딩 셀 값(세션 셀맵 반영 — 피드백 후 중립에서 이동)."""
+    """선택 후보의 선호 임베딩 셀 값(세션 셀맵 반영 — 피드백 후 중립에서 이동).
+
+    ``pref_cells`` 는 이번 판단에 주입한 **스냅샷**이어야 한다. 전역 ``_PREF_CELLS``
+    를 다시 읽으면 파이프라인이 도는 사이 들어온 피드백이 섞여, 평가가 쓰지 않은
+    선호값이 트레이스에 표시된다.
+    """
     if not cand_eval or cand_eval.get("evaluation") is None:
         return None
     ev = cand_eval["evaluation"]
     sel = ev.scored[ev.selected_index].candidate
     if sel.capability == "noop":
         return None
-    pref = FakePreferenceEmbedder(_PREF_CELLS).preference_for(sel, facts)
+    pref = FakePreferenceEmbedder(pref_cells).preference_for(sel, facts)
     return {
         "cell": cell_key(
             str(facts.get("time_bucket", "")), str(facts.get("occupancy", "")), sel
@@ -469,11 +502,22 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
             outdoor_aqi=outdoor.get("aqi"),
         )
 
+    # event 페이로드 검증은 공유 상태와 무관한 순수 검사다 — 락을 잡기 전에 끝낸다.
+    event_spec: dict[str, Any] = {}
+    event_entity: Any = None
+    if mode == "event":
+        event_spec = dict(body.get("event") or {})
+        event_entity = event_spec.get("entity")
+        if not event_entity:
+            return {"ok": False, "error": "event 에 entity 가 없습니다"}
+
     # ── 공유 상태 스냅샷 (락은 여기까지만) ─────────────────────────────
     # 레지스트리 파생물은 전부 새 객체(to_catalog=deepcopy, categories/ruleset=
     # 새로 조립)라, 락 아래에서 한 번 떠 두면 이후 등록이 끼어도 이번 판단은
     # 일관된 상태 위에서 끝난다. 값 강제변환(coerce)도 레지스트리를 읽으므로
     # 여기서 미리 마친다 — 미등록 엔티티면 파이프라인 시작 전에 RegistryError.
+    # 선호 셀맵·활성 지시도 여기서 뜬 스냅샷을 판단과 응답 조립이 **함께** 쓴다 —
+    # 응답 단계에서 전역을 다시 읽으면 판단이 보지 않은 값이 화면에 섞인다.
     #
     # **파이프라인 자체는 락 밖에서 돈다.** 안에서 LLM 네트워크 호출이 일어나고
     # (OllamaBackend, 기본 timeout 60초) 락을 쥔 채 돌면 그 시간 동안
@@ -501,10 +545,12 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
         # 폰 피드백으로 갱신된 세션 선호 셀맵을 이번 틱에 주입한다. 빈 맵이면 중립만
         # 반환(기존 동작 동일) — 수락 피드백 후엔 해당 셀의 user_preference_fit 이 상승해
         # 평가·embedding 트레이스에 반영된다.
-        app.set_preference_cells(dict(_PREF_CELLS))
+        pref_cells = dict(_PREF_CELLS)
+        app.set_preference_cells(pref_cells)
         # 활성 자연어 지시를 앱에 반영(tick 의 comfort 후보 억제; 안전은 억제 불가).
         # tick() 에서만 쓰이므로 seeding 앞에 둬도 동작이 같다.
-        app.set_directives(_DIRECTIVES.active())
+        directives = _DIRECTIVES.active()
+        app.set_directives(directives)
         # 카탈로그 파생 실행 확장분 — 응답 조립 단계에서 쓴다.
         exec_extras = _REGISTRY.executable_extras()
 
@@ -512,12 +558,10 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
         event_reading = None
         event_action = None
         if mode == "event":
-            ev = dict(body.get("event") or {})
-            eid = ev.get("entity")
-            if not eid:
-                return {"ok": False, "error": "event 에 entity 가 없습니다"}
-            event_action = ev.get("action")  # None → 카테고리 기본(안전=alert)
-            event_reading = _reading(eid, ev.get("value", sensors.get(eid)), ts)
+            event_action = event_spec.get("action")  # None → 카테고리 기본(안전=alert)
+            event_reading = _reading(
+                event_entity, event_spec.get("value", sensors.get(event_entity)), ts
+            )
 
     # 1) 모든 센서를 관찰로 주입(맥락/캐시 갱신, 대개 침묵).
     for reading in seed_readings:
@@ -585,11 +629,9 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
         ),
     }
     out["lines"] = _lines_view(cand_eval)
-    if _DIRECTIVES.active():
-        out["directives"] = {
-            "active": [_directive_view(d) for d in _DIRECTIVES.active()]
-        }
-    emb = _embedding_view(cand_eval, _facts)
+    if directives:
+        out["directives"] = {"active": [_directive_view(d) for d in directives]}
+    emb = _embedding_view(cand_eval, _facts, pref_cells)
     if emb is not None:
         out["embedding"] = emb
     arb = _arbiter_view(cand_eval)
@@ -788,20 +830,9 @@ class Handler(BaseHTTPRequestHandler):
             body = self._read_json()
             if body is None:
                 return
-            with STATE_LOCK:
-                if body.get("reset"):
-                    _DIRECTIVES.clear()
-                    self._json(200, {"ok": True, "parsed": [], "active": []})
-                    return
-                parsed = _DIRECTIVES.add_text(
-                    str(body.get("text") or ""), source=str(body.get("source") or "chat")
-                )
-                payload = {
-                    "ok": True,
-                    "parsed": [_directive_view(d) for d in parsed],
-                    "active": [_directive_view(d) for d in _DIRECTIVES.active()],
-                }
-            self._json(200, payload)
+            # 락은 코어 안에서만 — 응답은 락을 놓은 뒤에 쓴다.
+            result, code = _apply_directive(body)
+            self._json(code, result)
             return
         if path == "/api/feedback":
             self._feedback_post()
