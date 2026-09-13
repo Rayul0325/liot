@@ -5,8 +5,9 @@
 에 영속되며(scope="pref_embed"), 알림 응답(수락/거부/무시)으로 계속 갱신된다
 (유튜브식 온라인 EMA + 시간감쇠).
 
-Phase 0 은 표현 + 인터페이스 + 조회 스텁(셀맵 없으면 중립 0.5)만 둔다.
-갱신 규칙(EMA+감쇠)과 _refresh_feedback 훅은 Phase 3.
+조회(``FakePreferenceEmbedder``, 셀 없으면 중립 0.5)와 갱신 규칙(``apply_signal``
+EMA · ``apply_decay`` 감쇠, 순수 함수)을 둔다. 갱신 호출은 서비스가 제안 해소 시
+``LiotService._apply_pref_signal`` 에서 한다.
 """
 
 from __future__ import annotations
@@ -72,7 +73,7 @@ class FakePreferenceEmbedder:
     """결정론 선호 임베더. 영속 셀맵을 읽어 후보의 선호도를 돌려준다.
 
     cells: cell_key → 선호도(0~1). 없으면 중립(NEUTRAL_PREF).
-    Phase 0 스텁: 조회만. 갱신(EMA+감쇠)은 Phase 3 에서 이 모듈에 추가한다.
+    조회 전용. 갱신은 아래 ``apply_signal``/``apply_decay`` 가 셀맵을 새로 만들어 맡는다.
     """
 
     def __init__(self, cells: Mapping[str, float] | None = None) -> None:

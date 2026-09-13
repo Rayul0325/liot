@@ -145,7 +145,8 @@ class LiotApp:
         )
         # 능동 파이프라인 확장(2갈래 제안 + 선호 임베딩). 규칙 풀(Line A)에
         # ML/LLM 라인이 후보를 보태고, 아비터(evaluator)가 최종 선택한다.
-        # 임베더는 Phase3 에서 영속 셀맵을 로드; 지금은 중립(0.5).
+        # 임베더의 영속 셀맵은 서비스/데모가 set_preference_cells 로 주입한다.
+        # 주입 전에는 빈 셀맵 = 모든 후보 중립(0.5).
         self._embedder: PreferenceEmbedder = FakePreferenceEmbedder()
         self._proposal_lines: list[ProposalLine] = [
             MLProposalLine(),

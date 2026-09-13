@@ -13,8 +13,10 @@
 
 LLM 백엔드:
   - 기본은 결정론적 ``FakeLLM`` (네트워크 없음, category 기반 tier·rationale).
-  - 환경변수 ``LIOT_LLM_BACKEND`` 가 설정되면 실제 백엔드(예: litellm) *스텁*을
-    쓰되, 본 Phase1 에서는 연결하지 않고 미설정 시 FakeLLM 으로 폴백한다.
+  - ``LIOT_LLM_BACKEND`` 가 ollama|gemma|home|local 이면 ``OllamaBackend``
+    (로컬 ollama 실연동, egress 게이트 통과).
+  - 그 밖의 값(예: litellm)은 미연결 스텁 ``_LiteLLMStub`` — 항상 LLMUnavailable
+    이라 degraded fail-safe 로 떨어진다. 자세한 선택 규칙은 ``build_llm_backend``.
 """
 
 from __future__ import annotations
@@ -110,10 +112,10 @@ class FakeLLM:
 
 
 class _LiteLLMStub:
-    """실제 백엔드 스텁(LIOT_LLM_BACKEND 설정 시 선택되지만 Phase1 에선 미연결).
+    """미연결 백엔드 스텁 — ollama 계열이 아닌 LIOT_LLM_BACKEND 값에 선택된다.
 
     네트워크 연결 대신 항상 LLMUnavailable 을 던져, LLMJudge 의 degraded
-    fail-safe 경로(불변식 6 포함)가 동작함을 보장한다. 실제 연결은 후속 Phase.
+    fail-safe 경로(불변식 6 포함)가 동작함을 보장한다. 실연동은 OllamaBackend 뿐.
     """
 
     def __init__(self, backend_name: str) -> None:
