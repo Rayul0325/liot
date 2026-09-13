@@ -20,7 +20,6 @@ LiotApp(두뇌, 네트워크 없음·결정만)을 둘러싸고 부수효과를 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import hmac
 import json
 import secrets
@@ -143,11 +142,16 @@ class LiotService:
         self._policy = policy or ExecutionPolicy(enabled=False)
         self._prior: dict[str, dict[str, Any]] = {}  # pid → 실행 전 상태(되돌리기)
         self._awaiting_second: set[str] = set()  # 이중확인 1차 통과 대기 pid
+        # 이중확인 1차는 통과했지만 2차 알림이 나가지 못한 pid. 이 제안에선 1차
+        # 링크가 되살아나 있고, 그 링크는 발송 재시도만 할 수 있다(실행 불가).
+        self._second_undelivered: set[str] = set()
         # 피드백 링크 1회용 토큰: proposal_id → 지금 유효한 nonce.
         # 서명만으로는 링크가 영구 재사용 가능한 권한이 된다 — 캡처한 수락 링크를
         # 두 번 재생하는 것만으로 EMBER 의 DOUBLE_CONFIRM(1차 보류 → 2차 실행)이
         # 충족됐다. 성공한 피드백마다 여기서 nonce 를 지워 링크를 1회용으로 만들고,
-        # 2차 확인은 새 nonce 로 발급된 별도 링크를 요구한다.
+        # 2차 확인은 새 nonce 로 발급된 별도 링크를 요구한다. 예외는 둘 — 제안을
+        # pending 으로 남기는 피드백(스누즈)과, 2차 알림이 나가지 못한 1차 수락.
+        # 둘 다 사람 손에 다른 링크가 없어서, 소비하면 흐름이 끊긴다.
         self._nonce: dict[str, str] = {}
         # 개인화 루프(Phase3): 제안 → 선호 셀 키(맥락+행동), 신호 중복 방지.
         self._prop_cell: dict[str, str] = {}  # proposal_id → cell_key
@@ -253,7 +257,7 @@ class LiotService:
         self._nonce[proposal_id] = nonce
         return nonce
 
-    async def _request_second_confirmation(self, proposal: Proposal) -> None:
+    async def _request_second_confirmation(self, proposal: Proposal) -> bool:
         """이중확인 2차용 **새 링크**를 발급해 다시 알린다.
 
         1차 링크는 이미 소비됐으므로, 같은 링크를 다시 눌러도(=재생해도) 2차가
@@ -262,20 +266,29 @@ class LiotService:
         발화 게이트·예산은 거치지 않는다. 그건 '먼저 말 거는' 알림을 위한
         장치인데, 이건 사람이 방금 누른 버튼에 대한 직접 응답이라 억제되면
         확인 흐름이 끊긴다. egress 는 그대로 통과한다(정제 보장 불변).
-        """
-        self._issue_nonce(proposal.proposal_id)
-        if self.transport is None:
-            return  # sanitize-only: 배달 경로가 없다(링크도 없다)
-        sanitized = self.notifier.sanitize(proposal, self._nonce[proposal.proposal_id])
-        # 송신 실패는 치명적이지 않다 — 제안은 대기 상태로 남고 재시도 가능하다.
-        with contextlib.suppress(NtfyError):
-            self.transport.send(self.topic, sanitized)
 
-    async def _on_approved(self, proposal: Proposal) -> str:
+        반환: 2차 링크가 배달 경로에 실렸는가. 송신 실패(NtfyError)면 False —
+        예전엔 이걸 삼키고도 '다시 확인하세요'라고 답해 흐름이 소리 없이
+        끝났다(R2-17). 실패의 처리(알림·재시도 경로)는 호출자 _on_approved 몫이다.
+        """
+        nonce = self._issue_nonce(proposal.proposal_id)
+        if self.transport is None:
+            return True  # sanitize-only: 배달 경로 자체가 없다(링크도 없다) — 기존 동작
+        sanitized = self.notifier.sanitize(proposal, nonce)
+        try:
+            self.transport.send(self.topic, sanitized)
+        except NtfyError:
+            return False
+        return True
+
+    async def _on_approved(self, proposal: Proposal, *, used_nonce: str) -> str:
         """승인(accepted) 피드백 후 정책에 따라 실행한다.
 
         CONFIRM(DUSK) → 즉시 실행. DOUBLE_CONFIRM(EMBER/안전) → 1차는 보류하고
         한 번 더 확인 요청, 2차에서 실행. AUTO 는 이미 dispatch 에서 실행됨.
+
+        used_nonce: 방금 소비된 링크의 nonce. 2차 알림이 나가지 못했을 때 그
+        링크를 되살리는 데만 쓴다.
         """
         if self._executor is None:
             return ""
@@ -289,9 +302,18 @@ class LiotService:
                 return (
                     " · executed(2/2)" if await self._try_execute(proposal) else " · exec-failed"
                 )
-            self._awaiting_second.add(pid)
-            await self._request_second_confirmation(proposal)
-            return " · confirm-again(1/2)"
+            if await self._request_second_confirmation(proposal):
+                self._second_undelivered.discard(pid)
+                self._awaiting_second.add(pid)
+                return " · confirm-again(1/2)"
+            # 2차 알림이 나가지 못했다 — 사람 손엔 누를 2차 링크가 없다. 방금 누른
+            # 1차 링크를 되살려, 같은 버튼을 다시 누르면 발송을 재시도하게 한다.
+            # 이 링크로는 실행되지 않는다: 실행은 _awaiting_second 를 요구하고, 그건
+            # 2차 링크가 실제로 나간 뒤에만 채워진다 — 그때 새 nonce 가 이 링크를
+            # 대체하므로 1차 링크 재생으로 2/2 를 채우는 길은 여전히 없다.
+            self._nonce[pid] = used_nonce
+            self._second_undelivered.add(pid)
+            return " · second-confirm-not-sent(retry)"
         return ""
 
     async def _handle_undo(self, pid: str, tier: str, sig: str) -> tuple[str, str]:
@@ -406,23 +428,27 @@ class LiotService:
             proposal = await self.proposals.get(pid)
             if proposal is None or not self._nonce_is_live(pid, proposal.state):
                 self._nonce.pop(pid, None)
+                self._second_undelivered.discard(pid)
 
     def _nonce_is_live(self, pid: str, state: str | None) -> bool:
         """이 제안의 토큰이 아직 사람이 누를 링크에 실려 있을 수 있는가.
 
-        두 경우만 살아 있다.
-          - pending: 첫 알림의 링크.
+        세 경우만 살아 있다.
+          - pending: 첫 알림의 링크(스누즈 뒤에도 같은 링크).
           - accepted + 이중확인 2차 대기: 1차 수락이 상태를 이미 accepted 로
             옮긴 뒤 _request_second_confirmation 이 새로 발급한 2차 링크.
             상태만 보고 버리면 틱 한 번에 이 링크가 죽어 EMBER·안전 행동이
             영원히 2/2 에 닿지 못한다(2026-09-01 리뷰 R2-01).
+          - accepted + 2차 알림 미발송: 발송 재시도용으로 되살린 1차 링크(R2-17).
         accepted 조건을 함께 보는 이유: 2차 대기 중에 만료·대체(expired/
         superseded)된 제안의 링크는 살려 두면 안 된다.
         """
         st = (state or "").lower()
         if st == "pending":
             return True
-        return st == "accepted" and pid in self._awaiting_second
+        return st == "accepted" and (
+            pid in self._awaiting_second or pid in self._second_undelivered
+        )
 
     async def _refresh_feedback(self) -> None:
         """DB 의 거절/수용 이력을 동기 스냅샷으로 빚어 앱에 주입한다.
@@ -573,12 +599,18 @@ class LiotService:
 
         # 소비: 이 링크는 여기서 끝난다. 2차 확인이 필요하면 _on_approved 가
         # 새 nonce 를 발급해 별도 알림으로 내보낸다.
-        self._nonce.pop(pid, None)
+        # 예외 — 제안이 pending 으로 남는 피드백(스누즈)은 소비하지 않는다. 새
+        # 링크를 내보내는 경로가 없어서, 소비하면 사람이 가진 버튼이 전부 403 이
+        # 되고 제안은 pending 으로 영원히 남는다(R2-05). 그 링크를 재생해도 상태가
+        # pending 그대로라 얻는 것이 없다.
+        if (proposal.state or "").lower() != "pending":
+            self._nonce.pop(pid, None)
+            self._second_undelivered.discard(pid)  # 재시도 링크도 여기서 끝(재발급은 아래)
 
         # 승인 시 정책에 따라 실제 조작(불변식 8). 거절/스누즈는 실행 없음.
         note = ""
         if key in ("accept", "accepted"):
-            note = await self._on_approved(proposal)
+            note = await self._on_approved(proposal, used_nonce=nonce)
         # 개인화: 수락/거부를 선호 셀에 반영(유튜브식 온라인 갱신).
         st = (proposal.state or "").lower()
         if st == "accepted":

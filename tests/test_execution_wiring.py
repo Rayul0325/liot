@@ -276,3 +276,94 @@ async def test_sweep_still_revokes_second_link_once_proposal_is_superseded():
         assert "403" in status and fx.executed == []
     finally:
         await db.close()
+
+
+# ── R2-17: 2차 확인 알림 송신 실패는 알리고, 같은 버튼으로 재시도할 수 있다 ──
+async def test_second_confirmation_send_failure_is_reported_and_retryable():
+    """2차 알림이 안 나가면 '다시 확인하세요'라고 답하지 않는다.
+
+    2026-09-01 리뷰 R2-17: 송신 실패를 contextlib.suppress 로 삼키고도 응답은
+    confirm-again(1/2) 였다. 사람 손엔 누를 2차 링크가 없고 1차 링크는 소비돼,
+    안전 확인 흐름이 소리 없이 끝났다. 이제 실패를 응답에 드러내고, 방금 누른
+    1차 링크를 되살려 같은 버튼을 다시 누르면 2차 알림 발송을 재시도한다.
+    """
+    svc, fx, db = await _service(enabled=True)
+    try:
+        transport = svc.transport
+        assert isinstance(transport, FakeNtfyTransport)
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        await svc.dispatch(prop)
+        first_nonce = _delivered_nonce(svc)
+
+        transport.fail = True
+        status, body = await _click(svc, prop, "accept", first_nonce)
+        assert "200" in status
+        assert "not-sent" in body, f"송신 실패가 응답에 드러나지 않았다: {body}"
+        assert "confirm-again" not in body, "나가지 않은 알림을 다시 확인하라고 안내했다"
+        assert fx.executed == []
+
+        await svc.run_tick()  # 재시도 경로는 틱 스윕 뒤에도 살아 있어야 한다
+
+        transport.fail = False
+        sent_before = len(transport.sent)
+        status, body = await _click(svc, prop, "accept", first_nonce)
+        assert "200" in status and "1/2" in body, f"재시도가 막혔다: {status} {body}"
+        assert len(transport.sent) == sent_before + 1, "재시도에서 2차 알림이 안 나갔다"
+        assert fx.executed == []
+
+        # 2차 링크가 실제로 나간 뒤에는 1차 링크가 다시 죽는다(재생 방어 유지).
+        replay_status, _ = await _click(svc, prop, "accept", first_nonce)
+        assert "403" in replay_status
+
+        status, body = await _click(svc, prop, "accept", _delivered_nonce(svc))
+        assert "2/2" in body and len(fx.executed) == 1
+    finally:
+        await db.close()
+
+
+async def test_undelivered_second_confirmation_never_lets_first_link_execute():
+    """되살린 1차 링크는 발송 재시도만 한다 — 몇 번을 눌러도 실행되지 않는다."""
+    svc, fx, db = await _service(enabled=True)
+    try:
+        transport = svc.transport
+        assert isinstance(transport, FakeNtfyTransport)
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        await svc.dispatch(prop)
+        first_nonce = _delivered_nonce(svc)
+
+        transport.fail = True
+        for _ in range(3):
+            status, body = await _click(svc, prop, "accept", first_nonce)
+            assert "200" in status and "not-sent" in body
+        assert fx.executed == [], "2차 링크가 나간 적 없는데 1차 링크로 실행됐다"
+        assert prop.proposal_id not in svc._awaiting_second
+    finally:
+        await db.close()
+
+
+# ── R2-05: 스누즈는 링크를 소비하지 않는다 ─────────────────────────────
+async def test_snooze_keeps_the_delivered_links_alive():
+    """스누즈 뒤에도 같은 알림의 버튼으로 수락할 수 있다.
+
+    2026-09-01 리뷰 R2-05: 스누즈는 제안을 pending 으로 남기고 새 링크를 내보내지
+    않는데, 성공한 피드백이라며 nonce 를 소비했다. 사람이 가진 버튼이 전부 403
+    이 되고 제안은 pending 으로 영원히 남았다.
+    """
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal("light", "turn_off", "light", RiskTier.DUSK, "light.living_room")
+        await svc.dispatch(prop)
+        nonce = _delivered_nonce(svc)
+
+        status, body = await _click(svc, prop, "snooze", nonce)
+        assert "200" in status and "pending" in body
+
+        status, body = await _click(svc, prop, "accept", nonce)
+        assert "200" in status, f"스누즈가 알림의 버튼을 죽였다: {status} {body}"
+        assert "accepted" in body and len(fx.executed) == 1
+
+        # 수락은 여전히 소비한다(1회용 보장은 그대로).
+        replay_status, _ = await _click(svc, prop, "accept", nonce)
+        assert "403" in replay_status
+    finally:
+        await db.close()
