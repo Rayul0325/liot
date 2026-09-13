@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -79,6 +80,18 @@ _REGISTRY = RuntimeRegistry()
 # 항상 중립으로 표시되던" 데모 버그가 해소된다. /api/registry/reset 이 함께 비운다.
 _PREF_CELLS: dict[str, float] = {}
 
+# 피드백 셀 키는 feature_vector.cell_key 가 만드는 형식만 받는다:
+# `time_bucket|occupancy|capability:action`. UI 는 서버가 만든 셀(embedding.cell)만
+# 되돌려 보내므로 정상 흐름엔 영향이 없다. 형식 검사가 없으면 아무 문자열이나
+# _PREF_CELLS 의 새 칸이 돼 맵이 끝없이 분다(그런 키는 /api/simulate 가 조회도
+# 안 한다). 형식을 지켜도 capability:action 은 등록으로 계속 늘 수 있어 칸 수에도
+# 상한을 둔다 — 넘치면 새 칸만 거부하고 기존 칸 갱신은 계속 받는다.
+_CELL_KEY_RE = re.compile(
+    r"(?:morning|day|evening|night)\|(?:occupied|vacant|unknown)\|[^|:\s]+:[^|:\s]+"
+)
+MAX_CELL_KEY_LEN = 200
+MAX_PREF_CELLS = 512
+
 
 def _apply_feedback(cell: Any, signal: Any) -> dict[str, Any]:
     """폰 알림 응답(수락/거절/무시)을 세션 선호 셀맵에 온라인 EMA 로 반영한다.
@@ -93,15 +106,32 @@ def _apply_feedback(cell: Any, signal: Any) -> dict[str, Any]:
     signal = str(signal or "").strip()
     if not cell:
         return {"ok": False, "error": "피드백 대상 셀(cell)이 없습니다.", "field": "cell"}
+    if len(cell) > MAX_CELL_KEY_LEN or not _CELL_KEY_RE.fullmatch(cell):
+        return {
+            "ok": False,
+            "error": "피드백 대상 셀(cell) 형식이 올바르지 않습니다"
+                     " (시간대|재실|capability:action).",
+            "field": "cell",
+        }
     if signal not in SIGNAL_TARGET:
         return {
             "ok": False, "error": f"알 수 없는 신호입니다: {signal or '(빈값)'}",
             "field": "signal",
         }
     with STATE_LOCK:
-        before = round(float(_PREF_CELLS.get(cell, NEUTRAL_PREF)), 3)
-        _PREF_CELLS = apply_signal(_PREF_CELLS, cell, signal)
-        after = round(float(_PREF_CELLS.get(cell, NEUTRAL_PREF)), 3)
+        # 칸 수 확인과 추가가 한 덩어리여야 동시 요청이 상한을 함께 넘지 못한다.
+        full = cell not in _PREF_CELLS and len(_PREF_CELLS) >= MAX_PREF_CELLS
+        if not full:
+            before = round(float(_PREF_CELLS.get(cell, NEUTRAL_PREF)), 3)
+            _PREF_CELLS = apply_signal(_PREF_CELLS, cell, signal)
+            after = round(float(_PREF_CELLS.get(cell, NEUTRAL_PREF)), 3)
+    if full:
+        return {
+            "ok": False,
+            "error": f"선호 셀이 최대 {MAX_PREF_CELLS}칸에 도달해 새 셀을 더할 수 없습니다"
+                     " (초기화 후 다시 시도하세요).",
+            "field": "cell",
+        }
     return {"ok": True, "cell": cell, "signal": signal, "before": before, "after": after}
 
 
@@ -130,6 +160,24 @@ def _apply_preset(payload: Any) -> tuple[dict[str, Any], int]:
     """
     if not isinstance(payload, dict):
         return {"ok": False, "error": "프리셋 정의가 올바르지 않습니다."}, 400
+
+    # 최상위 필드의 타입부터 본다. 예전엔 아래 list(123)·dict([1, 2]) 가 try 밖에서
+    # TypeError 로 터져 400 없이 연결이 끊겼다. 빠진 필드(None)는 빈 값으로 본다.
+    shapes: tuple[tuple[str, type, str], ...] = (
+        ("sensors", list, "배열이어야"),
+        ("devices", list, "배열이어야"),
+        ("rules", list, "배열이어야"),
+        ("values", dict, "객체여야"),
+    )
+    for field, kind, must_be in shapes:
+        raw = payload.get(field)
+        if raw is not None and not isinstance(raw, kind):
+            return {
+                "ok": False,
+                "error": f"프리셋 정의가 올바르지 않습니다: {field} 는 {must_be} 합니다"
+                         f" (받은 값: {type(raw).__name__}).",
+                "field": field,
+            }, 400
 
     sensors = list(payload.get("sensors") or [])
     devices = list(payload.get("devices") or [])
@@ -719,6 +767,11 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(data.decode("utf-8"))
         except (ValueError, UnicodeDecodeError) as exc:
             self._json(400, {"ok": False, "error": f"bad json: {exc}"})
+            return None
+        except RecursionError:
+            # 1MiB 안에서도 `[[[[…` 를 수만 겹 쌓으면 디코더가 RecursionError 를
+            # 던진다. ValueError 가 아니라서 예전엔 그대로 새어 응답 없이 끊겼다.
+            self._json(400, {"ok": False, "error": "요청 본문 JSON 이 너무 깊게 중첩돼 있습니다."})
             return None
         if not isinstance(payload, dict):
             self._json(

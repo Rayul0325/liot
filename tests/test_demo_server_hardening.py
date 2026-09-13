@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import json
 import socket
 import threading
 import time
@@ -207,3 +208,41 @@ def test_parent_traversal_is_not_served(port) -> None:
 def test_real_static_file_is_still_served(port) -> None:
     resp = _raw(port, b"GET /app.html HTTP/1.1\r\nHost: x\r\n\r\n")
     assert "200 OK" in resp, resp[:200]
+
+
+# ───────────────────────────────── 4) 잘못된 입력은 끊김이 아니라 구조화 400
+def test_deeply_nested_json_body_is_rejected(port) -> None:
+    """1MiB 안의 `[[[[…` 는 디코더의 RecursionError — 예전엔 응답 없이 끊겼다."""
+    resp = _raw(port, _post("/api/simulate", b"[" * 100_000))
+    assert "400" in resp, resp[:200]
+    assert "중첩" in resp, resp[:200]
+
+
+@pytest.mark.parametrize("actions", ["5", '["x"]', '"turn_on"'])
+def test_registry_device_with_malformed_actions_is_400(port, actions: str) -> None:
+    body = (
+        '{"entity_id":"vacuum.shape_probe","name":"x","capability":"vacuum",'
+        f'"category":"appliance","actions":{actions}}}'
+    ).encode()
+    resp = _raw(port, _post("/api/registry/device", body))
+    assert "400" in resp, resp[:200]
+    assert '"field": "actions"' in resp, resp[-200:]
+
+
+@pytest.mark.parametrize("bounds", ['"min":"nan","max":"nan"', '"min":0,"max":"inf"'])
+def test_non_finite_sensor_bounds_keep_catalog_strict_json(port, bounds: str) -> None:
+    """nan·inf 경계를 받아 주면 /api/catalog 가 NaN/Infinity 를 내 보드가 못 읽는다."""
+    body = (
+        '{"entity_id":"sensor.nan_probe","name":"n","category":"misc","kind":"number",'
+        f"{bounds}}}"
+    ).encode()
+    resp = _raw(port, _post("/api/registry/sensor", body))
+    assert "400" in resp, resp[:200]
+
+    catalog = _raw(port, b"GET /api/catalog HTTP/1.1\r\nHost: x\r\n\r\n")
+    payload = catalog.split("\r\n\r\n", 1)[1]
+
+    def _reject(token: str) -> None:
+        raise AssertionError(f"카탈로그에 표준 JSON 이 아닌 상수가 있다: {token}")
+
+    json.loads(payload, parse_constant=_reject)

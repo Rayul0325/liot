@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import re
 from typing import Any
 
@@ -342,6 +343,13 @@ class RuntimeRegistry:
                 raise RegistryError(
                     "수치 센서는 최소·최대값(숫자)이 필요합니다.", field="min"
                 ) from None
+            # float("nan")·float("inf") 는 위 변환을 통과하고, NaN 은 아래 `>=` 비교도
+            # 항상 False 라 빠져나간다. 받아 두면 /api/catalog 가 NaN/Infinity 를 내보내
+            # (표준 JSON 아님) 보드가 카탈로그를 못 읽는다 — 유한값만 받는다.
+            if not (math.isfinite(mn) and math.isfinite(mx)):
+                raise RegistryError(
+                    "최소·최대값은 유한한 숫자여야 합니다(nan·inf 불가).", field="min"
+                )
             if mn >= mx:
                 raise RegistryError("최소값은 최대값보다 작아야 합니다.", field="min")
             unit = meta.get("unit")
@@ -373,6 +381,13 @@ class RuntimeRegistry:
         capability = str(capability or "").strip()
         category = str(category or "").strip()
         actions = actions or []
+        # JSON 에서 그대로 온 값이라 선언 타입을 믿지 않는다. 예전엔 `for a in 5` 가
+        # TypeError, `"x".get` 이 AttributeError 로 터져 RegistryError 가 아니었고,
+        # /api/registry/device 는 응답 없이 연결이 끊겼다.
+        if not isinstance(actions, list) or not all(isinstance(a, dict) for a in actions):
+            raise RegistryError(
+                "행동 목록은 객체({action, tier})의 배열이어야 합니다.", field="actions"
+            )
 
         if not capability:
             raise RegistryError("capability 를 입력하세요.", field="capability")

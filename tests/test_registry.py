@@ -240,6 +240,42 @@ def test_add_sensor_number_bad_range(reg: RuntimeRegistry) -> None:
     assert exc.value.field == "min"
 
 
+@pytest.mark.parametrize(
+    "mn,mx",
+    [("nan", "nan"), (0, "inf"), ("-inf", 100), (float("nan"), 100), (0, float("inf"))],
+)
+def test_add_sensor_number_non_finite_range_rejected(reg: RuntimeRegistry, mn, mx) -> None:
+    """nan·inf 경계는 거부 — 받아 주면 /api/catalog 가 NaN/Infinity(비표준 JSON)를 낸다.
+
+    `float("nan") >= x` 는 항상 False 라 기존 `mn >= mx` 검사를 그대로 통과했다.
+    """
+    with pytest.raises(RegistryError) as exc:
+        reg.add_sensor(
+            {
+                "entity_id": "sensor.nonfinite", "name": "비유한 범위",
+                "category": "misc", "kind": "number", "min": mn, "max": mx,
+            }
+        )
+    assert exc.value.field == "min"
+    assert all(s["entity_id"] != "sensor.nonfinite" for s in reg.sensors_meta())
+
+
+@pytest.mark.parametrize("actions", [5, "turn_on", ["x"], [{"action": "start"}, 7], {"a": 1}])
+def test_add_device_actions_must_be_list_of_objects(reg: RuntimeRegistry, actions) -> None:
+    """행동 목록이 '객체의 리스트'가 아니면 RegistryError(→400).
+
+    예전엔 `for a in 5` 가 TypeError, `"x".get` 이 AttributeError 로 터져
+    `except RegistryError` 를 빠져나갔고 /api/registry/device 는 응답 없이 끊겼다.
+    """
+    with pytest.raises(RegistryError) as exc:
+        reg.add_device(
+            entity_id="vacuum.robot", name="로봇청소기", capability="vacuum",
+            category="appliance", actions=actions,
+        )
+    assert exc.value.field == "actions"
+    assert "vacuum.robot" not in {a["entity_id"] for a in reg.to_catalog().available_actions()}
+
+
 def test_add_sensor_bad_kind(reg: RuntimeRegistry) -> None:
     with pytest.raises(RegistryError) as exc:
         reg.add_sensor(

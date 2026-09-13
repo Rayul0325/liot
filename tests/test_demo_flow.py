@@ -306,3 +306,99 @@ def test_preset_unexpected_exception_rolls_back(monkeypatch: pytest.MonkeyPatch)
     assert _catalog_ids() == (before_sensors, before_devices)
     assert "fan.study" in _catalog_ids()[1]  # reset 롤백됨
     assert ds._PREF_CELLS == {"evening|vacant|light:turn_off": 0.65}
+
+
+# ── 프리셋: 최상위 필드 타입이 틀려도 구조화 400 ─────────────────────────
+@pytest.mark.parametrize(
+    "bad,field",
+    [
+        ({"sensors": 123}, "sensors"),
+        ({"devices": 5}, "devices"),
+        ({"rules": 7}, "rules"),
+        ({"values": [1, 2]}, "values"),
+        ({"reset": True, "sensors": "abc"}, "sensors"),
+        ({"reset": True, "values": "x"}, "values"),
+    ],
+)
+def test_preset_top_level_wrong_type_is_400_without_touching_state(
+    bad: dict[str, Any], field: str
+) -> None:
+    """최상위 sensors/devices/rules/values 의 타입이 틀리면 어느 필드인지 밝혀 400.
+
+    예전엔 `list(123)`·`dict([1, 2])` 가 try 밖에서 터져 엔드포인트가 응답 없이
+    끊겼다(2026-09-01 리뷰 R2-03). 문자열은 list("abc") 로 글자 배열이 돼 엉뚱한
+    '항목' 사유를 냈다.
+    """
+    _seed_device()
+    ds._PREF_CELLS["evening|vacant|light:turn_off"] = 0.65
+    before = _catalog_ids()
+
+    result, code = ds._apply_preset(bad)
+
+    assert code == 400 and result["ok"] is False, result
+    assert result["field"] == field, result
+    assert field in result["error"], result
+    assert _catalog_ids() == before
+    assert ds._PREF_CELLS == {"evening|vacant|light:turn_off": 0.65}
+
+
+# ── 피드백 셀 키: 서버가 만드는 형식만, 개수는 상한까지 ───────────────────
+@pytest.mark.parametrize(
+    "cell",
+    [
+        "not|a|real cell key!!",
+        "evening|vacant",
+        "evening|vacant|light",
+        "noon|vacant|light:turn_off",
+        "evening|home|light:turn_off",
+        "evening|vacant|light:turn off",
+        "evening|vacant|light:turn_off|extra",
+        "evening|vacant|li:ght:turn_off",
+        "evening|vacant|:turn_off",
+        "evening|vacant|" + "a" * 100 + ":" + "b" * 100,  # 200자 초과
+    ],
+)
+def test_feedback_rejects_malformed_cell(cell: str) -> None:
+    """cell_key 형식(time_bucket|occupancy|capability:action)이 아니면 400.
+
+    예전엔 비어 있지만 않으면 받아서 `_PREF_CELLS` 가 아무 키로나 끝없이 불었다
+    (R1-24b, 실측 임의 키 500개 → 500칸). 그런 키는 /api/simulate 가 조회하지도 않는다.
+    """
+    out = ds._apply_feedback(cell, "accepted")
+    assert out["ok"] is False and out["field"] == "cell", out
+    assert ds._PREF_CELLS == {}
+
+
+@pytest.mark.parametrize(
+    "cell",
+    [
+        "evening|vacant|light:turn_off",
+        "morning|occupied|climate:set_temperature",
+        "night|unknown|vacuum:stop",
+        "day|vacant|가습기:켜기",  # 한글 capability 도 등록 가능하다
+    ],
+)
+def test_feedback_accepts_cell_key_shapes(cell: str) -> None:
+    out = ds._apply_feedback(cell, "accepted")
+    assert out["ok"] is True, out
+    assert cell in ds._PREF_CELLS
+
+
+def test_feedback_distinct_cells_are_capped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """서로 다른 셀 수는 상한까지 — 넘치는 새 키는 400, 기존 키 갱신은 계속 된다."""
+    monkeypatch.setattr(ds, "MAX_PREF_CELLS", 3)
+    cells = [f"evening|vacant|fan{i}:turn_on" for i in range(3)]
+    for c in cells:
+        assert ds._apply_feedback(c, "accepted")["ok"] is True
+
+    over = ds._apply_feedback("evening|vacant|fan9:turn_on", "accepted")
+    assert over["ok"] is False and over["field"] == "cell", over
+    assert "3" in over["error"], over
+    assert set(ds._PREF_CELLS) == set(cells)
+
+    again = ds._apply_feedback(cells[0], "accepted")
+    assert again["ok"] is True and again["after"] > again["before"], again
+
+
+def test_feedback_cell_cap_default_is_bounded() -> None:
+    assert 0 < ds.MAX_PREF_CELLS <= 4096
