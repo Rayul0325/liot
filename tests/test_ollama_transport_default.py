@@ -15,7 +15,12 @@ from liot.layers.l3_judgment.ollama_backend import (
     build_ollama_backend,
 )
 
-_ENV_KEYS = ("LIOT_OLLAMA_TRANSPORT", "LIOT_OLLAMA_SSH_HOST", "LIOT_OLLAMA_HTTP_URL")
+_ENV_KEYS = (
+    "LIOT_OLLAMA_TRANSPORT",
+    "LIOT_OLLAMA_SSH_HOST",
+    "LIOT_OLLAMA_HTTP_URL",
+    "LIOT_OLLAMA_TIMEOUT",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -28,6 +33,13 @@ def test_default_transport_is_local_http() -> None:
     backend = build_ollama_backend()
     assert isinstance(backend.transport, HTTPOllamaTransport)
     assert backend.transport.base_url == "http://127.0.0.1:11434"
+
+
+def test_http_url_env_overrides_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LIOT_OLLAMA_HTTP_URL", "http://10.0.0.5:11434/")
+    backend = build_ollama_backend()
+    assert isinstance(backend.transport, HTTPOllamaTransport)
+    assert backend.transport.base_url == "http://10.0.0.5:11434"
 
 
 def test_ssh_transport_requires_explicit_host(monkeypatch: pytest.MonkeyPatch) -> None:
