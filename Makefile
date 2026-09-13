@@ -35,7 +35,7 @@ hooks:
 demo:
 	$(PY) -m liot.demo
 
-# 실제 ollama(gemma via ssh home) Gate2 스모크. home 오프라인이면 degraded 시연.
+# 실제 ollama(이 기계 = 홈 서버의 로컬 HTTP) Gate2 스모크. ollama 미가동이면 degraded 시연.
 smoke:
 	$(PY) scripts/ollama_smoke.py
 

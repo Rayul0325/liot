@@ -5,8 +5,10 @@
     ``core.egress_gate.emit_external(Destination.LLM, ...)`` 를 통과한다.
     raw entity_id·방이름·사람이름은 AliasMap 토큰으로 치환되고 PII 그물을 거친다.
     (현재 코드베이스에서 LLM 경로가 egress 게이트를 실제로 통과하는 유일한 지점)
-  - **로컬 우선**: ollama 는 보통 127.0.0.1:11434 에 바인딩되므로, 기본 transport 는
-    기존 SSH 별칭(``home``)을 통해 원격 호스트의 ollama 를 호출한다(바인딩 변경 불필요).
+  - **로컬 우선**: ollama 는 LIOT 가 도는 홈 서버(ssh 별칭 ``home`` 본체) 자신의
+    127.0.0.1:11434 에서 돈다. 그래서 기본 transport 는 HTTP 로컬 직접 호출이다.
+    (2026-09-13 Mac Studio 이관 전에는 개발 기계가 ``ssh home`` 으로 원격 호출했다.)
+    SSH transport 는 다른 호스트의 ollama 를 부를 때만 호스트를 명시해서 쓴다.
   - **fail-closed**: 도달 불가·타임아웃·파싱 실패는 모두 ``LLMUnavailable`` 로
     승격되어 LLMJudge 의 degraded fail-safe(불변식 6 포함)로 떨어진다.
 
@@ -52,13 +54,14 @@ class OllamaTransport(Protocol):
 
 
 class SSHOllamaTransport:
-    """기존 SSH 별칭(예: ``home``)을 통해 원격 ollama 의 /api/generate 호출.
+    """SSH 별칭으로 *다른 호스트*의 ollama /api/generate 호출.
 
     ollama 가 127.0.0.1 에 바인딩돼 있어도 SSH 세션 내부에서 curl 로 호출하므로
-    포트 노출/바인딩 변경이 필요 없다.
+    포트 노출/바인딩 변경이 필요 없다. 기본 호스트는 두지 않는다 — 예전 기본값
+    ``home`` 은 이관 후 이 기계 자신이라, 기본값으로 두면 자기 자신에게 ssh 한다.
     """
 
-    def __init__(self, ssh_host: str = "home", connect_timeout_s: int = 8) -> None:
+    def __init__(self, ssh_host: str, connect_timeout_s: int = 8) -> None:
         self.ssh_host = ssh_host
         self.connect_timeout_s = connect_timeout_s
 
@@ -258,19 +261,25 @@ def build_ollama_backend(alias: AliasMap | None = None) -> OllamaBackend:
          + 프롬프트 인젝션 저항 + ~0.9s/판정으로, gemma4:31b 와 동일 정확도이나
          2.7배 빠르고 2배 가볍다. qwen3 계열은 thinking 토큰으로 JSON-only 출력이
          깨지거나(빈 응답) 인젝션에 취약 → 부적합.)
-    LIOT_OLLAMA_TRANSPORT: 'ssh'(기본) | 'http'.
-    LIOT_OLLAMA_SSH_HOST: ssh 별칭(기본 'home').
+    LIOT_OLLAMA_TRANSPORT: 'http'(기본, 로컬 직접) | 'ssh'(다른 호스트).
+    LIOT_OLLAMA_SSH_HOST: ssh 별칭. transport=ssh 일 때 필수(기본값 없음).
     LIOT_OLLAMA_HTTP_URL: http base(기본 http://127.0.0.1:11434).
     LIOT_OLLAMA_TIMEOUT : 초(기본 30).
     """
     model = os.environ.get("LIOT_OLLAMA_MODEL", "gemma4:e4b").strip()
-    kind = os.environ.get("LIOT_OLLAMA_TRANSPORT", "ssh").strip().lower()
+    kind = os.environ.get("LIOT_OLLAMA_TRANSPORT", "http").strip().lower()
     timeout = float(os.environ.get("LIOT_OLLAMA_TIMEOUT", "30") or "30")
     transport: OllamaTransport
-    if kind == "http":
+    if kind == "ssh":
+        host = os.environ.get("LIOT_OLLAMA_SSH_HOST", "").strip()
+        if not host:
+            raise ValueError(
+                "LIOT_OLLAMA_TRANSPORT=ssh 에는 LIOT_OLLAMA_SSH_HOST 가 필요합니다 "
+                "(로컬 ollama 는 transport=http 기본값을 쓰세요)"
+            )
+        transport = SSHOllamaTransport(host)
+    else:
         transport = HTTPOllamaTransport(
             os.environ.get("LIOT_OLLAMA_HTTP_URL", "http://127.0.0.1:11434")
         )
-    else:
-        transport = SSHOllamaTransport(os.environ.get("LIOT_OLLAMA_SSH_HOST", "home"))
     return OllamaBackend(model, transport, alias=alias, timeout_s=timeout)

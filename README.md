@@ -165,19 +165,21 @@ make hooks   # 푸시 전 lint+typecheck+test+시크릿 스캔 (git push --no-ve
 
 ---
 
-## Gate2 실연결 (ollama · gemma via `ssh home`)
+## Gate2 실연결 (ollama · gemma, 로컬 HTTP)
 
-로컬 우선 원칙에 맞춰 외부 API 대신 홈 서버의 로컬 모델을 쓴다. ollama 가
-`127.0.0.1` 에만 바인딩돼 있어도 기존 SSH 별칭으로 호출하므로 포트 노출이
-필요 없다.
+로컬 우선 원칙에 맞춰 외부 API 대신 홈 서버의 로컬 모델을 쓴다. LIOT 는 홈 서버
+(ssh 별칭 `home` 본체) 에서 직접 돌므로 `127.0.0.1:11434` 로 바로 부른다 —
+포트 노출도 SSH 도 필요 없다. (2026-09-13 Mac Studio 이관 전에는 개발 기계에서
+`ssh home` 으로 원격 호출했다.)
 
 ```bash
-make smoke      # 설치 모델 자동 감지(gemma*) 후 실제 판정. home 오프라인이면 degraded 시연.
+make smoke      # 로컬 설치 모델 자동 감지(gemma*) 후 실제 판정. ollama 미가동이면 degraded 시연.
 make demo-live  # 전체 앱을 실제 모델에 붙여 데모(= LIOT_LLM_BACKEND=ollama python -m liot.demo)
 ```
 
-환경변수: `LIOT_OLLAMA_MODEL`(예 `gemma3:4b`), `LIOT_OLLAMA_TRANSPORT`(`ssh`|`http`),
-`LIOT_OLLAMA_SSH_HOST`(기본 `home`), `LIOT_OLLAMA_HTTP_URL`, `LIOT_OLLAMA_TIMEOUT`.
+환경변수: `LIOT_OLLAMA_MODEL`(기본 `gemma4:e4b`), `LIOT_OLLAMA_TRANSPORT`(`http` 기본 |
+`ssh`), `LIOT_OLLAMA_HTTP_URL`(기본 `http://127.0.0.1:11434`), `LIOT_OLLAMA_TIMEOUT`,
+`LIOT_OLLAMA_SSH_HOST`(transport=`ssh` 로 다른 호스트를 부를 때만, 필수·기본값 없음).
 
 **fail-closed 보장**: 모델 도달 불가·타임아웃·비-JSON·PII 차단(EgressViolation)은
 모두 `LLMUnavailable` 로 강등되어 degraded fail-safe 로 떨어진다. 안전 임계
