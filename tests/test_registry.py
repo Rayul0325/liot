@@ -615,3 +615,15 @@ def test_registered_action_produces_a_feedback_cell_the_server_accepts() -> None
     from liot import demo_server
 
     assert demo_server._CELL_KEY_RE.fullmatch(cell), cell
+
+
+def test_overlong_action_name_is_rejected() -> None:
+    """이름 길이 상한 — 셀 키 상한(200자)과 어긋나지 않게 등록에서 막는다(리뷰 R-1 잔여)."""
+    reg = RuntimeRegistry()
+    with pytest.raises(RegistryError) as exc:
+        reg.add_device(
+            entity_id="vacuum.robot", name="로봇", capability="vacuum",
+            category="vacuum", actions=[{"action": "a" * 120, "tier": "breath"}],
+        )
+    assert exc.value.field == "action"
+    assert "64" in exc.value.message

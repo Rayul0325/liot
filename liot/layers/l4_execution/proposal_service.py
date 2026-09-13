@@ -180,9 +180,16 @@ class ProposalService:
                 extra_params=tuple(chunk),
             )
             for row in rows:
-                expires = row["expires_at"]
-                out[str(row["proposal_id"])] = (
-                    str(row["state"] or ""),
+                # row_factory 가 Row 가 아닐 때도 읽히게 — 같은 파일의 expire_due 가
+                # 쓰는 방식과 맞춘다(내부 일관성, 리뷰 R-6).
+                if _is_mapping(row):
+                    pid_val, state_val, expires = (
+                        row["proposal_id"], row["state"], row["expires_at"]
+                    )
+                else:  # pragma: no cover - row_factory 가 Row 가 아닐 때 방어
+                    pid_val, state_val, expires = row[0], row[1], row[2]
+                out[str(pid_val)] = (
+                    str(state_val or ""),
                     None if expires is None else str(expires),
                 )
         return out

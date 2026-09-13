@@ -71,12 +71,22 @@ def test_git_failure_is_not_reported_as_clean(tmp_path: Path) -> None:
     root = tmp_path / "not-a-repo"
     (root / "scripts").mkdir(parents=True)
     shutil.copy2(SCRIPT, root / "scripts" / "secret_scan.sh")
+    # git 이 PATH 에 있어야 rc=128(저장소 아님)이 나온다. 없으면 rc=127 로도 테스트가
+    # 통과해 '엉뚱한 이유로 초록'이 된다(리뷰 R-8) — 실제 경로를 찾아 넣는다.
+    git = shutil.which("git")
+    assert git, "git 을 찾을 수 없어 이 테스트의 전제가 성립하지 않는다"
     proc = subprocess.run(
         ["sh", str(root / "scripts" / "secret_scan.sh")],
         capture_output=True,
         text=True,
         timeout=30,
-        env={"PATH": "/usr/bin:/bin", "GIT_CEILING_DIRECTORIES": str(tmp_path)},
+        env={
+            "PATH": f"{Path(git).parent}:/usr/bin:/bin",  # sh 도 필요하다
+            "GIT_CEILING_DIRECTORIES": str(tmp_path),
+        },
+    )
+    assert "not a git repository" in (proc.stdout + proc.stderr).lower() or "rc=" in proc.stdout, (
+        proc.stdout + proc.stderr
     )
     assert proc.returncode != 0, proc.stdout
     assert "OK" not in proc.stdout

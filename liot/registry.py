@@ -117,8 +117,19 @@ _ENTITY_ID_RE = re.compile(r"^[a-z][a-z0-9_]*\.[a-z0-9_]+$")
 _NAME_FORBIDDEN_RE = re.compile(r"[\s|:]")
 
 
+# 이름 길이 상한. 셀 키(`time_bucket|occupancy|capability:action`)에는 별도 상한
+# (demo_server.MAX_CELL_KEY_LEN=200)이 있어, 120자 + 120자 같은 이름은 등록은 되고
+# 그 셀의 피드백만 400 이 됐다 — 같은 '나중에 드러나는 어긋남'이다(리뷰 R-1 잔여).
+_NAME_MAX_LEN = 64
+
+
 def _validate_name(value: str, field: str, label: str) -> str:
-    """capability·action 이름 검사. 공백·`|`·`:` 가 있으면 RegistryError."""
+    """capability·action 이름 검사. 공백·`|`·`:` 나 과도한 길이면 RegistryError."""
+    if len(value) > _NAME_MAX_LEN:
+        raise RegistryError(
+            f"{label}이 너무 깁니다({len(value)}자) — {_NAME_MAX_LEN}자 이내로 쓰세요.",
+            field=field,
+        )
     if _NAME_FORBIDDEN_RE.search(value):
         raise RegistryError(
             f"{label}에는 공백과 구분자(| :)를 쓸 수 없습니다"
