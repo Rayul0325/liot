@@ -22,6 +22,8 @@ import json
 from typing import Any, Protocol, runtime_checkable
 from urllib.parse import parse_qs, urlsplit
 
+from .notifier import sign_feedback
+
 __all__ = [
     "NtfyError",
     "NtfyTransport",
@@ -116,17 +118,14 @@ class HTTPNtfyTransport:
         secret = self._secret
         parsed = _parse_deeplink(deeplink) if (self.feedback_base_url and secret) else None
         if parsed and secret is not None:
-            import hashlib
-            import hmac
-
             pid, t, _, nonce = parsed
             base = self.feedback_base_url
 
             def _sig(action: str) -> str:
-                # nonce 를 서명에 묶는다(sign_feedback 과 동일 규약) — 서비스가
-                # 성공한 피드백마다 nonce 를 소비하므로 링크가 1회용이 된다.
-                msg = f"{pid}:{t}:{action}:{nonce}".encode()
-                return hmac.new(secret, msg, hashlib.sha256).hexdigest()
+                # 서명 규약의 정본은 sign_feedback 하나다. 여기서 HMAC 을 다시
+                # 구현하면(전에 그랬다) 한쪽만 고쳐도 게이트웨이 검증이 조용히
+                # 어긋난다 — 버튼이 전부 403 이 되는 방향으로(2026-09-01 리뷰 R2-27).
+                return sign_feedback(secret, pid, t, action, nonce)
 
             qs = f"p={pid}&t={t}&n={nonce}"
             accept = f"{base}/feedback?{qs}&sig={_sig('accept')}&a=accept"

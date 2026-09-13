@@ -421,12 +421,16 @@ class LiotService:
 
         살아 있는 토큰의 기준은 _nonce_is_live 가 정한다.
 
-        읽기 횟수는 살아 있는 토큰 수만큼이고, 한 번 정리되면 맵이 작게
-        유지되므로 자기교정된다.
+        상태는 토큰 전체를 **한 번의 쿼리**로 묻는다(states_for). 토큰마다 get()
+        을 돌리던 예전 판은 틱마다 N 번 조회였다(2026-09-01 리뷰 R2-21).
         """
-        for pid in list(self._nonce):
-            proposal = await self.proposals.get(pid)
-            if proposal is None or not self._nonce_is_live(pid, proposal.state):
+        pids = list(self._nonce)
+        if not pids:
+            return
+        states = await self.proposals.states_for(pids)
+        for pid in pids:
+            # 없는 제안(states 에 없음)은 상태 ''→ 살아 있지 않음으로 판정된다.
+            if not self._nonce_is_live(pid, states.get(pid)):
                 self._nonce.pop(pid, None)
                 self._second_undelivered.discard(pid)
 

@@ -492,3 +492,108 @@ async def test_nonce_sweep_covers_event_driven_proposals(tmp_path) -> None:
         assert pid not in svc._nonce, "해소된 제안의 토큰이 남았다(무한 증가)"
     finally:
         await db.close()
+
+
+# ── R2-21: 토큰 스윕은 상태를 한 번의 쿼리로 묻는다 ──────────────────────
+async def test_nonce_sweep_reads_all_states_in_one_query(tmp_path, monkeypatch) -> None:
+    """토큰이 여러 개여도 proposals 조회는 1회.
+
+    2026-09-01 리뷰 R2-21: 예전 스윕은 토큰마다 get() 이라 틱마다 N 번 조회였다
+    (토큰 300개에 37ms). 회귀하면 이 카운트가 8 이 된다.
+    """
+    svc, db = await _make_service(tmp_path)
+    try:
+        tables: list[str] = []
+        original = svc.proposals._repo.fetchall
+
+        async def counting(conn, table, **kw):
+            tables.append(table)
+            return await original(conn, table, **kw)
+
+        monkeypatch.setattr(svc.proposals._repo, "fetchall", counting)
+        for i in range(8):
+            svc._nonce[f"p-missing-{i}"] = "tok"
+        await svc._sweep_nonces()
+        assert tables.count("proposals") == 1, tables
+        # DB 에 없는 제안의 토큰은 그대로 버려진다(기존 의미 유지).
+        assert svc._nonce == {}
+    finally:
+        await db.close()
+
+
+async def test_states_for_returns_only_known_ids(tmp_path) -> None:
+    """states_for 는 있는 id 의 상태만 담는다(없는 id 는 키 자체가 없음)."""
+    svc, db = await _make_service(tmp_path)
+    try:
+        res = await svc.handle_reading(_reading("binary_sensor.kitchen_gas", "on"))
+        assert res is not None
+        pid = res.proposal.proposal_id
+        states = await svc.proposals.states_for([pid, "p-does-not-exist"])
+        assert states == {pid: "pending"}
+        assert await svc.proposals.states_for([]) == {}
+    finally:
+        await db.close()
+
+
+# ── R2-27: 버튼 서명은 sign_feedback 정본과 같아야 한다(nonce 포함) ───────
+def test_action_button_signature_matches_canonical_signer_with_nonce() -> None:
+    """transport 가 만든 accept/dismiss 서명 = sign_feedback(정본) 결과.
+
+    2026-09-01 리뷰 R2-27: transport 가 HMAC 을 따로 구현하고 있었다. 한쪽만
+    고치면 게이트웨이 검증이 어긋나 버튼이 전부 403 이 된다.
+    """
+    from liot.layers.l4_execution.feedback_gateway import verify_feedback_sig
+    from liot.layers.l4_execution.ntfy_transport import HTTPNtfyTransport
+
+    transport = HTTPNtfyTransport(
+        "http://127.0.0.1:9", feedback_base_url="http://127.0.0.1:9/cb",
+        signing_secret=SECRET,
+    )
+    nonce = "n0nce-abc"
+    headers = transport._headers({
+        "channel": "ntfy", "proposal_id": "p-1", "risk_tier": 3,
+        "glyph": "🛡", "label": "불씨", "topic": "liot",
+        "signed_deeplink": f"liot://p/p-1?t=3&sig=abc123&n={nonce}",
+    })
+    for action in ("accept", "dismiss"):
+        expected = sign_feedback(SECRET, "p-1", 3, action, nonce)
+        assert f"sig={expected}&a={action}" in headers["Actions"], action
+        assert verify_feedback_sig(SECRET, "p-1", 3, action, expected, nonce) is True
+    # 숫자 문자열 tier 도 같은 서명이어야 한다(URL 의 t= 가 그 형태다).
+    assert sign_feedback(SECRET, "p-1", "3", "accept", nonce) == sign_feedback(
+        SECRET, "p-1", 3, "accept", nonce
+    )
+
+
+# ── R2-31: 비밀키 미설정이면 버튼을 만들지 않는다(dev 키를 빌려오지 않는다) ──
+def test_build_ntfy_transport_never_borrows_the_dev_signing_key(monkeypatch) -> None:
+    """LIOT_NOTIFY_SECRET 미설정 → 서명 키 없음 → 액션 버튼 없음.
+
+    serve 쪽 resolve_notify_secret 은 dev 키로 폴백하지만(수신구를 열지 않기
+    위한 판정용), transport 가 같은 폴백을 쓰면 게이트웨이가 받지 않는 키로
+    서명한 버튼을 내보내게 된다 — 그래서 두 폴백은 일부러 다르다(R2-31).
+    """
+    from liot.layers.l4_execution.ntfy_transport import (
+        HTTPNtfyTransport,
+        build_ntfy_transport,
+    )
+
+    monkeypatch.setenv("LIOT_NTFY_URL", "https://ntfy.example")
+    monkeypatch.setenv("LIOT_NTFY_FEEDBACK_URL", "http://127.0.0.1:9/cb")
+    monkeypatch.delenv("LIOT_NOTIFY_SECRET", raising=False)
+    transport = build_ntfy_transport()
+    assert isinstance(transport, HTTPNtfyTransport)
+    sanitized = {
+        "channel": "ntfy", "proposal_id": "p-1", "risk_tier": 3,
+        "glyph": "🛡", "label": "불씨", "topic": "liot",
+        "signed_deeplink": "liot://p/p-1?t=3&sig=abc123&n=nnn",
+    }
+    assert "Actions" not in transport._headers(sanitized)
+
+    # 공백을 두른 키는 벗겨서 쓴다(서명·검증 양쪽이 같은 바이트를 봐야 한다).
+    monkeypatch.setenv("LIOT_NOTIFY_SECRET", "  padded-secret  ")
+    padded = build_ntfy_transport()
+    assert isinstance(padded, HTTPNtfyTransport)
+    assert "Actions" in padded._headers(sanitized)
+    expected = sign_feedback(b"padded-secret", "p-1", 3, "accept", "nnn")
+    assert f"sig={expected}&a=accept" in padded._headers(sanitized)["Actions"]

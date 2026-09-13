@@ -11,6 +11,7 @@ Phase1 불변식: 실행 코드 없음. 이 서비스는 제안을 만들고 그
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -153,6 +154,31 @@ class ProposalService:
         if not rows:
             return None
         return self._row_to_proposal(rows[0])
+
+    async def states_for(self, proposal_ids: Sequence[str]) -> dict[str, str]:
+        """여러 제안의 상태만 한 번의 SELECT 로 읽는다(없는 id 는 결과에 없음).
+
+        1회용 토큰 스윕이 토큰 하나마다 get() 을 돌리면 틱마다 N 번 조회가 된다
+        (2026-09-01 리뷰 R2-21: 토큰 300개에 37ms). 상태만 필요하므로 행 전체를
+        Proposal 로 빚지 않는다. SQLite 바인딩 상한(기본 999)을 넘지 않게 끊어 묻는다.
+        """
+        ids = [str(p) for p in proposal_ids]
+        if not ids:
+            return {}
+        out: dict[str, str] = {}
+        for start in range(0, len(ids), 500):
+            chunk = ids[start : start + 500]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = await self._repo.fetchall(
+                self._db,
+                "proposals",
+                columns="proposal_id, state",
+                extra_where=f"proposal_id IN ({placeholders})",
+                extra_params=tuple(chunk),
+            )
+            for row in rows:
+                out[str(row["proposal_id"])] = str(row["state"] or "")
+        return out
 
     async def list_pending(self, limit: int | None = None) -> list[Proposal]:
         rows = await self._repo.fetchall(

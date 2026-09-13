@@ -226,8 +226,9 @@ def _generalize_coords(payload: Any) -> Any:
 # PII 스캔에서 제외하는 불투명 토큰 키. 이 값들은 HMAC 서명·해시 등
 # *구조적으로 PII 가 불가능한* 토큰이며, 무작위 16진수 서명이 우연히 PII
 # 패턴(예: rrn_kr 의 13자리 숫자열)과 일치해 정당한 알림(특히 안전 EMBER)이
-# 확률적으로 차단되는 것을 막는다. signed_deeplink = proposal_id:tier:hmac 로만
-# 구성되어 사용자 PII 를 담을 수 없다.
+# 확률적으로 차단되는 것을 막는다. signed_deeplink 는
+# `liot://p/<proposal_id>?t=<tier>&sig=<hmac>[&n=<nonce>]` 형태(uuid·정수·
+# 16진수 다이제스트·token_hex)라 사용자 PII 를 담을 수 없다.
 PII_SCAN_SKIP_KEYS: frozenset[str] = frozenset({"signed_deeplink"})
 
 

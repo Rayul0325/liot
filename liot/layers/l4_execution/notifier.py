@@ -43,6 +43,7 @@ __all__ = [
     "gate_pipeline",
     "sign_deeplink",
     "sign_feedback",
+    "tier_int",
 ]
 
 GateDecision = Literal["IMMEDIATE", "DIGEST", "SUPPRESS"]
@@ -147,6 +148,22 @@ def gate_pipeline(
     return "IMMEDIATE"
 
 
+def tier_int(value: RiskTier | str | int) -> int:
+    """서명 대상에 쓰는 tier 정수. 숫자 문자열("3")도 받는다.
+
+    검증 쪽(verify_feedback_sig)은 예전부터 ``int(tier)`` 로 숫자 문자열을 받는데
+    서명 쪽은 ``RiskTier.from_str`` 만 써서 이름("ember")만 받았다. 딥링크 URL 의
+    ``t=`` 는 항상 숫자 문자열이라, 그 값을 그대로 서명 함수에 넘기면 서명은
+    터지고 검증은 통과하는 비대칭이 된다 — 그래서 둘의 강제변환을 맞춘다.
+    """
+    if isinstance(value, RiskTier):
+        return int(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(RiskTier.from_str(value))
+
+
 def sign_deeplink(
     secret: bytes,
     proposal_id: str,
@@ -164,10 +181,10 @@ def sign_deeplink(
     버튼 서명을 만든다. 위조 걱정이 없는 이유: nonce 를 바꿔치기해도 그 nonce
     에 대한 유효한 액션 서명을 만들 수 없다(비밀키가 필요하다).
     """
-    tier_int = int(RiskTier.from_str(risk_tier))
-    message = f"{proposal_id}:{tier_int}".encode()
+    t_int = tier_int(risk_tier)
+    message = f"{proposal_id}:{t_int}".encode()
     sig = hmac.new(secret, message, hashlib.sha256).hexdigest()
-    url = f"liot://p/{proposal_id}?t={tier_int}&sig={sig}"
+    url = f"liot://p/{proposal_id}?t={t_int}&sig={sig}"
     return f"{url}&n={nonce}" if nonce else url
 
 
@@ -186,9 +203,10 @@ def sign_feedback(
       성공한 피드백마다 nonce 를 소비하므로, 캡처한 링크를 다시 던져도 통하지
       않는다. 이게 없던 시절엔 수락 링크 하나를 두 번 재생하는 것만으로
       EMBER 의 DOUBLE_CONFIRM(1차 보류 → 2차 실행)이 충족됐다.
+
+    tier 강제변환은 검증 쪽과 같다(tier_int) — 숫자 문자열도 받는다.
     """
-    tier_int = int(RiskTier.from_str(risk_tier))
-    message = f"{proposal_id}:{tier_int}:{(action or '').strip().lower()}:{nonce}".encode()
+    message = f"{proposal_id}:{tier_int(risk_tier)}:{(action or '').strip().lower()}:{nonce}".encode()
     return hmac.new(secret, message, hashlib.sha256).hexdigest()
 
 
