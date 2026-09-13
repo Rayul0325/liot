@@ -14,9 +14,11 @@ v1 파서는 결정론 키워드 규칙(네트워크 없음); 실 LLM 파싱은 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 
+from liot.core.clock import Clock
 from liot.core.contracts import CandidateAction, CandidateSet, is_noop
 from liot.core.risk import is_safety_category
 
@@ -35,7 +37,8 @@ class UserDirective:
     """구조화된 사용자 지시.
 
     constraint: keep_on(계속 켜) | keep_off(계속 꺼) | forbid(하지마) | prefer(선호).
-    until: ISO 시각/기간 또는 "" (세션/무기한). source: chat | voice.
+    until: ISO8601 시각(그 시각부터 만료) 또는 "" (세션/무기한). tz 없는 시각은
+        UTC 로 본다. 기간 표기("PT2H" 등)는 받지 않는다. source: chat | voice.
     """
 
     capability: str
@@ -95,24 +98,47 @@ class FakeDirectiveParser:
         return out
 
 
+def _until_dt(until: str) -> datetime:
+    """until 문자열 → tz-aware UTC datetime. 형식이 틀리면 ValueError."""
+    return Clock(fixed=until).now_dt()
+
+
 class DirectiveStore:
     """활성 지시 목록(세션 스코프, in-memory). 파싱 결과를 누적/조회/초기화한다.
 
-    v1 은 시간 만료를 강제하지 않는다(세션 동안 유지, reset 로 해제). until 기반
-    만료는 후속. 데모/서비스가 한 인스턴스를 공유해 tick 에 주입한다.
+    ``until`` 이 있는 지시는 그 시각이 되면 만료돼 ``active()`` 에서 빠진다. 빈
+    ``until`` 은 세션 동안 유지된다(reset 로 해제). 만료 판정 시각은 호출자가
+    ``now`` 로 고를 수 있고, 없으면 주입된 Clock(기본 실시간)을 쓴다 — 데모의
+    시뮬레이션 시각과 실시간 중 무엇이 기준인지는 호출자의 사정이기 때문이다.
+
+    ``active()`` 는 만료분을 걸러 보여줄 뿐 목록을 지우지 않는다. 조회가 목록을
+    재할당하면 동시에 들어온 ``add_text`` 가 유실될 수 있어서다.
+    데모/서비스가 한 인스턴스를 공유해 tick 에 주입한다.
     """
 
-    def __init__(self, parser: DirectiveParser | None = None) -> None:
+    def __init__(
+        self, parser: DirectiveParser | None = None, *, clock: Clock | None = None
+    ) -> None:
         self._parser: DirectiveParser = parser or FakeDirectiveParser()
+        self._clock = clock or Clock()
         self._active: list[UserDirective] = []
 
-    def add_text(self, text: str, *, source: str = "chat") -> list[UserDirective]:
+    def add_text(
+        self, text: str, *, source: str = "chat", until: str = ""
+    ) -> list[UserDirective]:
+        """파싱한 지시를 누적한다. until 형식이 틀리면 아무것도 저장하지 않고 ValueError."""
+        until = (until or "").strip()
+        if until:
+            _until_dt(until)  # 저장 전에 형식 검증 — 만료 불가 지시가 끼어들지 않게
         parsed = self._parser.parse(text, source=source)
+        if until:
+            parsed = [replace(d, until=until) for d in parsed]
         self._active.extend(parsed)
         return parsed
 
-    def active(self) -> list[UserDirective]:
-        return list(self._active)
+    def active(self, now: datetime | str | None = None) -> list[UserDirective]:
+        at = self._clock.now_dt() if now is None else Clock(fixed=now).now_dt()
+        return [d for d in self._active if not d.until or at < _until_dt(d.until)]
 
     def clear(self) -> None:
         self._active.clear()

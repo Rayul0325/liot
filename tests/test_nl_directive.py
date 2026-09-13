@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from liot.app import LiotApp
 from liot.core.clock import Clock
 from liot.core.contracts import (
@@ -99,6 +101,47 @@ def test_directive_store_add_active_clear():
     s.add_text("불 켜놔줘")
     assert len(s.active()) == 1
     s.clear()
+    assert s.active() == []
+
+
+# ── until 시간만료 ──────────────────────────────────────────────────────
+
+
+def test_directive_expires_at_until():
+    s = DirectiveStore()
+    parsed = s.add_text("불 켜놔줘", until="2026-06-02T13:00:00+00:00")
+    assert parsed[0].until == "2026-06-02T13:00:00+00:00"
+    assert len(s.active(now="2026-06-02T12:59:59+00:00")) == 1
+    assert s.active(now="2026-06-02T13:00:00+00:00") == []  # 경계 시각부터 만료
+
+
+def test_directive_until_z_and_naive_are_utc():
+    s = DirectiveStore()
+    s.add_text("불 켜놔줘", until="2026-06-02T13:00:00Z")
+    s.add_text("불 꺼놔", until="2026-06-02T13:00:00")
+    assert len(s.active(now="2026-06-02T21:59:00+09:00")) == 2  # = 12:59 UTC
+    assert s.active(now="2026-06-02T22:00:00+09:00") == []  # = 13:00 UTC
+
+
+def test_directive_without_until_never_expires():
+    s = DirectiveStore()
+    s.add_text("불 켜놔줘")
+    assert len(s.active(now="2099-01-01T00:00:00+00:00")) == 1
+
+
+def test_directive_invalid_until_rejected_and_not_stored():
+    s = DirectiveStore()
+    with pytest.raises(ValueError):
+        s.add_text("불 켜놔줘", until="오늘 밤")
+    assert s.active() == []
+
+
+def test_directive_store_uses_injected_clock_by_default():
+    clock = Clock(fixed="2026-06-02T12:00:00+00:00")
+    s = DirectiveStore(clock=clock)
+    s.add_text("불 켜놔줘", until="2026-06-02T13:00:00+00:00")
+    assert len(s.active()) == 1
+    clock.set_fixed("2026-06-02T13:00:01+00:00")
     assert s.active() == []
 
 

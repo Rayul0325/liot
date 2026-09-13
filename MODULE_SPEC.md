@@ -395,6 +395,14 @@ class DirectiveParser(Protocol):
     def parse(self, text: str, *, source: str = "chat") -> list[UserDirective]: ...
 
 class FakeDirectiveParser:   # 결정론 파싱. 실 LLM 파싱=예정
+
+class DirectiveStore:        # 세션 스코프 in-memory 활성 지시
+    def __init__(self, parser: DirectiveParser | None = None, *, clock: Clock | None = None)
+    def add_text(self, text: str, *, source: str = "chat", until: str = "") -> list[UserDirective]
+        # until: ISO8601 시각(tz 없으면 UTC). 형식 오류면 저장 없이 ValueError. 기간 표기 미지원.
+    def active(self, now: datetime | str | None = None) -> list[UserDirective]
+        # until 시각부터 만료(경계 포함) → 제외. now 미지정 시 주입 Clock. 조회는 목록을 지우지 않음.
+    def clear(self) -> None
 # 활성 directive 는 comfort 후보만 억제(안전 카테고리·EMBER 는 억제 불가). Phase5.
 
 # liot.layers.l4_execution.device_catalog  — Line B 입력
