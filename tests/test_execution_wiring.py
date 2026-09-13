@@ -563,3 +563,30 @@ async def test_sweep_prunes_a_marker_left_without_a_nonce():
         assert prop.proposal_id not in svc._awaiting_second
     finally:
         await db.close()
+
+
+# ── 출하 카탈로그에는 '한 번 확인으로 실행되는' 쌍이 없다 ────────────────
+def test_shipped_catalog_has_no_single_confirm_executable_pair():
+    """CONFIRM(단일 확인 → 실행) 등급의 출하 조합이 0 임을 고정한다.
+
+    2026-09-13 리뷰: 이벤트(반응) 제안은 만료가 없어 그 링크가 영원히 유효하다.
+    그 자체로 실행까지 가려면 '비안전 카테고리 + DUSK + 컴포트 화이트리스트' 조합이
+    필요하고, 출하 카탈로그에는 그런 쌍이 없다(cover.garage 는 door=안전 카테고리라
+    NOTIFY_ONLY). 카탈로그 편집으로 이 성질이 깨지면 여기서 빨개진다 — 그때는
+    '영원히 유효한 링크'가 곧바로 단일 클릭 실행 경로가 된다.
+    """
+    from liot.core.contracts import CandidateAction
+    from liot.layers.l4_execution.device_catalog import load_device_catalog
+    from liot.layers.l4_execution.executor import ExecDecision, ExecutionPolicy
+
+    catalog = load_device_catalog()
+    policy = ExecutionPolicy(enabled=True)  # 옵트인을 켠 최악의 경우로 본다
+    confirm_pairs = []
+    for row in catalog.available_actions():
+        candidate = CandidateAction(
+            capability=str(row["capability"]), action=str(row["action"]), params={},
+            entity_id=str(row["entity_id"]), category=str(row["category"]),
+        )
+        if policy.decide(candidate, row["tier"]) is ExecDecision.CONFIRM:
+            confirm_pairs.append((row["entity_id"], row["capability"], row["action"]))
+    assert confirm_pairs == [], f"단일 확인으로 실행되는 출하 조합이 생겼다: {confirm_pairs}"

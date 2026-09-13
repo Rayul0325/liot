@@ -325,10 +325,16 @@ class LiotService:
                 return (
                     " · executed(2/2)" if await self._try_execute(proposal) else " · exec-failed"
                 )
+            # 표식을 **먼저** 세운다. 발급(_issue_nonce)과 표식 사이에 스윕이 끼면
+            # 표식 없는 nonce 를 죽은 것으로 보고 버려서 R2-01 이 되살아난다. 지금은
+            # 그 사이에 await 양보가 없어(transport.send 가 동기) 실제로 끼어들 수
+            # 없지만, 비동기 transport 로 바뀌는 순간 창이 열린다(리뷰 지적).
+            # 발송 실패 시에는 아래에서 다시 내린다 — 실행 권한은 발송 성공에만 준다.
+            self._awaiting_second.add(pid)
             if await self._request_second_confirmation(proposal):
                 self._second_undelivered.discard(pid)
-                self._awaiting_second.add(pid)
                 return " · confirm-again(1/2)"
+            self._awaiting_second.discard(pid)
             # 2차 알림이 나가지 못했다 — 사람 손엔 누를 2차 링크가 없다. 방금 누른
             # 1차 링크를 되살려, 같은 버튼을 다시 누르면 발송을 재시도하게 한다.
             # 이 링크로는 실행되지 않는다: 실행은 _awaiting_second 를 요구하고, 그건
