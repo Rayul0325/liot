@@ -107,6 +107,26 @@ _SEED_DEVICE_NAMES: dict[str, str] = {
 # entity_id 형식(HA 스타일): <domain>.<object_id>. 자동 생성분도 이 형식을 지킨다.
 _ENTITY_ID_RE = re.compile(r"^[a-z][a-z0-9_]*\.[a-z0-9_]+$")
 
+# capability·action 이름에 쓸 수 없는 문자: 공백과 구분자 `|`·`:`.
+# 이 두 이름은 나중에 두 곳에서 **구분자로 조립**된다:
+#   - 선호 셀 키 `time_bucket|occupancy|capability:action` (feature_vector.cell_key)
+#   - 데모 UI 의 행동 선택값 `entity_id|capability|action` (web/assets/app.js)
+# 그래서 "turn on" 처럼 공백이 든 이름은 등록은 되고 나중에 그 셀의 피드백이
+# 400 으로 막히는(=등록 시점엔 안 보이는) 어긋남을 만든다. 조립 지점에서 막지 않고
+# 입력 지점에서 거부한다 — 사용자가 고칠 수 있는 자리가 여기다.
+_NAME_FORBIDDEN_RE = re.compile(r"[\s|:]")
+
+
+def _validate_name(value: str, field: str, label: str) -> str:
+    """capability·action 이름 검사. 공백·`|`·`:` 가 있으면 RegistryError."""
+    if _NAME_FORBIDDEN_RE.search(value):
+        raise RegistryError(
+            f"{label}에는 공백과 구분자(| :)를 쓸 수 없습니다"
+            f"(밑줄을 쓰세요, 예: turn_on): {value!r}",
+            field=field,
+        )
+    return value
+
 # 출하 카탈로그 raw 캐시(한 번만 로드). reset 마다 deepcopy 해 격리한다.
 _SEED_RAW_CACHE: dict[str, Any] | None = None
 
@@ -391,6 +411,7 @@ class RuntimeRegistry:
 
         if not capability:
             raise RegistryError("capability 를 입력하세요.", field="capability")
+        _validate_name(capability, "capability", "capability")
         if not category:
             raise RegistryError("카테고리를 입력하세요.", field="category")
         if not actions:
@@ -419,6 +440,7 @@ class RuntimeRegistry:
             action = str(a.get("action") or "").strip()
             if not action:
                 raise RegistryError("행동 이름을 입력하세요.", field="action")
+            _validate_name(action, "action", "행동 이름")
             tier = self._resolve_action_tier(capability, action, a.get("tier"))
             resolved.append((action, tier, a.get("directional")))
 
@@ -454,8 +476,10 @@ class RuntimeRegistry:
         action = str(action or "").strip()
         if not capability:
             raise RegistryError("capability 를 입력하세요.", field="capability")
+        _validate_name(capability, "capability", "capability")
         if not action:
             raise RegistryError("행동 이름을 입력하세요.", field="action")
+        _validate_name(action, "action", "행동 이름")
         new_tier = self._resolve_action_tier(capability, action, tier)
         cap_map = self._raw.setdefault("capabilities", {}).setdefault(capability, {})
         spec = cap_map.setdefault(action, {})

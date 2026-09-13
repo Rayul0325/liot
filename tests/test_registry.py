@@ -566,3 +566,52 @@ def test_add_rule_duplicate_name_rejected(reg: RuntimeRegistry) -> None:
         reg.add_rule(dict(spec))
     assert exc.value.field == "name"
     assert "이미 존재하는 규칙 이름입니다" in exc.value.message
+
+
+# ── capability·action 이름은 셀 키·UI 선택값의 구분자를 담을 수 없다 ─────
+def test_action_name_with_separator_or_space_is_rejected() -> None:
+    """"turn on" 같은 이름은 등록 시점에 거부된다.
+
+    2026-09-13 리뷰 RISK: 등록은 공백을 받아 주는데, 그 행동으로 만들어지는 선호
+    셀 키(`time_bucket|occupancy|capability:action`)는 공백을 허용하지 않아서,
+    한참 뒤 그 셀의 피드백이 400 으로 막혔다(등록 시점엔 보이지 않는 어긋남).
+    UI 의 행동 선택값도 `entity_id|capability|action` 으로 조립된다.
+    """
+    reg = RuntimeRegistry()
+    for bad in ("turn on", "turn|on", "turn:on", "turn\ton"):
+        with pytest.raises(RegistryError) as exc:
+            reg.add_device(
+                entity_id="vacuum.robot", name="로봇", capability="vacuum",
+                category="vacuum", actions=[{"action": bad, "tier": "breath"}],
+            )
+        assert exc.value.field == "action", bad
+    with pytest.raises(RegistryError) as exc:
+        reg.add_device(
+            entity_id="vacuum.robot", name="로봇", capability="vac uum",
+            category="vacuum", actions=[{"action": "start", "tier": "breath"}],
+        )
+    assert exc.value.field == "capability"
+    # add_action 경로도 같은 규칙.
+    with pytest.raises(RegistryError) as exc:
+        reg.add_action("vacuum", "deep clean", "breath")
+    assert exc.value.field == "action"
+
+
+def test_registered_action_produces_a_feedback_cell_the_server_accepts() -> None:
+    """등록한 행동으로 만들어진 셀 키는 /api/feedback 검사를 통과한다(왕복 일치)."""
+    from liot.core.contracts import CandidateAction
+    from liot.layers.l2_context.feature_vector import cell_key
+
+    reg = RuntimeRegistry()
+    rec = reg.add_device(
+        entity_id="vacuum.robot", name="로봇", capability="vacuum",
+        category="vacuum", actions=[{"action": "start_clean", "tier": "breath"}],
+    )
+    candidate = CandidateAction(
+        capability=rec["capability"], action=rec["actions"][0]["action"],
+        params={}, entity_id=rec["entity_id"], category=rec["category"],
+    )
+    cell = cell_key("night", "vacant", candidate)
+    from liot import demo_server
+
+    assert demo_server._CELL_KEY_RE.fullmatch(cell), cell
