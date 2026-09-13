@@ -448,7 +448,10 @@ class LiotService:
         상태는 토큰 전체를 **한 번의 쿼리**로 묻는다(states_for). 토큰마다 get()
         을 돌리던 예전 판은 틱마다 N 번 조회였다(2026-09-01 리뷰 R2-21).
         """
-        pids = list(self._nonce)
+        # 토큰이 있는 pid 에 더해 **표식만 남은 pid** 도 함께 돈다. 종결 피드백 경로는
+        # 표식을 남길 수 있는데(R-13), nonce 기준으로만 돌면 그 pid 를 다시 볼 일이
+        # 없어 표식이 영원히 쌓인다.
+        pids = list(dict.fromkeys([*self._nonce, *self._awaiting_second, *self._second_undelivered]))
         if not pids:
             return
         rows = await self.proposals.states_for(pids)
@@ -500,6 +503,9 @@ class LiotService:
         if pid not in self._awaiting_second and pid not in self._second_undelivered:
             return False
         now_iso = now_iso or self.clock.now_utc()
+        # ISO 문자열 사전순 비교. 시스템이 만든 값은 전부 `...+00:00`(clock.now_utc·
+        # app 의 expires_at)이라 시각 순서와 같고, expire_due 의 SQL 비교도 같은
+        # 가정을 쓴다. 다른 오프셋이 섞인 값을 외부에서 주입하면 어긋난다.
         if expires_at is not None and str(expires_at) <= now_iso:
             return False  # 제안 자체가 만료 시각을 지났다
         issued = self._nonce_issued.get(pid)
@@ -681,8 +687,16 @@ class LiotService:
         note = ""
         if key in ("accept", "accepted"):
             note = await self._on_approved(proposal, used_nonce=nonce)
-        # 개인화: 수락/거부를 선호 셀에 반영(유튜브식 온라인 갱신).
+        # 종결 피드백(거절·스누즈 아님)이면 2차 대기 표식을 버린다. 위에서
+        # _drop_nonce 를 못 쓰는 사정(바로 위 _on_approved 가 표식을 읽는다) 때문에
+        # 이 표식만 남고, 스윕은 nonce 가 있는 pid 만 도니 영원히 안 지워진다 —
+        # pid 문자열이 프로세스 수명만큼 쌓인다(2026-09-13 리뷰 R-13).
+        # accepted 는 제외: 1차 수락 직후의 '2차 대기'가 바로 그 상태다.
         st = (proposal.state or "").lower()
+        if st not in ("pending", "accepted"):
+            self._awaiting_second.discard(pid)
+
+        # 개인화: 수락/거부를 선호 셀에 반영(유튜브식 온라인 갱신).
         if st == "accepted":
             await self._apply_pref_signal(proposal.proposal_id, "accepted")
         elif st in ("dismissed", "rejected"):

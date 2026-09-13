@@ -601,3 +601,19 @@ def test_build_ntfy_transport_never_borrows_the_dev_signing_key(monkeypatch) -> 
     assert "Actions" in padded._headers(sanitized)
     expected = sign_feedback(b"padded-secret", "p-1", 3, "accept", "nnn")
     assert f"sig={expected}&a=accept" in padded._headers(sanitized)["Actions"]
+
+
+# ── R-4: tier 강제변환은 범위(0~3)를 지킨다 ─────────────────────────────
+def test_tier_int_keeps_the_range_check() -> None:
+    """숫자 문자열은 받지만 0~3 밖의 값은 거부한다.
+
+    2026-09-13 리뷰 R-4: 숫자 문자열을 받으려고 int() 를 앞에 두면서, 예전
+    RiskTier.from_str 이 해 주던 범위 검사가 사라져 있었다(99·-1 이 그대로 통과).
+    """
+    from liot.layers.l4_execution.notifier import tier_int
+
+    assert tier_int(3) == 3 and tier_int("3") == 3 and tier_int(RiskTier.EMBER) == 3
+    assert tier_int("ember") == 3  # 이름도 그대로
+    for bad in (99, -1, "42"):
+        with pytest.raises(ValueError):
+            tier_int(bad)

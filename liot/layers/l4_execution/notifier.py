@@ -155,13 +155,18 @@ def tier_int(value: RiskTier | str | int) -> int:
     서명 쪽은 ``RiskTier.from_str`` 만 써서 이름("ember")만 받았다. 딥링크 URL 의
     ``t=`` 는 항상 숫자 문자열이라, 그 값을 그대로 서명 함수에 넘기면 서명은
     터지고 검증은 통과하는 비대칭이 된다 — 그래서 둘의 강제변환을 맞춘다.
+
+    범위 검사는 유지한다: 0~3 밖의 숫자는 ValueError. 예전 구현(``RiskTier.from_str``
+    단독)은 이름만 받는 대신 범위는 보고 있었는데, 숫자 문자열을 받으려고 int() 를
+    앞에 두면서 그 검사가 사라졌다(2026-09-13 리뷰 R-4).
     """
     if isinstance(value, RiskTier):
         return int(value)
     try:
-        return int(value)
+        number = int(value)
     except (TypeError, ValueError):
         return int(RiskTier.from_str(value))
+    return int(RiskTier(number))  # 범위 밖이면 ValueError
 
 
 def sign_deeplink(

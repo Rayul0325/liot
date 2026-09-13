@@ -523,3 +523,43 @@ async def test_sweep_drops_the_dead_second_confirmation_link(monkeypatch):
         assert fx.executed == []
     finally:
         await db.close()
+
+
+# ── R-13: 종결 피드백은 2차 대기 표식을 남기지 않는다 ───────────────────
+async def test_dismiss_after_first_confirmation_leaves_no_marker():
+    """1차 수락 뒤 거절하면 대기 표식이 남지 않는다(pid 문자열 누적 방지).
+
+    2026-09-13 리뷰 R-13: 클릭 경로는 _drop_nonce 를 쓸 수 없어(바로 뒤 _on_approved
+    가 표식을 읽는다) _awaiting_second 만 남겼고, 스윕은 nonce 가 있는 pid 만 돌아
+    그 표식을 다시 볼 일이 없었다 — 프로세스 수명만큼 쌓였다.
+    """
+    svc, fx, db = await _service(enabled=True)
+    try:
+        for i in range(3):
+            prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, f"lock.door_{i}")
+            await svc.dispatch(prop)
+            assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
+            status, _ = await _click(svc, prop, "dismiss", _delivered_nonce(svc))
+            assert "200" in status
+        assert svc._awaiting_second == set(), svc._awaiting_second
+        assert svc._nonce == {} and svc._nonce_issued == {}
+        assert fx.executed == []
+    finally:
+        await db.close()
+
+
+async def test_sweep_prunes_a_marker_left_without_a_nonce():
+    """토큰 없이 표식만 남은 pid 도 스윕이 정리한다(자기교정)."""
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        await svc.dispatch(prop)
+        assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
+        # 토큰만 사라지고 표식이 남은 상태를 인위적으로 만든다(옛 결함의 잔재 형태).
+        svc._nonce.pop(prop.proposal_id, None)
+        svc._nonce_issued.pop(prop.proposal_id, None)
+        assert prop.proposal_id in svc._awaiting_second
+        await svc._sweep_nonces()
+        assert prop.proposal_id not in svc._awaiting_second
+    finally:
+        await db.close()
