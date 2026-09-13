@@ -25,9 +25,11 @@ def _reset_demo_registry():
     """모듈 전역 데모 레지스트리·선호 셀맵을 매 테스트 전후로 초기화(격리)."""
     _REGISTRY.reset()
     ds._PREF_CELLS.clear()
+    ds._DIRECTIVES.clear()
     yield
     _REGISTRY.reset()
     ds._PREF_CELLS.clear()
+    ds._DIRECTIVES.clear()
 
 
 # 빈집(부재) + 거실 조명 on → vacant-light-off 규칙이 light.turn_off 를 제안한다.
@@ -402,3 +404,50 @@ def test_feedback_distinct_cells_are_capped(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_feedback_cell_cap_default_is_bounded() -> None:
     assert 0 < ds.MAX_PREF_CELLS <= 4096
+
+
+# ── 자연어 지시 until: 시뮬레이션 시각 기준으로 만료 ─────────────────────
+# _VACANT_LIGHT_BODY 는 time=evening → 시뮬레이션 시각 2026-06-02T19:00:00+00:00.
+# 오늘(실시간)은 그 날짜보다 뒤라, 벽시계로 판정하면 아래 until 은 전부 만료다.
+
+
+@pytest.mark.parametrize(
+    "until", ["오늘 밤", "2026-13-40T09:00:00", "5", 5, "0001-01-01T00:00:00+01:00"]
+)
+def test_directive_bad_until_is_400_and_not_stored(until: Any) -> None:
+    result, code = ds._apply_directive({"text": "불 켜놔줘", "until": until})
+    assert code == 400 and result["ok"] is False, result
+    assert result["field"] == "until", result
+    assert ds._DIRECTIVES.all() == [], "형식이 틀린 until 인데 지시가 저장됐다"
+
+
+def test_directive_response_lists_stored_until_without_wall_clock_filter() -> None:
+    """등록 응답의 active 는 실시간으로 거르지 않는다 — 만료 판정은 simulate 몫."""
+    result, code = ds._apply_directive(
+        {"text": "불 켜놔줘", "until": "2000-01-01T00:00:00+00:00"}
+    )
+    assert code == 200 and result["ok"] is True, result
+    assert result["parsed"][0]["until"] == "2000-01-01T00:00:00+00:00", result
+    assert [d["until"] for d in result["active"]] == ["2000-01-01T00:00:00+00:00"], result
+
+
+def test_directive_expired_before_simulated_time_does_not_suppress_tick() -> None:
+    _, code = ds._apply_directive({"text": "불 켜놔줘", "until": "2026-06-02T18:00:00+00:00"})
+    assert code == 200
+
+    r = _simulate(dict(_VACANT_LIGHT_BODY))
+
+    assert r["silence"] is False, r  # 18:00 에 만료 → 19:00 틱의 소등 제안이 살아 있다
+    assert (r["proposal"]["capability"], r["proposal"]["action"]) == ("light", "turn_off"), r
+    assert "directives" not in r, r
+
+
+def test_directive_valid_at_simulated_time_suppresses_tick() -> None:
+    """until 이 시뮬레이션 시각 뒤면 유효 — 실시간으로 판정하면 만료로 보여 억제가 풀린다."""
+    _, code = ds._apply_directive({"text": "불 켜놔줘", "until": "2026-06-02T20:00:00+00:00"})
+    assert code == 200
+
+    r = _simulate(dict(_VACANT_LIGHT_BODY))
+
+    assert r["silence"] is True, r  # keep_on(light) 이 소등 후보를 억제 → 침묵
+    assert [d["until"] for d in r["directives"]["active"]] == ["2026-06-02T20:00:00+00:00"], r

@@ -140,6 +140,15 @@ class DirectiveStore:
         at = self._clock.now_dt() if now is None else Clock(fixed=now).now_dt()
         return [d for d in self._active if not d.until or at < _until_dt(d.until)]
 
+    def all(self) -> list[UserDirective]:
+        """만료 여부를 따지지 않은 저장 목록의 사본(조회 전용).
+
+        어느 시각을 기준으로 만료를 볼지 정할 수 없는 호출자용이다 — 예컨대 데모의
+        지시 등록 응답은 시뮬레이션 시각을 모르므로, 실시간으로 거르면 시뮬레이션
+        안에서는 아직 유효한 지시까지 만료로 보이게 된다.
+        """
+        return list(self._active)
+
     def clear(self) -> None:
         self._active.clear()
 

@@ -101,9 +101,11 @@ def _post(path: str, body: bytes, *, content_length: str | None = None) -> bytes
 def _clean_state():
     demo_server._REGISTRY.reset()
     demo_server._PREF_CELLS.clear()
+    demo_server._DIRECTIVES.clear()
     yield
     demo_server._REGISTRY.reset()
     demo_server._PREF_CELLS.clear()
+    demo_server._DIRECTIVES.clear()
 
 
 # ───────────────────────────────── 1) Content-Length 를 믿지 않는다
@@ -276,3 +278,10 @@ def test_non_finite_sensor_bounds_keep_catalog_strict_json(port, bounds: str) ->
         raise AssertionError(f"카탈로그에 표준 JSON 이 아닌 상수가 있다: {token}")
 
     json.loads(payload, parse_constant=_reject)
+
+
+def test_directive_with_bad_until_is_400_over_http(port) -> None:
+    resp = _raw(port, _post("/api/directive", '{"text":"불 켜놔줘","until":"오늘 밤"}'.encode()))
+    assert "400" in resp, resp[:200]
+    assert '"field": "until"' in resp, resp[-200:]
+    assert demo_server._DIRECTIVES.all() == [], "형식이 틀린 until 인데 지시가 저장됐다"

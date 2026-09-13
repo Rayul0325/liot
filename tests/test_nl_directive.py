@@ -145,6 +145,18 @@ def test_directive_store_uses_injected_clock_by_default():
     assert s.active() == []
 
 
+def test_directive_store_all_returns_unfiltered_copy():
+    """all() 은 만료분까지 담은 저장 목록의 사본 — 기준 시각을 모르는 호출자용."""
+    s = DirectiveStore()
+    s.add_text("불 켜놔줘", until="2000-01-01T00:00:00+00:00")
+    s.add_text("불 꺼놔")
+    everything = s.all()
+    assert [d.until for d in everything] == ["2000-01-01T00:00:00+00:00", ""]
+    assert s.active(now="2026-06-02T12:00:00+00:00") == [everything[1]]  # 만료분은 active 만 뺀다
+    everything.clear()
+    assert len(s.all()) == 2  # 사본이라 호출자가 비워도 저장 목록은 그대로
+
+
 # ── app 통합 ────────────────────────────────────────────────────────────
 
 DAY = "2026-06-02T12:00:00+00:00"

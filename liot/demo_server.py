@@ -267,6 +267,7 @@ def _directive_view(d: UserDirective) -> dict[str, Any]:
         "entity_id": d.entity_id,
         "source": d.source,
         "raw_text": d.raw_text,
+        "until": d.until,
     }
 
 
@@ -276,6 +277,12 @@ def _apply_directive(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
     엔드포인트와 테스트가 공유하는 코어. 락은 여기서만 쥐고, 응답 쓰기는 호출자가
     락 밖에서 한다 — 예전엔 초기화 분기가 락을 쥔 채 응답을 써서, 느린 수신자가
     소켓 타임아웃(Handler.timeout)까지 전역 락을 붙들 수 있었다.
+
+    ``until``(선택, ISO8601)이 있으면 그 시각부터 지시가 만료된다. 형식이 틀리면
+    아무것도 저장하지 않고 400(field=until). 응답의 ``active`` 는 **실시간으로
+    거르지 않은** 저장 목록이다 — 만료 판정은 시뮬레이션 시각(2026-06-02)을 아는
+    ``/api/simulate`` 의 몫이고, 여기서 실시간으로 거르면 시뮬레이션 안에서는 아직
+    유효한 지시까지 전부 만료로 보인다.
     """
     if body.get("reset"):
         with STATE_LOCK:
@@ -283,9 +290,21 @@ def _apply_directive(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         return {"ok": True, "parsed": [], "active": []}, 200
     text = str(body.get("text") or "")
     source = str(body.get("source") or "chat")
-    with STATE_LOCK:
-        parsed = _DIRECTIVES.add_text(text, source=source)
-        active = _DIRECTIVES.active()
+    raw_until = body.get("until")
+    until = "" if raw_until is None else str(raw_until)
+    try:
+        with STATE_LOCK:
+            parsed = _DIRECTIVES.add_text(text, source=source, until=until)
+            active = _DIRECTIVES.all()
+    except (ValueError, OverflowError):
+        # add_text 는 저장 전에 형식을 검증한다 — 여기로 오면 아무것도 저장되지 않았다.
+        # OverflowError: 0001-01-01T00:00+01:00 처럼 UTC 로 옮기면 범위를 벗어나는 시각.
+        return {
+            "ok": False,
+            "error": f"지시 만료 시각(until)을 해석할 수 없습니다: {until!r}"
+                     " (ISO8601 시각, 예: 2026-06-02T22:00:00+09:00).",
+            "field": "until",
+        }, 400
     return {
         "ok": True,
         "parsed": [_directive_view(d) for d in parsed],
@@ -549,7 +568,9 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
         app.set_preference_cells(pref_cells)
         # 활성 자연어 지시를 앱에 반영(tick 의 comfort 후보 억제; 안전은 억제 불가).
         # tick() 에서만 쓰이므로 seeding 앞에 둬도 동작이 같다.
-        directives = _DIRECTIVES.active()
+        # until 만료는 **시뮬레이션 시각**(clock, 2026-06-02) 기준으로 판정한다 — 실시간
+        # 기준이면 오늘이 시뮬레이션 날짜보다 뒤라 until 이 붙은 지시가 전부 만료로 보인다.
+        directives = _DIRECTIVES.active(now=clock.now_dt())
         app.set_directives(directives)
         # 카탈로그 파생 실행 확장분 — 응답 조립 단계에서 쓴다.
         exec_extras = _REGISTRY.executable_extras()
