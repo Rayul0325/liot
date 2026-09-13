@@ -109,19 +109,20 @@ python3 -m pytest -q
 CI 가 도는 것과 같은 검사를 로컬에서 그대로 돌린다.
 
 ```bash
-make check     # lint + typecheck + test (CI 와 같은 순서)
+make check     # lint + typecheck + 테스트·커버리지 하한 + 시크릿 스캔 (CI 와 같은 순서)
 make lint      # ruff — 결함 규칙만(줄 길이 E5 는 의도적으로 제외)
-make typecheck # mypy strict — liot·scripts·tests 전체(88파일)
-make cov       # 커버리지 + 하한 84% 게이트
+make typecheck # mypy strict — liot·scripts·tests 전체
+make cov       # 커버리지 + 하한 84% 게이트(하한은 pyproject 의 fail_under 한 곳)
+make secrets   # 커밋된 평문 시크릿 스캔(git grep 실패도 실패로 친다)
 ```
 
 - **ruff**: 미사용 임포트·죽은 변수·버그 유발 패턴·구식 문법을 막는다. 줄
   길이(E5)는 **뺐다** — ruff 의 E501 은 문자 수가 아니라 표시 폭을 세고 한글이
   2열이라, 100열 제한이면 한글 주석은 한 줄 50자까지만 쓸 수 있다. 이 저장소는
-  한글 주석이 주 문서화 수단이라 설명을 짧게 만드는 압력은 이득이 아니다(실측
-  위반 32건 중 4건이 이 아티팩트). 예외 2건(`UP042`·`SIM108`)과 함께 사유는
+  한글 주석이 주 문서화 수단이라 설명을 짧게 만드는 압력은 이득이 아니다(2026-08-29
+  실측 위반 32건 중 4건이 이 아티팩트). 예외 2건(`UP042`·`SIM108`)과 함께 사유는
   `pyproject.toml` 에 적혀 있다.
-- **mypy**: `liot`·`scripts`·`tests` 전체 88파일을 strict 로 본다. 테스트에만
+- **mypy**: `liot`·`scripts`·`tests` 전체를 strict 로 본다. 테스트에만
   '모든 함수에 주석' 요구를 뺐다 — 픽스처 수백 개에 주석을 다는 건 잡음이고,
   값어치 있는 검사(잘못된 인자 타입·없는 속성·Any 누출)는 그대로 켜져 있다.
 - **커버리지**: 2026-08-30 실측 **85.7%**. 하한 84% 는 회귀 방지선이지 목표가
@@ -131,15 +132,16 @@ make cov       # 커버리지 + 하한 84% 게이트
 ### pre-push 훅
 
 CI 가 원격에서 도는 것과 별개로, 푸시 전에 같은 검사를 로컬에서 먼저 돌린다.
-적색을 원격까지 들고 가지 않는 게 목적이다(피드백이 25초가 아니라 5초).
+적색을 원격까지 들고 가지 않는 게 목적이다(원격은 러너 기동·설치가 더해져 느리다).
 
 ```bash
-make hooks   # 푸시 전 lint+typecheck+test+시크릿 스캔 (git push --no-verify 로 우회)
+make hooks   # 푸시 전 lint+typecheck+테스트·커버리지 하한+시크릿 스캔 (git push --no-verify 로 우회)
 ```
 
 새로 클론하면 `make install && make hooks` 를 한 번 돌린다. 검사 대상은
 **작업트리**이지 푸시되는 커밋이 아니므로(editable 설치가 이 트리를 가리킨다),
-트리가 더러우면 훅이 그 사실을 경고한다 — 푸시되는 커밋의 보증은 CI 가 한다.
+트리가 더럽거나 HEAD 가 아닌 커밋을 푸시하면 훅이 그 사실을 경고한다 —
+푸시되는 커밋의 보증은 CI 가 한다.
 
 > [!NOTE]
 > 2026-08-29 에는 `push` 이벤트로 CI 가 발화하지 않았다(수동 실행만 동작).
@@ -443,7 +445,7 @@ class RuntimeRegistry:
   payload 를 `NtfyTransport` 로 실제 ntfy POST. transport 는 `emit_external(NTFY)`
   를 통과한 _정제분만_ 받는다(미정제 송신 경로 원천 차단).
 - **만료/틱**: 주기적 `expire_due()` + `app.tick()`(능동 제안).
-- **피드백**: 서명 검증 HTTP 수신구(`/feedback?p=&t=&sig=&a=`) → 수락/거절
+- **피드백**: 서명 검증 HTTP 수신구(`/feedback?p=&t=&sig=&a=&n=`, `n`=1회용 토큰) → 수락/거절
   → 상태 전이 → `accept_rate()`(North Star 측정, 출처별).
 
 ```bash

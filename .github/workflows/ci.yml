@@ -10,13 +10,14 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      # 두 액션 모두 정확한 패치 태그로 고정한다(setup-uv 는 부동 v10 태그가 없다 — 6ee8c07).
+      - uses: actions/checkout@v7.0.1
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.0.1
         with:
-          # 의존성 원천이 pyproject 뿐이라 캐시 무효화 기준을 명시한다
-          # (미지정 시 uv.lock/requirements 를 찾다 실패해 캐시가 안 갱신됨).
+          # 기본 glob 에도 pyproject.toml 이 들어 있지만(v10.0.1 action.yml), 이 저장소의
+          # 의존성 원천은 pyproject 하나뿐이라 캐시 무효화 기준을 그 파일로 좁혀 둔다.
           cache-dependency-glob: "pyproject.toml"
 
       - name: Set up Python
@@ -31,10 +32,10 @@ jobs:
       - name: Typecheck (mypy — liot + scripts + tests, strict)
         run: uv run python -m mypy
 
-      - name: Test (pytest, incl. 6 invariants) + coverage floor
+      - name: Test (pytest, incl. 6 invariants) + coverage floor (pyproject fail_under)
         run: >-
           uv run python -m pytest -q --cov
-          --cov-report=term-missing:skip-covered --cov-fail-under=84
+          --cov-report=term-missing:skip-covered
 
       - name: Invariant gate — executor confined + execution gated (opt-in OFF)
         run: |

@@ -16,15 +16,18 @@ lint:
 typecheck:
 	$(PY) -m mypy
 
-# 커버리지. 하한(84%)은 2026-08-30 실측 85.7% 기준의 회귀 방지선(여유 1.7%p).
+# 커버리지. 하한은 pyproject.toml [tool.coverage.report] fail_under 한 곳에만 있다.
 cov:
-	$(PY) -m pytest -q --cov --cov-report=term-missing:skip-covered --cov-fail-under=84
+	$(PY) -m pytest -q --cov --cov-report=term-missing:skip-covered
 
 secrets:
 	./scripts/secret_scan.sh
 
 # 전체 게이트 — CI 와 같은 순서·같은 검사(커버리지 하한·시크릿 스캔 포함).
 # 여기서 빠진 게 있으면 '로컬 통과 = CI 통과' 가 거짓이 된다.
+# CI 에만 있는 '불변식 게이트' 단계는 여기 따로 두지 않는다 — 같은 단언
+# (assert_executor_confined·assert_execution_gated)을 tests/test_invariants.py 가
+# pytest 안에서 돌린다. CI 쪽 단계는 이름이 보이는 별도 체크로 남긴 것이다.
 check: lint typecheck cov secrets
 
 # 푸시 전 게이트 설치. 적색을 원격까지 들고 가지 않기 위한 로컬 1차 관문.
