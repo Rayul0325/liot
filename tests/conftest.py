@@ -8,13 +8,19 @@
   - alias         : 빈 AliasMap.
   - mk_reading    : SensorReading 생성 헬퍼.
   - mk_candidate  : CandidateAction 생성 헬퍼.
+  - demo_state_reset : 데모 서버 세션 전역(_REGISTRY·_PREF_CELLS·_DIRECTIVES) 초기화.
+  - demo_serve    : 루프백 임의 포트에 데모 서버를 띄우는 컨텍스트 매니저 팩토리.
 
 asyncio_mode='auto' 이므로 async 테스트/픽스처에 별도 마커가 필요 없다.
-모든 테스트는 네트워크를 호출하지 않는다.
+모든 테스트는 외부 네트워크를 호출하지 않는다(데모 서버 테스트는 127.0.0.1 루프백만).
 """
 
 from __future__ import annotations
 
+import threading
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 import pytest
@@ -138,3 +144,66 @@ async def tmp_db(tmp_path):
         yield db
     finally:
         await db.close()
+
+
+# ── 데모 서버(liot.demo_server) 공용 ──────────────────────────────────────
+# demo_server 는 모듈 전역 가변 상태와 실 HTTP 서버를 쓴다. 초기화·서버 기동을 테스트
+# 모듈마다 복사해 두면 한쪽만 고쳐진다 — 실제로 세 복사본 모두 _DIRECTIVES 초기화가
+# 빠져 있었다(2026-09-01 리뷰 R2-30). 여기 한 곳에 둔다.
+
+
+@pytest.fixture
+def demo_state_reset():
+    """데모 서버 세션 전역(_REGISTRY·_PREF_CELLS·_DIRECTIVES)을 테스트 전후로 초기화.
+
+    데모 테스트 모듈이 ``pytestmark = pytest.mark.usefixtures("demo_state_reset")``
+    로 켠다. autouse 로 두지 않는 건 데모와 무관한 테스트가 demo_server 를 import
+    하거나 레지스트리를 매번 다시 만들 이유가 없어서다. (프로세스 전역 안전 확장은
+    위 autouse 픽스처가 이미 매 테스트 비운다.)
+    """
+    from liot import demo_server
+
+    def _reset() -> None:
+        demo_server._REGISTRY.reset()
+        demo_server._PREF_CELLS.clear()
+        demo_server._DIRECTIVES.clear()
+
+    _reset()
+    yield
+    _reset()
+
+
+@contextmanager
+def _serve_demo(
+    timeout: int | None = None, handler: type[BaseHTTPRequestHandler] | None = None
+) -> Iterator[int]:
+    """루프백 임의 포트(0)에 데모 서버를 띄우고 포트를 넘긴다(고정 포트는 쓰지 않는다).
+
+    ``timeout`` 은 ``demo_server.Handler`` 소켓 타임아웃을 잠시 덮어쓰고(끝나면 복구),
+    ``handler`` 는 모듈 사본의 Handler 로 띄울 때만 준다. ``shutdown()`` 은
+    serve_forever 의 폴링 간격만큼 기다리므로 간격을 0.05초로 줄인다 — 기본 0.5초면
+    서버를 띄울 때마다 그 대기가 쌓인다.
+    """
+    from liot import demo_server
+
+    original = demo_server.Handler.timeout
+    if timeout is not None:
+        demo_server.Handler.timeout = timeout
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler or demo_server.Handler)
+    thread = threading.Thread(
+        target=httpd.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    )
+    thread.start()
+    try:
+        yield httpd.server_port
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+        demo_server.Handler.timeout = original
+
+
+@pytest.fixture(scope="session")
+def demo_serve() -> Callable[..., AbstractContextManager[int]]:
+    """``with demo_serve() as port:`` — 테스트·모듈 스코프 픽스처가 서버를 띄울 때 쓴다."""
+    return _serve_demo

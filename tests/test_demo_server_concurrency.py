@@ -32,7 +32,6 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from http.server import ThreadingHTTPServer
 from typing import Any
 
 import pytest
@@ -42,6 +41,9 @@ from liot.app import LiotApp
 from liot.layers.l2_context import feature_vector
 from liot.layers.l2_context.feature_vector import NEUTRAL_PREF
 from liot.registry import RegistryError
+
+# 데모 서버 전역 초기화·서버 기동은 conftest 공용 픽스처가 맡는다.
+pytestmark = pytest.mark.usefixtures("demo_state_reset")
 
 SENSOR = {
     "entity_id": "sensor.concurrent_probe",
@@ -72,29 +74,10 @@ PRESET = {
 
 # ------------------------------------------------------------------ 서버 픽스처
 @pytest.fixture()
-def server():
-    """임의 포트에 실제 데모 서버를 띄운다(루프백 전용)."""
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), demo_server.Handler)
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield f"http://127.0.0.1:{httpd.server_address[1]}"
-    finally:
-        httpd.shutdown()
-        httpd.server_close()
-        thread.join(timeout=5)
-
-
-@pytest.fixture(autouse=True)
-def _clean_registry():
-    """전역 레지스트리·선호 셀맵을 테스트마다 초기화(순서 의존 제거)."""
-    demo_server._REGISTRY.reset()
-    demo_server._PREF_CELLS.clear()
-    demo_server._DIRECTIVES.clear()
-    yield
-    demo_server._REGISTRY.reset()
-    demo_server._PREF_CELLS.clear()
-    demo_server._DIRECTIVES.clear()
+def server(demo_serve):
+    """임의 포트에 실제 데모 서버를 띄운다(루프백 전용 — 기동은 conftest demo_serve)."""
+    with demo_serve() as port:
+        yield f"http://127.0.0.1:{port}"
 
 
 def post(

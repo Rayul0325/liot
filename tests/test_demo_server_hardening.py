@@ -20,44 +20,25 @@ import json
 import socket
 import threading
 import time
-from contextlib import contextmanager
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
 from liot import demo_server
 
-
-@contextmanager
-def _serve(timeout: int | None = None, handler: type[BaseHTTPRequestHandler] | None = None):
-    """임시 데모 서버(루프백). timeout 을 주면 Handler 소켓 타임아웃을 덮어쓴다.
-
-    ``shutdown()`` 은 serve_forever 의 폴링 간격만큼 기다리므로, 테스트마다
-    서버를 새로 띄우면 그 대기가 그대로 쌓인다(29개 × 0.5초 = 15초). 기본
-    타임아웃을 쓰는 테스트는 아래 모듈 스코프 ``port`` 픽스처를 공유한다.
-    ``handler`` 는 모듈 사본의 Handler 로 띄울 때만 준다(심볼릭 링크 테스트).
-    """
-    original = demo_server.Handler.timeout
-    if timeout is not None:
-        demo_server.Handler.timeout = timeout
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler or demo_server.Handler)
-    thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.05},
-                              daemon=True)
-    thread.start()
-    try:
-        yield httpd.server_address[1]
-    finally:
-        httpd.shutdown()
-        httpd.server_close()
-        thread.join(timeout=5)
-        demo_server.Handler.timeout = original
+# 데모 서버 전역 초기화·서버 기동은 conftest 공용 픽스처가 맡는다.
+pytestmark = pytest.mark.usefixtures("demo_state_reset")
 
 
 @pytest.fixture(scope="module")
-def port():
-    """모듈 전체가 공유하는 서버(기본 타임아웃)."""
-    with _serve() as p:
+def port(demo_serve):
+    """모듈 전체가 공유하는 서버(기본 타임아웃).
+
+    ``shutdown()`` 은 서버마다 폴링 간격만큼 기다리므로, 테스트마다 새로 띄우면
+    그 대기가 쌓인다(29개 × 0.5초 = 15초). 기본 타임아웃을 쓰는 테스트는 이 서버를
+    함께 쓰고, 타임아웃·Handler 를 바꿔야 하는 테스트만 ``demo_serve`` 로 따로 띄운다.
+    """
+    with demo_serve() as p:
         yield p
 
 
@@ -97,17 +78,6 @@ def _post(path: str, body: bytes, *, content_length: str | None = None) -> bytes
     return head.encode("ascii") + body
 
 
-@pytest.fixture(autouse=True)
-def _clean_state():
-    demo_server._REGISTRY.reset()
-    demo_server._PREF_CELLS.clear()
-    demo_server._DIRECTIVES.clear()
-    yield
-    demo_server._REGISTRY.reset()
-    demo_server._PREF_CELLS.clear()
-    demo_server._DIRECTIVES.clear()
-
-
 # ───────────────────────────────── 1) Content-Length 를 믿지 않는다
 @pytest.mark.parametrize(
     "length,expect_in_body",
@@ -136,9 +106,9 @@ def test_handler_declares_a_socket_timeout() -> None:
     assert 0 < timeout <= 120, f"기본 소켓 타임아웃이 비정상: {timeout}"
 
 
-def test_short_body_does_not_hang_the_handler() -> None:
+def test_short_body_does_not_hang_the_handler(demo_serve) -> None:
     """선언한 길이보다 본문이 짧으면 타임아웃 뒤 400 — 무한 대기하지 않는다."""
-    with _serve(timeout=1) as port:
+    with demo_serve(timeout=1) as port:
         started = time.monotonic()
         resp = _raw(port, _post("/api/feedback", b"short", content_length="5000"), wait=10)
         elapsed = time.monotonic() - started
@@ -146,10 +116,10 @@ def test_short_body_does_not_hang_the_handler() -> None:
     assert elapsed < 8, f"응답까지 {elapsed:.1f}초 — 타임아웃이 걸리지 않았다"
 
 
-def test_half_open_requests_do_not_leak_threads() -> None:
+def test_half_open_requests_do_not_leak_threads(demo_serve) -> None:
     """응답 뒤 연결을 열어 둬도 핸들러 스레드가 남지 않는다(스레드 고갈 방어)."""
     held: list[socket.socket] = []
-    with _serve() as leak_port:
+    with demo_serve() as leak_port:
         baseline = threading.active_count()
         for _ in range(8):
             _raw(leak_port, _post("/api/feedback", b"", content_length="-1"), hold=held)
@@ -186,14 +156,14 @@ def test_valid_object_body_still_works(port) -> None:
 
 
 # ───────────────────────────────── 3) 정적 파일은 web/ 밖으로 못 나간다
-def test_sibling_directory_starting_with_web_is_not_served() -> None:
+def test_sibling_directory_starting_with_web_is_not_served(demo_serve) -> None:
     """`web` 로 시작하는 형제 디렉터리는 접두사만 같을 뿐 web/ 안이 아니다."""
     sibling = Path(demo_server.WEB_DIR).parent / "web_secret_probe"
     sibling.mkdir(exist_ok=True)
     leak = sibling / "leak.html"
     leak.write_text("TOP-SECRET-LEAK", encoding="utf-8")
     try:
-        with _serve() as probe_port:
+        with demo_serve() as probe_port:
             resp = _raw(probe_port,
                         b"GET /../web_secret_probe/leak.html HTTP/1.1\r\nHost: x\r\n\r\n")
     finally:
@@ -214,7 +184,7 @@ def test_real_static_file_is_still_served(port) -> None:
     assert "200 OK" in resp, resp[:200]
 
 
-def test_symlinked_web_dir_still_serves_files(tmp_path: Path) -> None:
+def test_symlinked_web_dir_still_serves_files(tmp_path: Path, demo_serve) -> None:
     """`web` 자체가 심볼릭 링크여도 정적 파일이 404 가 되지 않는다(R2-13).
 
     WEB_DIR 은 모듈을 읽을 때 한 번 정해지므로 몽키패치로는 검증할 수 없다.
@@ -236,7 +206,7 @@ def test_symlinked_web_dir_still_serves_files(tmp_path: Path) -> None:
     spec.loader.exec_module(probe)
 
     assert real_web.resolve() == probe.WEB_DIR, probe.WEB_DIR
-    with _serve(handler=probe.Handler) as probe_port:
+    with demo_serve(handler=probe.Handler) as probe_port:
         resp = _raw(probe_port, b"GET /probe.html HTTP/1.1\r\nHost: x\r\n\r\n")
     assert "200 OK" in resp, resp[:200]
     assert "SYMLINK-OK" in resp, resp[-200:]

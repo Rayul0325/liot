@@ -5,7 +5,8 @@
 빈집→off류 일반화가 그 기기의 off류 행동(stop)을 후보로 낸다. 이전엔 상태 강제변환이
 센서 메타에만 열려 있어 등록 기기 상태가 주입 불가 → 일반화가 데모에서 도달 불가였다.
 
-네트워크 없음(llm_enabled=false → FakeLLM). 모듈 전역 ``_REGISTRY`` 는 픽스처가 격리.
+네트워크 없음(llm_enabled=false → FakeLLM). 데모 모듈 전역(``_REGISTRY``·선호 셀맵·
+활성 지시)은 conftest 의 ``demo_state_reset`` 픽스처가 매 테스트 전후로 격리한다.
 """
 
 from __future__ import annotations
@@ -19,17 +20,7 @@ import liot.demo_server as ds
 from liot.demo_server import _REGISTRY, _run
 from liot.registry import RegistryError
 
-
-@pytest.fixture(autouse=True)
-def _reset_demo_registry():
-    """모듈 전역 데모 레지스트리·선호 셀맵을 매 테스트 전후로 초기화(격리)."""
-    _REGISTRY.reset()
-    ds._PREF_CELLS.clear()
-    ds._DIRECTIVES.clear()
-    yield
-    _REGISTRY.reset()
-    ds._PREF_CELLS.clear()
-    ds._DIRECTIVES.clear()
+pytestmark = pytest.mark.usefixtures("demo_state_reset")
 
 
 # 빈집(부재) + 거실 조명 on → vacant-light-off 규칙이 light.turn_off 를 제안한다.
