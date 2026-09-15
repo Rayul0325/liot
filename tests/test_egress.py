@@ -124,3 +124,46 @@ def test_kma_generalizes_coordinates() -> None:
     # 0.1도 격자로 일반화 → 정밀좌표 PII 패턴(소수 4자리+)에 걸리지 않음.
     assert out["lat"] == 37.1
     assert out["lon"] == 128.0
+
+
+# ── 뮤테이션 스윕이 찾은 미고정 가드(2026-09-16 야간) ────────────────────
+def test_redact_text_replaces_longest_real_name_first() -> None:
+    """부분 겹침 방어: 긴 실명부터 치환해야 짧은 쪽이 먼저 먹어치우지 않는다.
+
+    스윕에서 `sorted(..., reverse=True)` 를 뒤집어도 아무 테스트가 울지 않았다.
+    뒤집히면 '거실' 이 먼저 치환돼 '거실 조명' 이 'ROOM_A 조명' 으로 반쪽만 가려진다.
+    """
+    alias = AliasMap()
+    long_alias = alias.alias_for("거실 조명", kind="ROOM")
+    short_alias = alias.alias_for("거실", kind="ROOM")
+    out = alias.redact_text("지금 거실 조명 상태")
+    assert long_alias in out
+    assert "조명" not in out, out  # 긴 실명이 통째로 사라져야 한다
+    assert f"{short_alias} 조명" not in out
+
+
+def test_redact_text_ignores_empty_real_name() -> None:
+    """빈 실명이 등록돼도 텍스트를 갈기갈기 찢지 않는다(`if real and ...` 가드).
+
+    `"" in text` 는 언제나 참이라, 가드가 없으면 replace("") 가 글자 사이마다
+    가명을 끼워 넣는다.
+    """
+    alias = AliasMap()
+    alias.register("", "PERSON_9")
+    assert alias.redact_text("거실 조명") == "거실 조명"
+
+
+def test_coordinate_generalization_only_touches_numeric_coordinates() -> None:
+    """좌표 키 **이면서** 숫자일 때만 격자화한다(둘 중 하나만으론 건드리지 않는다).
+
+    스윕에서 그 `and` 를 `or` 로 바꿔도 아무 테스트가 울지 않았다.
+    """
+    from liot.core.egress_gate import _generalize_coords
+
+    out = _generalize_coords({"lat": 37.123456, "lon": 127.987654})
+    assert out["lat"] != 37.123456 and round(out["lat"], 1) == out["lat"]
+
+    # 좌표 키지만 숫자가 아니다 → 그대로.
+    assert _generalize_coords({"lat": "삼십칠"})["lat"] == "삼십칠"
+    # 숫자지만 좌표 키가 아니다 → 그대로(온도까지 뭉개면 판단이 망가진다).
+    assert _generalize_coords({"temp_c": 37.123456})["temp_c"] == 37.123456

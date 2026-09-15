@@ -284,3 +284,35 @@ def test_baked_safety_frozenset_unchanged_after_register_and_reset() -> None:
     _reset_safety_extensions_for_tests()
     assert set(SAFETY_CRITICAL_CATEGORIES) == baked_before
     assert "radon" not in safety_categories()
+
+
+# ── 뮤테이션 스윕이 찾은 미고정 가드(2026-09-16 야간) ────────────────────
+def test_abstract_executor_detection_separates_interface_from_implementation() -> None:
+    """추상(인터페이스)만 허용하고 구체 구현은 금지 — 그 판정 자체를 고정한다.
+
+    불변식 3(실행기는 전용 모듈에만)은 이 판정에 통째로 기댄다. 그런데 스윕에서
+    `_is_abstract_executor` 의 분기를 넷 다 뒤집어도 아무 테스트가 울지 않았다:
+    반대로 판정하면 구체 실행기가 '추상'으로 통과해 불변식이 조용히 무력화된다.
+    """
+    from abc import ABC, abstractmethod
+    from typing import Protocol, runtime_checkable
+
+    from liot.core.invariants import _is_abstract_executor
+
+    @runtime_checkable
+    class _ProtoExecutor(Protocol):
+        async def execute(self, *args: object, **kwargs: object) -> object: ...
+
+    class _AbstractExecutor(ABC):
+        @abstractmethod
+        async def execute(self) -> object: ...
+
+    class _ConcreteExecutor(_AbstractExecutor):
+        async def execute(self) -> object:
+            return None
+
+    assert _is_abstract_executor(_ProtoExecutor) is True  # Protocol = 인터페이스
+    assert _is_abstract_executor(_AbstractExecutor) is True  # 추상 메서드가 남아 있다
+    assert _is_abstract_executor(_ConcreteExecutor) is False  # 구현 완료 = 구체
+    assert _is_abstract_executor(_ConcreteExecutor()) is False  # 클래스가 아닌 인스턴스
+    assert _is_abstract_executor("Executor") is False  # 클래스가 아닌 값
