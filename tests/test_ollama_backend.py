@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from liot.core.contracts import CandidateAction, ContextSnapshot
@@ -272,3 +274,63 @@ def test_ssh_transport_maps_rc_and_empty_output(monkeypatch) -> None:
     monkeypatch.setattr(subprocess, "run", timeout)
     with pytest.raises(LLMUnavailable):
         t.generate("m", "p", timeout_s=3)
+
+
+def test_ssh_transport_sends_a_deterministic_non_streaming_request(monkeypatch) -> None:
+    """SSH 요청 본문·실행 옵션을 고정한다(stream=False·format=json·temperature=0·출력 캡처).
+
+    스윕: `"stream": False` 를 True 로, `capture_output=True` 를 False 로 바꿔도
+    아무 테스트가 울지 않았다. 스트리밍이면 NDJSON 이 와서 파싱이 깨지고,
+    출력을 캡처하지 않으면 stdout 이 None 이라 AttributeError 로 죽는다.
+    """
+    import subprocess
+
+    from liot.layers.l3_judgment.ollama_backend import SSHOllamaTransport
+
+    seen: dict[str, object] = {}
+
+    class _P:
+        returncode, stdout, stderr = 0, b'{"response": "ok"}', b""
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001
+        seen["cmd"] = cmd
+        seen["kwargs"] = kwargs
+        return _P()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    SSHOllamaTransport("school").generate("m", "p", timeout_s=5)
+
+    kwargs = seen["kwargs"]
+    assert isinstance(kwargs, dict)
+    assert kwargs["capture_output"] is True  # stdout 을 실제로 받아야 한다
+    body = json.loads(kwargs["input"].decode())
+    assert body["stream"] is False  # NDJSON 스트리밍이면 파서가 깨진다
+    assert body["format"] == "json" and body["options"]["temperature"] == 0
+
+
+def test_payload_carries_time_bucket_and_tolerates_missing_context() -> None:
+    """맥락의 time_bucket 이 모델 payload 에 실리고, ctx 가 없어도 죽지 않는다."""
+    spy = SpyTransport(response='{"tier": "breath", "confidence": 0.5, "rationale": "r"}')
+    backend = OllamaBackend("m", spy)
+    ctx = ContextSnapshot(
+        snapshot_id="s", trace_id="t", home_id="singleton", trigger={},
+        structured={"time_bucket": "evening"}, nl_summary="요약",
+        summary_template_sha="x", created_at="2026-06-02T18:00:00+00:00",
+    )
+    candidate = _candidate("light", "turn_on", "light.living_room")
+    backend.judge_raw(candidate, ctx, RiskTier.BREATH)
+    assert "evening" in (spy.last_prompt or ""), spy.last_prompt
+
+    backend.judge_raw(candidate, None, RiskTier.BREATH)  # ctx 없음 → 예외 없이 통과
+    assert "evening" not in (spy.last_prompt or "")
+
+
+def test_build_ollama_backend_reads_timeout_from_env(monkeypatch) -> None:
+    """LIOT_OLLAMA_TIMEOUT 이 실제로 반영된다(기본값으로 덮어써지지 않는다)."""
+    from liot.layers.l3_judgment.ollama_backend import build_ollama_backend
+
+    monkeypatch.delenv("LIOT_OLLAMA_TRANSPORT", raising=False)
+    monkeypatch.setenv("LIOT_OLLAMA_TIMEOUT", "7")
+    assert build_ollama_backend().timeout_s == 7.0
+    monkeypatch.setenv("LIOT_OLLAMA_TIMEOUT", "")  # 빈 값 → 기본 30
+    assert build_ollama_backend().timeout_s == 30.0
