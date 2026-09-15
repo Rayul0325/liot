@@ -590,3 +590,71 @@ def test_shipped_catalog_has_no_single_confirm_executable_pair():
         if policy.decide(candidate, row["tier"]) is ExecDecision.CONFIRM:
             confirm_pairs.append((row["entity_id"], row["capability"], row["action"]))
     assert confirm_pairs == [], f"단일 확인으로 실행되는 출하 조합이 생겼다: {confirm_pairs}"
+
+
+# ── 서비스 기본값·되돌리기 결과(2026-09-16 야간 스윕 2라운드) ────────────
+async def test_service_defaults_keep_execution_off_and_use_injected_clock():
+    """정책을 안 주면 실행은 꺼져 있고, 주입한 시계가 실제로 쓰인다.
+
+    스윕: `ExecutionPolicy(enabled=False)` 기본값을 True 로, `clock or app.clock` 을
+    `and` 로 바꿔도 초록이었다 — 전자는 옵트인 없이 조작이 켜지는 것이고,
+    후자는 주입 시계가 무시돼 테스트가 실시간에 의존하게 되는 것이다.
+    """
+    from liot.core.clock import Clock
+
+    db = await init_db(":memory:")
+    try:
+        app = LiotApp(clock=Clock(fixed="2026-01-01T00:00:00+00:00"), categories=CATS)
+        injected = Clock(fixed=DAY)
+        svc = LiotService(app, db, clock=injected, secret=SECRET)
+        assert svc._policy.enabled is False  # 옵트인 전에는 제안-만
+        assert svc._executor is None
+        assert svc.clock is injected
+        assert svc.clock.now_utc() == DAY
+    finally:
+        await db.close()
+
+
+async def test_dispatch_result_is_not_executed_by_default():
+    """DispatchResult.executed 기본값은 False — 기본이 True 면 '실행됨'이 거짓 기록된다.
+
+    dispatch 는 값을 명시해 넘기므로 그 경로만으로는 기본값이 드러나지 않는다.
+    생성자를 직접 불러 기본값 자체를 고정한다(스윕이 짚은 자리).
+    """
+    from liot.service import DispatchResult
+
+    svc, fx, db = await _service(enabled=False)
+    try:
+        prop = _proposal("light", "turn_on", "light", RiskTier.BREATH, "light.living_room")
+        res = await svc.dispatch(prop)
+        assert res.executed is False
+        assert fx.executed == []
+        bare = DispatchResult(prop, decision="SUPPRESS", sent=False)
+        assert bare.executed is False, "기본값이 True 면 '실행됨'이 거짓 기록된다"
+    finally:
+        await db.close()
+
+
+async def test_undo_reports_failure_when_executor_returns_not_ok():
+    """예외 없이 ok=False 로 돌아온 되돌리기는 '되돌렸다'고 답하지 않는다."""
+    from liot.layers.l4_execution.executor import ExecutionResult
+
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal("light", "turn_on", "light", RiskTier.BREATH, "light.living_room")
+        await svc.dispatch(prop)
+        svc._prior[prop.proposal_id] = {"state": "off"}
+
+        async def failing_undo(action, prior):  # noqa: ANN001
+            return ExecutionResult(ok=False, service="light.undo", error="HA 거부")
+
+        fx.undo = failing_undo
+        tier_int = int(prop.risk_tier)
+        sig = sign_feedback(SECRET, prop.proposal_id, tier_int, "undo", "")
+        line = (f"GET /feedback?p={prop.proposal_id}&t={tier_int}"
+                f"&sig={sig}&a=undo HTTP/1.1")
+        status, body = await svc._route_feedback(line)
+        assert "200" in status and body == "undo-failed", body
+        assert prop.proposal_id in svc._prior, "실패했으면 이전 상태를 버리면 안 된다"
+    finally:
+        await db.close()

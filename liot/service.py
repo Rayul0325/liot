@@ -363,8 +363,12 @@ class LiotService:
         if proposal is None or prior is None:
             return "404 Not Found", "nothing to undo"
         try:
-            await self._executor.undo(proposal.action, prior)
+            result = await self._executor.undo(proposal.action, prior)
         except (ExecutionDenied, ExecutionError):
+            return "200 OK", "undo-failed"
+        # 예외가 없어도 실패일 수 있다(ok=False). 그걸 안 보면 '되돌렸다'고 답한 뒤
+        # 상태는 그대로인 상황이 생긴다 — 2026-09-16 스윕이 이 자리를 짚었다.
+        if not getattr(result, "ok", True):
             return "200 OK", "undo-failed"
         self._prior.pop(pid, None)
         return "200 OK", "undone"
