@@ -220,3 +220,21 @@ def test_build_policy_from_env(monkeypatch):
     assert build_execution_policy().enabled is True
     monkeypatch.setenv("LIOT_EXECUTION_ENABLED", "0")
     assert build_execution_policy().enabled is False
+
+
+def test_env_flag_reads_truthy_values_only(monkeypatch) -> None:
+    """불리언 env 해석은 한 곳(core.env.env_flag)에만 있다 — 모듈마다 복제되던 것.
+
+    옵트인 플래그라 '모르는 값'은 켜지 않는 쪽이 안전하다.
+    """
+    from liot.core.env import env_flag
+
+    for truthy in ("1", "true", "TRUE", " on ", "Yes"):
+        monkeypatch.setenv("LIOT_TEST_FLAG", truthy)
+        assert env_flag("LIOT_TEST_FLAG") is True, truthy
+    for falsy in ("", "   ", "0", "off", "no", "nope"):
+        monkeypatch.setenv("LIOT_TEST_FLAG", falsy)
+        assert env_flag("LIOT_TEST_FLAG") is False, falsy
+    monkeypatch.delenv("LIOT_TEST_FLAG", raising=False)
+    assert env_flag("LIOT_TEST_FLAG") is False
+    assert env_flag("LIOT_TEST_FLAG", default=True) is True

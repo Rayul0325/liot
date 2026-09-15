@@ -316,7 +316,6 @@ class FakeExecutor:
 
 def build_execution_policy() -> ExecutionPolicy:
     """env ``LIOT_EXECUTION_ENABLED`` 로 정책 구성. 미설정/거짓이면 비활성(제안-만)."""
-    import os
+    from liot.core.env import env_flag
 
-    flag = os.environ.get("LIOT_EXECUTION_ENABLED", "").strip().lower()
-    return ExecutionPolicy(enabled=flag in ("1", "true", "yes", "on"))
+    return ExecutionPolicy(enabled=env_flag("LIOT_EXECUTION_ENABLED"))

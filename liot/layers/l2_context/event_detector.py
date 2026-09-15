@@ -14,10 +14,11 @@ pre-bus 게이트다(새 버스 엣지 없음). 두 트랙:
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
+
+from liot.core.env import env_flag
 
 __all__ = [
     "TriggerDecision",
@@ -115,6 +116,6 @@ def build_event_detector() -> EventDetector:
     ``LIOT_EVENT_LLM`` 이 truthy 면 FakeLLMEventDetector 를 함께 켠다.
     """
     detectors: list[EventDetector] = [RuleEventDetector()]
-    if os.environ.get("LIOT_EVENT_LLM", "").strip().lower() in ("1", "true", "on", "yes"):
+    if env_flag("LIOT_EVENT_LLM"):
         detectors.append(FakeLLMEventDetector(enabled=True))
     return CompositeEventDetector(detectors)

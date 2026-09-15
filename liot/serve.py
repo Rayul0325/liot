@@ -32,6 +32,7 @@ from typing import Protocol
 
 from liot.app import LiotApp
 from liot.core.clock import Clock
+from liot.core.env import env_flag
 from liot.db.database import init_db
 from liot.layers.l3_judgment.llm_judge import build_llm_backend
 from liot.layers.l4_execution.executor import HAExecutor, build_execution_policy
@@ -131,9 +132,7 @@ async def _amain() -> int:
     ha_token = os.environ.get("LIOT_HA_TOKEN", "").strip()
     fb_host = os.environ.get("LIOT_FEEDBACK_HOST", "127.0.0.1").strip()
     fb_port = int(os.environ.get("LIOT_FEEDBACK_PORT", "8099") or "8099")
-    allow_dev_key = os.environ.get("LIOT_FEEDBACK_ALLOW_DEV_KEY", "").strip().lower() in (
-        "1", "true", "yes", "on"
-    )
+    allow_dev_key = env_flag("LIOT_FEEDBACK_ALLOW_DEV_KEY")
 
     clock = Clock()
     db = await init_db(db_path, durable=True)
