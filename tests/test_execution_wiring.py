@@ -732,3 +732,20 @@ async def test_second_confirmation_without_transport_still_advances():
         assert prop.proposal_id in svc._awaiting_second
     finally:
         await db.close()
+
+
+async def test_try_execute_is_false_without_an_executor():
+    """실행기가 없으면 '실행됨'이 아니다 — 이 가드가 True 로 뒤집히면 조작기 없이도
+    실행했다고 보고한다(제안-만 구성에서 수용률·되돌리기 판단이 통째로 거짓이 된다).
+    """
+    db = await init_db(":memory:")
+    try:
+        clock = Clock(fixed=DAY)
+        svc = LiotService(LiotApp(clock=clock, categories=CATS), db, clock=clock,
+                          secret=SECRET, executor=None,
+                          policy=ExecutionPolicy(enabled=True))
+        prop = _proposal("light", "turn_on", "light", RiskTier.BREATH, "light.living_room")
+        assert await svc._try_execute(prop) is False
+        assert svc._prior == {}
+    finally:
+        await db.close()
