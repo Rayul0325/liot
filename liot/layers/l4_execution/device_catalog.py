@@ -205,9 +205,13 @@ class DeviceCatalog:
                         return "decrease"
                 elif isinstance(v, str):
                     s = v.strip().lower()
-                    if any(t in s for t in _INCREASE_TOKENS):
+                    # 부호 접두사도 방향이다("+2"/"-2"). 위 param 분기에는 있는데
+                    # 여기에는 없어서, 문자열로 온 delta/step 은 방향 추론을 놓치고
+                    # 기본 tier 로 떨어졌다 — 기본이 더 낮으면 과소 승격이 된다
+                    # (출하 카탈로그의 set_temperature 는 decrease=dusk > 기본 breath).
+                    if s.startswith("+") or any(t in s for t in _INCREASE_TOKENS):
                         return "increase"
-                    if any(t in s for t in _DECREASE_TOKENS):
+                    if s.startswith("-") or any(t in s for t in _DECREASE_TOKENS):
                         return "decrease"
 
         # action 이름에서 추론
