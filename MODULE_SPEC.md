@@ -488,3 +488,56 @@ liot.layers.l3_judgment.guardrail.register_category_floor(cat, tier) -> RiskTier
 검증: `tests/test_registry.py` · `tests/test_demo_flow.py`(프리셋 등록·원자적
 롤백·simulate 도달) · `tests/test_proactive.py::test_derive_proactive_allowed_equals_shipped_six_tuples`(출하 6튜플 동치) ·
 `tests/test_invariants.py`(FORBIDDEN_OPEN 은 어떤 확장에도 누출 불가).
+
+---
+
+## `liot.layers.l4_execution` + `liot.service` — 피드백 링크(1회용 토큰) 계약
+
+알림에 실려 나가는 수락/거절 링크의 **서명·수명** 규약. 2026-09-01·09-13 리뷰가
+이 경계에서 결함 4건을 냈으므로(서명↔검증 비대칭·비-ASCII 500·2차 링크 조기 사망·
+그 반작용으로 무제한 유효) 시그니처와 함께 **어느 쪽으로 실패해야 하는지**를 적는다.
+
+```python
+# liot.layers.l4_execution.notifier — 서명(정본)
+def tier_int(value: RiskTier | str | int) -> int
+    # 이름("ember")·숫자·숫자 문자열("3") 전부 수용, 0~3 밖은 ValueError.
+    # 서명·검증이 **같은 함수**를 쓴다(한쪽만 고치면 비대칭이 되살아난다).
+def sign_deeplink(secret, proposal_id, risk_tier, nonce="") -> str
+    # liot://p/<pid>?t=<tier>&sig=<hmac>[&n=<nonce>] — 서명 대상 = "<pid>:<tier_int>"
+    # nonce 는 서명 대상이 아니라 운반물(transport 가 읽어 액션 버튼 서명을 만든다).
+def sign_feedback(secret, proposal_id, risk_tier, action, nonce="") -> str
+    # 서명 대상 = "<pid>:<tier_int>:<action>:<nonce>" — action·nonce 바인딩.
+
+# liot.layers.l4_execution.feedback_gateway — 검증
+def compare_token(expected: str, given: object) -> bool
+    # 상수 시간 비교. **비-ASCII 는 예외가 아니라 불일치**(hmac.compare_digest 가
+    # TypeError 를 던져 수신구가 500 을 내면 403 과의 차이가 nonce 생존 신호가 된다).
+def verify_feedback_sig(secret, proposal_id, tier, action, sig, nonce="") -> bool
+def verify_deeplink_sig(secret, proposal_id, tier, sig) -> bool
+
+# liot.layers.l4_execution.proposal_service
+async def states_for(ids: Sequence[str]) -> dict[str, tuple[str, str | None]]
+    # (state, expires_at) 을 한 번의 SELECT 로. 토큰 스윕이 토큰마다 get() 하지
+    # 않게 하는 용도. expires_at 이 필요한 이유는 아래 수명 규칙 2번.
+```
+
+**링크 수명 규칙**(`liot.service`, `_nonce_is_live`):
+
+1. `pending` 제안의 링크는 살아 있다. 만료는 `expire_due` 가 상태로 옮긴다
+   (그래서 만료 시각과 다음 틱 사이에는 아직 유효 — 의도된 비대칭).
+2. `accepted` + 이중확인 2차 대기(또는 2차 알림 미발송)의 링크는 **상한 둘**을
+   모두 넘지 않아야 살아 있다: 제안 자신의 `expires_at`, 그리고 발급 후
+   `_SECOND_CONFIRM_WINDOW`(15분). `expire_due` 는 `pending` 만 전이하므로 상태만
+   보면 이 링크는 영원히 살아 있게 된다.
+3. 판정 시각은 호출자가 준다 — 스윕은 틱 시각, 클릭 경로는 클릭 시각. 스윕은
+   틱에만 돌기 때문에 클릭 경로에서도 같은 검사를 한다.
+4. 죽은 토큰은 `_drop_nonce` 가 nonce·발급시각·2차 대기 표식을 **한 덩어리로**
+   버린다(표식만 남으면 다음 토큰이 상한 없이 되살아난다). 종결 피드백 경로는
+   표식을 따로 내리고, 스윕은 '표식만 남은 pid' 까지 함께 돌아 자기교정한다.
+5. 실행 권한은 **발송 성공한 2차 링크**에만 있다(`_awaiting_second`). 표식은 발급
+   전에 세우고 발송 실패 시 내린다 — 비동기 transport 로 바뀌어도 발급과 표식
+   사이에 스윕이 끼어들 창이 없게.
+
+검증: `tests/test_execution_wiring.py`(2차 링크 생존·창 만료·제안 만료·표식 누수·
+출하 카탈로그에 단일확인 실행 조합 0) · `tests/test_service.py`(서명↔검증 강제변환
+일치·nonce 바인딩·비-ASCII 거부) · `tests/test_feedback_exposure.py`(dev 키 게이트).
