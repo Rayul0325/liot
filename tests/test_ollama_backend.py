@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from liot.core.contracts import CandidateAction, ContextSnapshot
 from liot.core.egress_gate import AliasMap
 from liot.core.risk import RiskTier
@@ -169,3 +171,104 @@ def test_ollama_pii_in_context_blocks_egress() -> None:
     # egress 가 EgressViolation → backend 가 못 보냄 → transport 미호출 → degraded.
     assert transport.calls == 0
     assert judgment.degraded is True
+
+
+# ── transport I/O 경계(가짜 urllib·subprocess 로 네트워크 없이) ──────────
+def test_http_transport_unwraps_response_and_maps_failures(monkeypatch) -> None:
+    """HTTP transport: {"response": ...} 를 벗기고, 도달 불가는 LLMUnavailable."""
+    import json as _json
+    import urllib.error
+    import urllib.request
+
+    from liot.layers.l3_judgment.ollama_backend import HTTPOllamaTransport
+
+    sent: dict[str, object] = {}
+
+    class _Resp:
+        def __init__(self, payload: bytes) -> None:
+            self._payload = payload
+
+        def read(self) -> bytes:
+            return self._payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=None):  # noqa: ANN001
+        sent["url"] = req.full_url
+        sent["body"] = _json.loads(req.data.decode())
+        sent["timeout"] = timeout
+        return _Resp(b'{"response": "{\\"tier\\": \\"ember\\"}", "done": true}')
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    t = HTTPOllamaTransport("http://127.0.0.1:11434/")  # 끝 슬래시는 제거된다
+    out = t.generate("m1", "프롬프트", timeout_s=7)
+    assert out == '{"tier": "ember"}'
+    assert sent["url"] == "http://127.0.0.1:11434/api/generate"
+    assert sent["timeout"] == 7
+    body = sent["body"]
+    assert isinstance(body, dict)
+    assert body["stream"] is False and body["format"] == "json"
+    assert body["options"]["temperature"] == 0  # 결정론 요청
+
+    def boom(req, timeout=None):  # noqa: ANN001
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    with pytest.raises(LLMUnavailable):
+        t.generate("m1", "p", timeout_s=1)
+
+
+def test_http_transport_returns_raw_when_not_json(monkeypatch) -> None:
+    """래핑이 아닌 응답은 그대로 돌려준다(상위 파서가 판단)."""
+    import urllib.request
+
+    from liot.layers.l3_judgment.ollama_backend import HTTPOllamaTransport
+
+    class _Resp:
+        def read(self) -> bytes:
+            return b"not json at all"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: _Resp())
+    assert HTTPOllamaTransport().generate("m", "p", timeout_s=1) == "not json at all"
+
+
+def test_ssh_transport_maps_rc_and_empty_output(monkeypatch) -> None:
+    """SSH transport: 실패 rc·빈 출력·타임아웃을 전부 LLMUnavailable 로."""
+    import subprocess
+
+    from liot.layers.l3_judgment.ollama_backend import SSHOllamaTransport
+
+    t = SSHOllamaTransport("school")
+
+    class _P:
+        def __init__(self, rc: int, out: bytes, err: bytes = b"") -> None:
+            self.returncode, self.stdout, self.stderr = rc, out, err
+
+    monkeypatch.setattr(subprocess, "run",
+                        lambda *a, **k: _P(0, b'{"response": "ok-body"}'))
+    assert t.generate("m", "p", timeout_s=3) == "ok-body"
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _P(255, b"", b"ssh: no route"))
+    with pytest.raises(LLMUnavailable, match="rc=255"):
+        t.generate("m", "p", timeout_s=3)
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _P(0, b"   "))
+    with pytest.raises(LLMUnavailable, match="empty"):
+        t.generate("m", "p", timeout_s=3)
+
+    def timeout(*a, **k):
+        raise subprocess.TimeoutExpired(cmd="ssh", timeout=3)
+
+    monkeypatch.setattr(subprocess, "run", timeout)
+    with pytest.raises(LLMUnavailable):
+        t.generate("m", "p", timeout_s=3)
