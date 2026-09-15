@@ -148,9 +148,14 @@ def test_execution_gate_catches_auto_under_injected_extras(
     from liot.layers.l4_execution import executor as ex
 
     class _StubPolicy:
-        def __init__(self, *, enabled: bool = False, extra_executable: object = None):
+        def __init__(
+            self,
+            *,
+            enabled: bool = False,
+            extra_executable: frozenset[tuple[str, str]] | None = None,
+        ):
             self.enabled = enabled
-            self.extra = frozenset(extra_executable or ())
+            self.extra = frozenset(extra_executable or frozenset())
 
         def decide(self, action: object, tier: object) -> object:
             cap = getattr(action, "capability", "")

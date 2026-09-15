@@ -330,5 +330,5 @@ def test_scoped_repo_rejects_every_empty_tenant_form() -> None:
 
     for bad in (None, "", "   ", "\t\n"):
         with pytest.raises(IsolationError):
-            ScopedRepo(bad)  # type: ignore[arg-type]
+            ScopedRepo(bad)
     assert ScopedRepo("singleton").home_id == "singleton"
