@@ -637,3 +637,71 @@ def test_signer_and_verifier_agree_on_tier_coercion() -> None:
         assert verify_feedback_sig(SECRET, "p-1", bad, "accept", sig, "n1") is False, bad
         with pytest.raises(ValueError):
             tier_int(bad)
+
+
+def _proposal_for_gate():
+    """발화 게이트 테스트용 최소 제안(비안전 컴포트, 시의성 없음)."""
+    from liot.core.contracts import CandidateAction, Proposal
+
+    return Proposal(
+        proposal_id="p-gate", judgment_id="j", home_id="singleton",
+        risk_tier=RiskTier.BREATH,
+        action=CandidateAction(capability="light", action="turn_on", params={},
+                               entity_id="light.living_room", category="light"),
+        rationale="r", required_confirmation="light", perishable=False,
+        expires_at=None, state="pending", created_at=DAY,
+    )
+
+# ── 발화 게이트 가드(2026-09-16 야간 스윕 survived) ──────────────────────
+def test_budget_is_exhausted_exactly_at_the_limit() -> None:
+    """예산은 한도에 **도달하면** 소진이다(한 건 더 나가지 않는다).
+
+    스윕에서 `>=` 를 `>` 로 바꿔도 초록이었다 — 시간당 한도를 매번 1건씩 넘긴다.
+    """
+    from liot.layers.l4_execution.notifier import NotificationBudget
+
+    b = NotificationBudget(max_per_hour=2)
+    assert b.exhausted() is False
+    b.consume()
+    assert b.exhausted() is False
+    b.consume()
+    assert b.exhausted() is True, "한도에 도달하면 소진이어야 한다"
+
+
+def test_mute_by_category_or_entity_each_suppresses_alone() -> None:
+    """카테고리 음소거만으로도, 엔티티 음소거만으로도 침묵한다(둘 다일 필요 없다).
+
+    스윕에서 그 `or` 를 `and` 로 바꿔도 초록이었다 — 한쪽만 음소거하면 알림이 계속 온다.
+    """
+    from liot.layers.l4_execution.notifier import (
+        NotificationBudget,
+        NotificationContext,
+        gate_pipeline,
+    )
+
+    prop = _proposal_for_gate()
+    budget = NotificationBudget(max_per_hour=10)
+    by_category = NotificationContext(muted_categories=frozenset({prop.action.category}))
+    by_entity = NotificationContext(muted_entities=frozenset({prop.action.entity_id}))
+    assert gate_pipeline(prop, by_category, budget, DAY) == "SUPPRESS"
+    assert gate_pipeline(prop, by_entity, budget, DAY) == "SUPPRESS"
+    assert gate_pipeline(prop, NotificationContext(), budget, DAY) != "SUPPRESS"
+
+
+def test_notification_context_defaults_are_permissive_but_quiet_off() -> None:
+    """기본 맥락: 헌장 켜짐·야간 아님 — 기본값이 뒤집히면 게이트 판정이 통째로 바뀐다."""
+    from liot.layers.l4_execution.notifier import NotificationContext
+
+    ctx = NotificationContext()
+    assert ctx.charter_enabled is True
+    assert ctx.quiet_hours is False
+
+
+def test_deeplink_verify_rejects_non_numeric_tier() -> None:
+    """tier 가 숫자가 아니면 **거부**한다 — except 절이 True 를 돌려주면 위조가 통과한다."""
+    from liot.layers.l4_execution.feedback_gateway import verify_deeplink_sig
+
+    sig = sign_deeplink(SECRET, "p-1", 3)
+    assert verify_deeplink_sig(SECRET, "p-1", 3, sig.split("sig=")[1].split("&")[0]) is True
+    assert verify_deeplink_sig(SECRET, "p-1", "삼", "deadbeef") is False
+    assert verify_deeplink_sig(SECRET, "p-1", None, "deadbeef") is False  # type: ignore[arg-type]
