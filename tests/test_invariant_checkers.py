@@ -135,3 +135,31 @@ def test_register_safety_category_ignores_empty_input() -> None:
         assert is_safety_category("   ") is False
     finally:
         _reset_safety_extensions_for_tests()
+
+
+def test_execution_gate_catches_auto_under_injected_extras(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """확장 허용목록을 주입한 상태에서도 AUTO 가 나오면 잡아야 한다(방어심층 5a).
+
+    이 검사는 '활성 + 확장 주입' 정책으로 물어야 의미가 있다. 비활성으로 물으면
+    (스윕 뮤턴트: enabled=False) 언제나 통과해 검사가 사라진다.
+    """
+    from liot.layers.l4_execution import executor as ex
+
+    class _StubPolicy:
+        def __init__(self, *, enabled: bool = False, extra_executable: object = None):
+            self.enabled = enabled
+            self.extra = frozenset(extra_executable or ())
+
+        def decide(self, action: object, tier: object) -> object:
+            cap = getattr(action, "capability", "")
+            act = getattr(action, "action", "")
+            # 주입된 확장분에 대해서만, 그리고 활성일 때만 AUTO 를 낸다.
+            if self.enabled and (cap, act) in self.extra:
+                return ex.ExecDecision.AUTO
+            return ex.ExecDecision.NOTIFY_ONLY
+
+    monkeypatch.setattr(ex, "ExecutionPolicy", _StubPolicy)
+    with pytest.raises(InvariantError, match="확장 주입 상태"):
+        assert_execution_gated()

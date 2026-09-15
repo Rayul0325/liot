@@ -316,3 +316,19 @@ def test_abstract_executor_detection_separates_interface_from_implementation() -
     assert _is_abstract_executor(_ConcreteExecutor) is False  # 구현 완료 = 구체
     assert _is_abstract_executor(_ConcreteExecutor()) is False  # 클래스가 아닌 인스턴스
     assert _is_abstract_executor("Executor") is False  # 클래스가 아닌 값
+
+
+def test_scoped_repo_rejects_every_empty_tenant_form() -> None:
+    """home_id 는 None·빈 문자열·공백 전부 거부한다(테넌시 격리의 입구).
+
+    스윕에서 `home_id is None or not str(home_id).strip()` 의 `or` 를 `and` 로
+    바꿔도 아무 테스트가 울지 않았다 — 그러면 None 이 그대로 통과해 모든 쿼리가
+    home_id=None 스코프로 나간다.
+    """
+    from liot.core.invariants import IsolationError
+    from liot.core.scoped_repo import ScopedRepo
+
+    for bad in (None, "", "   ", "\t\n"):
+        with pytest.raises(IsolationError):
+            ScopedRepo(bad)  # type: ignore[arg-type]
+    assert ScopedRepo("singleton").home_id == "singleton"
