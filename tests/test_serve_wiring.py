@@ -42,6 +42,7 @@ def _capture_run(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
         seen["policy_enabled"] = self._policy.enabled
         seen["transport"] = self.transport
         seen["home_id"] = self.proposals.home_id
+        seen["topic"] = self.topic
 
     monkeypatch.setattr(LiotService, "run", fake_run)
     return seen
@@ -132,3 +133,70 @@ def test_main_returns_zero_on_keyboard_interrupt(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr("asyncio.run", fake_run)
     assert serve.main() == 0
+
+
+async def test_env_values_reach_the_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    """DB 경로·durable·토픽·피드백 포트가 env 값 그대로 쓰인다(기본값이 덮어쓰지 않는다).
+
+    스윕: `os.environ.get(...).strip() or "기본값"` 의 or→and 가 셋 다 살아남았다 —
+    그러면 사용자가 무엇을 넣든 항상 기본값으로 동작한다(운영에서 조용히 틀린 DB 를
+    쓰거나 남의 토픽으로 알림을 보낸다). `durable=True` 도 마찬가지로 고정한다.
+    """
+    import socket
+
+    from liot.db.database import init_db as real_init_db
+
+    seen = _capture_run(monkeypatch)
+    captured: dict[str, object] = {}
+
+    async def spy_init(path, **kwargs):  # noqa: ANN001
+        captured["path"] = path
+        captured["durable"] = kwargs.get("durable")
+        return await real_init_db(":memory:", **kwargs)
+
+    monkeypatch.setattr("liot.serve.init_db", spy_init)
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        free_port = probe.getsockname()[1]
+    monkeypatch.setenv("LIOT_DB_PATH", "/tmp/liot-env-probe.db")
+    monkeypatch.setenv("LIOT_NTFY_TOPIC", "my-own-topic")
+    monkeypatch.setenv("LIOT_FEEDBACK_PORT", str(free_port))
+
+    opened: dict[str, int] = {}
+    real_open = serve.open_feedback_endpoint
+
+    async def spy_open(service, *, host, port, secret, allow_dev_key=False):  # noqa: ANN001
+        opened["port"] = port
+        return await real_open(service, host=host, port=port, secret=secret,
+                               allow_dev_key=allow_dev_key)
+
+    monkeypatch.setattr("liot.serve.open_feedback_endpoint", spy_open)
+    assert await serve._amain() == 0
+    assert captured["path"] == "/tmp/liot-env-probe.db"
+    assert captured["durable"] is True, "상시 데몬의 DB 는 durable 이어야 한다"
+    assert seen["topic"] == "my-own-topic"
+    assert opened["port"] == free_port, "env 포트가 무시됐다"
+
+
+async def test_ha_bridge_needs_both_url_and_token(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """URL 만 있고 토큰이 없으면 HA 에 붙지 않는다(둘 중 하나만으론 연결 시도 금지).
+
+    연결 클래스를 가짜로 바꿔 둔다: 조건이 `or` 로 바뀌면 여기서 즉시 터지므로,
+    실패가 '무한 대기'가 아니라 분명한 에러로 잡힌다(실제 소켓 연결을 시도하면
+    끊기지 않는 대기에 걸려 스위트가 멈춘다 — 실측).
+    """
+    import liot.layers.l1_sensing.ha_bridge as ha_bridge
+
+    class _NeverConnect:
+        def __init__(self, *a: object, **k: object) -> None:
+            raise AssertionError("토큰 없이 HA 연결을 시도했다")
+
+    monkeypatch.setattr(ha_bridge, "WebsocketsHAConnection", _NeverConnect)
+    monkeypatch.setenv("LIOT_HA_URL", "ws://127.0.0.1:1/api/websocket")
+    monkeypatch.delenv("LIOT_HA_TOKEN", raising=False)
+    seen = _capture_run(monkeypatch)
+    assert await serve._amain() == 0
+    assert seen["bridge"] is None
+    assert "미설정" in capsys.readouterr().out
