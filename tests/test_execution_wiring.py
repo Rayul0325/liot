@@ -839,3 +839,20 @@ async def test_second_link_survives_a_future_expiry_and_dies_exactly_at_it():
         assert fx.executed == []
     finally:
         await db.close()
+
+
+async def test_second_confirm_window_boundary_is_inclusive():
+    """창 경계(정확히 15분)까지는 살아 있고, 그 다음 순간 죽는다."""
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        await svc.dispatch(prop)
+        assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
+        pid = prop.proposal_id
+
+        svc.clock.set_fixed("2026-06-02T12:15:00+00:00")  # 발급 후 정확히 15분
+        assert svc._nonce_is_live(pid, "accepted", None) is True
+        svc.clock.set_fixed("2026-06-02T12:15:01+00:00")
+        assert svc._nonce_is_live(pid, "accepted", None) is False
+    finally:
+        await db.close()

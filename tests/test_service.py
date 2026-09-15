@@ -906,3 +906,116 @@ async def test_sanitize_only_mode_reports_not_sent(tmp_path) -> None:
         assert res.sent is False, "배달 경로가 없는데 sent=True 로 기록됐다"
     finally:
         await db.close()
+
+
+# ── 데몬 루프 경계·피드백 라우팅(2026-09-16 야간 스윕 3라운드) ───────────
+async def test_tick_loop_runs_exactly_the_requested_number_of_ticks(tmp_path) -> None:
+    """max_ticks 는 '정확히 그만큼'이다 — 경계가 밀리면 테스트용 캡이 새거나 덜 돈다.
+
+    스윕: `if max_ticks and n >= max_ticks` 의 and→or 와 >=→> 가 살아남았다.
+    or 면 캡이 없어도(None) 첫 틱에 멈추고, > 면 매번 한 번씩 더 돈다.
+    """
+    svc, db = await _make_service(tmp_path)
+    try:
+        ticks = {"n": 0}
+
+        async def counting_tick():
+            ticks["n"] += 1
+            return None
+
+        svc.run_tick = counting_tick
+        await svc.run(bridge=None, tick_seconds=0.0, max_ticks=3)
+        assert ticks["n"] == 3, ticks
+    finally:
+        await db.close()
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["POST /feedback?p=1 HTTP/1.1", "/feedback", "", "GET", "PUT /feedback HTTP/1.1"],
+)
+async def test_feedback_endpoint_only_answers_get_requests(tmp_path, line: str) -> None:
+    """GET 이 아니거나 형태가 깨진 요청줄은 405 — 파싱 가드가 뒤집히면 엉뚱한 요청이 흘러든다."""
+    svc, db = await _make_service(tmp_path)
+    try:
+        status, _body = await svc._route_feedback(line)
+        assert status.startswith("405"), f"{line!r} → {status}"
+    finally:
+        await db.close()
+
+
+async def test_accept_and_dismiss_move_the_preference_cell_in_opposite_directions(
+    tmp_path,
+) -> None:
+    """수락은 선호를 올리고 거절은 내린다 — 상태 분기가 뒤집히면 학습이 거꾸로 간다."""
+    from liot.layers.l2_context.feature_vector import NEUTRAL_PREF, load_cells
+
+    svc, db = await _make_service(tmp_path)
+    try:
+        cell = "night|vacant|light:turn_on"
+        accepted = _proposal_for_gate(RiskTier.BREATH, pid="p-acc")
+        dismissed = _proposal_for_gate(RiskTier.BREATH, pid="p-dis")
+        for prop, state in ((accepted, "accepted"), (dismissed, "dismissed")):
+            await svc.proposals.save(prop)
+            svc._prop_cell[prop.proposal_id] = cell
+            await svc._apply_pref_signal(prop.proposal_id, state)
+            value = (await load_cells(svc.prefs))[cell]
+            if state == "accepted":
+                assert value > NEUTRAL_PREF, f"수락이 선호를 올리지 않았다: {value}"
+                up = value
+            else:
+                assert value < up, f"거절이 선호를 내리지 않았다: {up} → {value}"
+    finally:
+        await db.close()
+
+
+async def test_stream_loop_stops_at_max_events(tmp_path) -> None:
+    """max_events 만큼만 처리하고 멈춘다(테스트용 캡이 실제로 캡이어야 한다)."""
+    svc, db = await _make_service(tmp_path)
+    try:
+        seen = {"n": 0}
+
+        class _FakeBridge:
+            async def stream(self):
+                while True:  # 무한 스트림 — 캡이 없으면 끝나지 않는다
+                    seen["n"] += 1
+                    yield _reading("binary_sensor.living_motion", "on")
+
+        await asyncio.wait_for(
+            svc.run(bridge=_FakeBridge(), tick_seconds=0.0, max_ticks=1, max_events=4),
+            timeout=10,
+        )
+        assert seen["n"] == 4, seen
+    finally:
+        await db.close()
+
+
+async def test_feedback_click_routes_accept_up_and_dismiss_down(tmp_path) -> None:
+    """수락 클릭은 선호를 올리고 거절 클릭은 내린다(상태별 분기가 실제로 갈린다).
+
+    스윕: `_route_feedback` 의 `st == "accepted"` / `st in ("dismissed","rejected")`
+    분기를 뒤집어도 초록이었다 — 직접 호출 테스트만 있어서 라우팅은 안 보였다.
+    """
+    from liot.layers.l2_context.feature_vector import NEUTRAL_PREF, load_cells
+    from liot.layers.l4_execution.notifier import sign_feedback
+
+    cell = "night|vacant|light:turn_on"
+    svc, db = await _make_service(tmp_path)
+    try:
+        values = {}
+        for action, pid in (("accept", "p-click-acc"), ("dismiss", "p-click-dis")):
+            prop = _proposal_for_gate(RiskTier.BREATH, pid=pid)
+            await svc.dispatch(prop)
+            svc._prop_cell[pid] = cell
+            nonce = svc._nonce[pid]
+            tier_int = int(prop.risk_tier)
+            sig = sign_feedback(SECRET, pid, tier_int, action, nonce)
+            status, _ = await svc._route_feedback(
+                f"GET /feedback?p={pid}&t={tier_int}&n={nonce}&sig={sig}&a={action} HTTP/1.1"
+            )
+            assert status.startswith("200"), status
+            values[action] = (await load_cells(svc.prefs))[cell]
+        assert values["accept"] > NEUTRAL_PREF, values
+        assert values["dismiss"] < values["accept"], values
+    finally:
+        await db.close()
