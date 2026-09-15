@@ -90,3 +90,19 @@ def test_git_failure_is_not_reported_as_clean(tmp_path: Path) -> None:
     )
     assert proc.returncode != 0, proc.stdout
     assert "OK" not in proc.stdout
+
+
+def test_doc_style_yaml_line_is_flagged_on_purpose(tmp_path: Path) -> None:
+    """영문 문서 줄의 `KEY: value` 도 잡힌다 — 알고 두는 오탐(리뷰 R-7).
+
+    좁히면 .md 에 붙여 넣은 진짜 토큰을 놓친다. 오탐은 사람이 보고 고치면 끝이고
+    미탐은 시크릿이 나간다 — 그래서 넓은 쪽을 유지한다는 결정을 여기 고정한다.
+    예시를 적을 땐 플레이스홀더(***·<...>)를 쓰면 걸리지 않는다.
+    """
+    doc = "LIOT_NTFY" + "_TOKEN: required-value\n"
+    proc = _scan(_repo(tmp_path, {"README.md": doc}))
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+
+    safe = "LIOT_NTFY" + "_TOKEN: <your-token>\n"
+    proc = _scan(_repo(tmp_path / "b", {"README.md": safe}))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
