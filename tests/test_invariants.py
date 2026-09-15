@@ -332,3 +332,37 @@ def test_scoped_repo_rejects_every_empty_tenant_form() -> None:
         with pytest.raises(IsolationError):
             ScopedRepo(bad)
     assert ScopedRepo("singleton").home_id == "singleton"
+
+
+def test_clock_time_bucket_boundaries_are_pinned() -> None:
+    """시간대 버킷 경계(06·11·17·22)를 시(hour) 전수로 고정한다.
+
+    버킷은 능동 규칙 매칭과 선호 셀 키의 절반을 차지한다. 그런데 스윕에서 경계
+    비교(`<=`/`<`)를 여섯 군데 다 뒤집어도 아무 테스트가 울지 않았다 — 경계가
+    한 시간씩 밀려도 초록이었다는 뜻이다.
+    """
+    from liot.core.clock import Clock
+
+    expected = {
+        **dict.fromkeys((22, 23, 0, 1, 2, 3, 4, 5), "night"),
+        **dict.fromkeys((6, 7, 8, 9, 10), "morning"),
+        **dict.fromkeys((11, 12, 13, 14, 15, 16), "day"),
+        **dict.fromkeys((17, 18, 19, 20, 21), "evening"),
+    }
+    clock = Clock()
+    for hour, bucket in sorted(expected.items()):
+        when = f"2026-06-02T{hour:02d}:30:00+00:00"
+        assert clock.time_bucket(when) == bucket, f"{hour}시 → {bucket} 이어야 한다"
+    # 경계 정각도 다음 버킷에 속한다(반열린 구간 [start, end)).
+    assert clock.time_bucket("2026-06-02T06:00:00+00:00") == "morning"
+    assert clock.time_bucket("2026-06-02T11:00:00+00:00") == "day"
+    assert clock.time_bucket("2026-06-02T17:00:00+00:00") == "evening"
+    assert clock.time_bucket("2026-06-02T22:00:00+00:00") == "night"
+
+
+def test_clock_defaults_to_trusted_time() -> None:
+    """시각 신뢰 플래그의 기본값은 True — 기본이 False 로 바뀌면 판단이 늘 보수화된다."""
+    from liot.core.clock import Clock
+
+    assert Clock().trust_ok is True
+    assert Clock(trust_ok=False).trust_ok is False
