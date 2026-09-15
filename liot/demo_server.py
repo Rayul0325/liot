@@ -771,6 +771,18 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, code: int, obj: dict[str, Any]) -> None:
         self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), _STATIC_TYPES[".json"])
 
+    def _bad(self, error: str, *, field: str | None = None) -> None:
+        """400 + 구조화 에러 응답. 호출부는 바로 뒤에 return 한다.
+
+        본문 검증 실패마다 `self._json(400, {"ok": False, ...})` 를 직접 적던 자리다
+        (7번 반복). 응답 형태(ok·error·field)가 한 곳에 모여야 UI 가 믿고 읽는다.
+        """
+        payload: dict[str, Any] = {"ok": False, "error": error}
+        if field is not None:
+            payload["field"] = field
+        self._json(400, payload)
+        return None
+
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
         if path == "/api/catalog":
@@ -807,13 +819,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length = int(raw)
         except (TypeError, ValueError):
-            self._json(400, {"ok": False, "error": "Content-Length 헤더가 올바르지 않습니다."})
+            self._bad("Content-Length 헤더가 올바르지 않습니다.")
             return None
         if length < 0 or length > MAX_BODY_BYTES:
-            self._json(
-                400,
-                {"ok": False, "error": f"본문 길이가 허용 범위를 벗어났습니다"
-                                       f" (0~{MAX_BODY_BYTES} 바이트, 받은 값: {length})."},
+            self._bad(
+                f"본문 길이가 허용 범위를 벗어났습니다"
+                f" (0~{MAX_BODY_BYTES} 바이트, 받은 값: {length})."
             )
             return None
         if length == 0:
@@ -821,26 +832,25 @@ class Handler(BaseHTTPRequestHandler):
         try:
             data = self.rfile.read(length)
         except OSError as exc:  # 소켓 타임아웃 포함(본문이 오다 말았다)
-            self._json(400, {"ok": False, "error": f"본문을 읽지 못했습니다: {type(exc).__name__}"})
+            self._bad(f"본문을 읽지 못했습니다: {type(exc).__name__}")
             return None
         if len(data) != length:
-            self._json(400, {"ok": False, "error": "본문이 Content-Length 보다 짧습니다."})
+            self._bad("본문이 Content-Length 보다 짧습니다.")
             return None
         try:
             payload = json.loads(data.decode("utf-8"))
         except (ValueError, UnicodeDecodeError) as exc:
-            self._json(400, {"ok": False, "error": f"bad json: {exc}"})
+            self._bad(f"bad json: {exc}")
             return None
         except RecursionError:
             # 1MiB 안에서도 `[[[[…` 를 수만 겹 쌓으면 디코더가 RecursionError 를
             # 던진다. ValueError 가 아니라서 예전엔 그대로 새어 응답 없이 끊겼다.
-            self._json(400, {"ok": False, "error": "요청 본문 JSON 이 너무 깊게 중첩돼 있습니다."})
+            self._bad("요청 본문 JSON 이 너무 깊게 중첩돼 있습니다.")
             return None
         if not isinstance(payload, dict):
-            self._json(
-                400,
-                {"ok": False, "error": "요청 본문은 JSON 객체여야 합니다"
-                                       f" (받은 값: {type(payload).__name__})."},
+            self._bad(
+                "요청 본문은 JSON 객체여야 합니다"
+                f" (받은 값: {type(payload).__name__})."
             )
             return None
         return payload
@@ -872,7 +882,7 @@ class Handler(BaseHTTPRequestHandler):
             # 돈다(LLM 호출 동안 다른 요청을 막지 않기 위해).
             result = asyncio.run(_run(body))
         except RegistryError as exc:  # 미등록 엔티티 값 등 → 400 구조화 에러
-            self._json(400, {"ok": False, "error": exc.message, "field": exc.field})
+            self._bad(exc.message, field=exc.field)
             return
         except Exception as exc:  # noqa: BLE001 - 데모: 어떤 실패도 화면에 노출
             self._json(200, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
@@ -935,7 +945,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"ok": True, "rule": rec})
                 return
         except RegistryError as exc:
-            self._json(400, {"ok": False, "error": exc.message, "field": exc.field})
+            self._bad(exc.message, field=exc.field)
             return
         self._send(404, b"not found", "text/plain; charset=utf-8")
 
