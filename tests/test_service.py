@@ -705,3 +705,103 @@ def test_deeplink_verify_rejects_non_numeric_tier() -> None:
     assert verify_deeplink_sig(SECRET, "p-1", 3, sig.split("sig=")[1].split("&")[0]) is True
     assert verify_deeplink_sig(SECRET, "p-1", "삼", "deadbeef") is False
     assert verify_deeplink_sig(SECRET, "p-1", None, "deadbeef") is False  # type: ignore[arg-type]
+
+
+def test_notifier_uses_the_injected_clock_for_its_timestamp() -> None:
+    """주입한 Clock 이 실제로 쓰인다(없으면 실시간으로 떨어진다).
+
+    스윕: `if self._clock is not None` 를 뒤집어도 아무 테스트가 울지 않았다 —
+    주입 시계가 무시되면 결정론 테스트가 조용히 실시간에 의존하게 된다.
+    """
+    from liot.layers.l4_execution.notifier import Notifier
+
+    fixed = "2026-06-02T12:00:00+00:00"
+    assert Notifier(clock=Clock(fixed=fixed))._now() == fixed
+    live = Notifier()._now()
+    assert live.endswith("+00:00") and live != fixed
+
+
+# ── ntfy transport 가드(2026-09-16 야간 스윕 2라운드) ────────────────────
+def _sanitized(deeplink: str) -> dict[str, Any]:
+    return {"channel": "ntfy", "proposal_id": "p-1", "risk_tier": 3, "glyph": "🛡",
+            "label": "불씨", "topic": "liot", "signed_deeplink": deeplink}
+
+
+@pytest.mark.parametrize(
+    "deeplink",
+    ["liot://p/p-1?t=3", "liot://p/?t=3&sig=abc", "liot://p/p-1?sig=abc", "그냥 문자열"],
+)
+def test_action_buttons_need_a_complete_deeplink(deeplink: str) -> None:
+    """딥링크에 pid·tier·sig 가 **모두** 있어야 버튼을 만든다.
+
+    스윕: `if pid and t and sig` 의 and 를 or 로 바꿔도 초록이었다 — 빈 값이 박힌
+    버튼(=항상 403)이 알림에 실려 나간다.
+    """
+    from liot.layers.l4_execution.ntfy_transport import HTTPNtfyTransport
+
+    transport = HTTPNtfyTransport("http://127.0.0.1:9",
+                                  feedback_base_url="http://127.0.0.1:9/cb",
+                                  signing_secret=SECRET)
+    assert "Actions" not in transport._headers(_sanitized(deeplink))
+
+
+def test_no_buttons_without_a_feedback_base_url() -> None:
+    """수신구 base URL 이 없으면 버튼을 만들지 않는다(누를 곳이 없는 링크 금지)."""
+    from liot.layers.l4_execution.ntfy_transport import HTTPNtfyTransport
+
+    transport = HTTPNtfyTransport("http://127.0.0.1:9", feedback_base_url=None,
+                                  signing_secret=SECRET)
+    good = "liot://p/p-1?t=3&sig=abc123&n=nnn"
+    assert "Actions" not in transport._headers(_sanitized(good))
+    # 반대로 둘 다 있으면 만들어진다(가드가 과하게 막지 않는지 확인).
+    with_url = HTTPNtfyTransport("http://127.0.0.1:9",
+                                 feedback_base_url="http://127.0.0.1:9/cb",
+                                 signing_secret=SECRET)
+    assert "Actions" in with_url._headers(_sanitized(good))
+
+
+def test_ntfy_rejects_non_2xx_status() -> None:
+    """3xx 는 성공이 아니다 — 경계가 밀리면 실패한 송신을 성공으로 기록한다."""
+    from liot.layers.l4_execution.ntfy_transport import HTTPNtfyTransport, NtfyError
+
+    transport = HTTPNtfyTransport("http://127.0.0.1:9")
+
+    class _Resp:
+        status = 300
+
+        def read(self) -> bytes:
+            return b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    import urllib.request
+
+    original = urllib.request.urlopen
+    urllib.request.urlopen = lambda *a, **k: _Resp()
+    try:
+        with pytest.raises(NtfyError):
+            transport.send("liot", _sanitized("liot://p/p-1?t=3&sig=abc"))
+    finally:
+        urllib.request.urlopen = original
+
+
+def test_build_ntfy_transport_reads_timeout_and_token_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LIOT_NTFY_TIMEOUT·LIOT_NTFY_TOKEN 이 실제로 반영된다(기본값에 먹히지 않는다)."""
+    from liot.layers.l4_execution.ntfy_transport import (
+        HTTPNtfyTransport,
+        build_ntfy_transport,
+    )
+
+    monkeypatch.setenv("LIOT_NTFY_URL", "https://ntfy.example")
+    monkeypatch.setenv("LIOT_NTFY_TIMEOUT", "3")
+    monkeypatch.setenv("LIOT_NTFY_TOKEN", "tok-123")
+    t = build_ntfy_transport()
+    assert isinstance(t, HTTPNtfyTransport)
+    assert t.timeout_s == 3.0
+    assert t.token == "tok-123"

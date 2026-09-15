@@ -97,11 +97,17 @@ def gate_pipeline(
     proposal: Proposal,
     ctx: NotificationContext,
     budget: NotificationBudget,
-    now: str,
+    now: str,  # 현재 미사용 — 아래 주석 참조
 ) -> GateDecision:
     """단일 발화 게이트. 정해진 순서로 평가하고 첫 결정에서 멈춘다.
 
     반환: 'IMMEDIATE' | 'DIGEST' | 'SUPPRESS'.
+
+    ``now`` 는 **지금은 쓰이지 않는다**. dedup(2시간)·recently_rejected(30일) 창은
+    호출자가 미리 계산해 ``ctx.recent_notified_keys``/``recently_rejected_keys`` 로
+    넘기기 때문이다(서비스가 DB 조회로 채운다). 시각이 판단에 들어오는 날을 위해
+    시그니처만 남겨 뒀다 — 2026-09-16 뮤테이션 스윕에서 이 인자를 바꿔도 아무 일이
+    일어나지 않는 것으로 확인됐으니, '시각이 게이트에 반영된다'고 읽지 말 것.
     """
     tier = RiskTier.from_str(proposal.risk_tier)
     key = dedup_key(proposal)
