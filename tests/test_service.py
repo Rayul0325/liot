@@ -639,13 +639,13 @@ def test_signer_and_verifier_agree_on_tier_coercion() -> None:
             tier_int(bad)
 
 
-def _proposal_for_gate():
+def _proposal_for_gate(tier: RiskTier = RiskTier.BREATH, pid: str = "p-gate"):
     """발화 게이트 테스트용 최소 제안(비안전 컴포트, 시의성 없음)."""
     from liot.core.contracts import CandidateAction, Proposal
 
     return Proposal(
-        proposal_id="p-gate", judgment_id="j", home_id="singleton",
-        risk_tier=RiskTier.BREATH,
+        proposal_id=pid, judgment_id="j", home_id="singleton",
+        risk_tier=tier,
         action=CandidateAction(capability="light", action="turn_on", params={},
                                entity_id="light.living_room", category="light"),
         rationale="r", required_confirmation="light", perishable=False,
@@ -805,3 +805,104 @@ def test_build_ntfy_transport_reads_timeout_and_token_from_env(
     assert isinstance(t, HTTPNtfyTransport)
     assert t.timeout_s == 3.0
     assert t.token == "tok-123"
+
+
+# ── 디스패치·예산·맥락 가드(2026-09-16 야간 스윕 2라운드) ────────────────
+def test_budget_resets_when_the_hour_changes() -> None:
+    """시(hour)가 바뀌면 시간당 예산이 리셋된다 — 비교가 뒤집히면 영원히 안 리셋된다."""
+    from datetime import datetime
+
+    from liot.layers.l4_execution.notifier import NotificationBudget
+    from liot.service import LiotService
+
+    svc = LiotService.__new__(LiotService)  # 순수 로직만 본다(DB 불필요)
+    svc._budget = NotificationBudget(max_per_hour=2)
+    svc._budget_hour = None
+    svc._roll_budget(datetime.fromisoformat("2026-06-02T12:00:00+00:00"))
+    svc._budget.consume()
+    svc._budget.consume()
+    assert svc._budget.exhausted() is True
+    svc._roll_budget(datetime.fromisoformat("2026-06-02T13:00:00+00:00"))
+    assert svc._budget.used_this_hour == 0, "시간이 바뀌면 예산이 리셋돼야 한다"
+    svc._roll_budget(datetime.fromisoformat("2026-06-02T13:30:00+00:00"))
+    assert svc._budget.used_this_hour == 0  # 같은 시간대면 그대로
+
+
+async def test_context_builds_with_no_mute_preferences(tmp_path) -> None:
+    """음소거 설정이 비어 있어도 맥락이 만들어진다(None 이 그대로 흘러들면 TypeError)."""
+    from datetime import datetime
+
+    svc, db = await _make_service(tmp_path)
+    try:
+        ctx = await svc._build_context(datetime.fromisoformat(DAY))
+        assert ctx.muted_categories == frozenset()
+        assert ctx.muted_entities == frozenset()
+        assert ctx.charter_enabled is True
+    finally:
+        await db.close()
+
+
+async def test_non_immediate_decision_never_sends(tmp_path) -> None:
+    """발화 결정이 IMMEDIATE 가 아니면 transport 는 호출되지 않는다.
+
+    스윕: `decision != "IMMEDIATE" or sanitized is None` 의 or→and 가 살아남았다 —
+    묶음(DIGEST)·침묵(SUPPRESS)으로 결정된 알림이 그대로 나간다.
+    """
+    transport = FakeNtfyTransport()
+    svc, db = await _make_service(tmp_path, transport=transport)
+    try:
+        await svc.prefs.set("charter_enabled", False)  # 전면 OFF → SUPPRESS
+        res = await svc.handle_reading(_reading("binary_sensor.kitchen_gas", "on"))
+        assert res is not None
+        assert res.decision == "SUPPRESS"
+        assert res.sent is False, "침묵 결정인데 sent=True 로 기록됐다"
+        assert transport.sent == [], "침묵 결정인데 실제로 송신됐다"
+    finally:
+        await db.close()
+
+
+async def test_digest_decision_is_not_sent_and_not_marked_sent(tmp_path) -> None:
+    """묶음(DIGEST) 결정은 송신하지 않고 sent=False 로 기록한다.
+
+    AMBIENT 는 즉시 알리지 않고 묶는다. 이 경로에서는 정제 payload 가 이미 만들어져
+    있어서, 송신 가드가 `or`→`and` 로 바뀌면 그대로 나간다(스윕 survived).
+    """
+    transport = FakeNtfyTransport()
+    svc, db = await _make_service(tmp_path, transport=transport)
+    try:
+        res = await svc.dispatch(_proposal_for_gate(RiskTier.AMBIENT, pid="p-digest"))
+        assert res.decision == "DIGEST", res.decision
+        assert res.sent is False, "묶음인데 sent=True 로 기록됐다"
+        assert transport.sent == [], "묶음인데 실제로 송신됐다"
+    finally:
+        await db.close()
+
+
+async def test_mute_preferences_reach_the_notification_context(tmp_path) -> None:
+    """음소거 설정이 비어 있지 않을 때 그대로 맥락에 실린다(빈 집합으로 뭉개지지 않는다)."""
+    from datetime import datetime
+
+    svc, db = await _make_service(tmp_path)
+    try:
+        await svc.prefs.set("muted_categories", ["light"])
+        await svc.prefs.set("muted_entities", ["light.living_room"])
+        ctx = await svc._build_context(datetime.fromisoformat(DAY))
+        assert ctx.muted_categories == frozenset({"light"})
+        assert ctx.muted_entities == frozenset({"light.living_room"})
+    finally:
+        await db.close()
+
+
+async def test_sanitize_only_mode_reports_not_sent(tmp_path) -> None:
+    """transport 가 없으면(sanitize-only) 발화 결정이 IMMEDIATE 여도 sent=False 다.
+
+    스윕: 그 분기의 `sent=False` 상수를 True 로 바꿔도 초록이었다 — 실제로는
+    아무 데도 안 보냈는데 '보냈다'로 기록된다(수용률·재시도 판단이 틀어진다).
+    """
+    svc, db = await _make_service(tmp_path, transport=None)
+    try:
+        res = await svc.dispatch(_proposal_for_gate(RiskTier.EMBER, pid="p-sanitize"))
+        assert res.decision == "IMMEDIATE"
+        assert res.sent is False, "배달 경로가 없는데 sent=True 로 기록됐다"
+    finally:
+        await db.close()

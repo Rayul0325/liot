@@ -658,3 +658,77 @@ async def test_undo_reports_failure_when_executor_returns_not_ok():
         assert prop.proposal_id in svc._prior, "실패했으면 이전 상태를 버리면 안 된다"
     finally:
         await db.close()
+
+
+async def test_execution_failure_is_reported_as_failure():
+    """실행기가 거부하거나 실패하면 '실행됨'이 아니다(두 실패 경로 모두).
+
+    스윕: `_try_execute` 의 두 `return False` 를 True 로 바꿔도 초록이었다 —
+    실패한 조작이 성공으로 기록되고 사용자에게도 그렇게 답한다.
+    """
+    from liot.layers.l4_execution.executor import ExecutionDenied
+
+    svc, fx, db = await _service(enabled=True, fail=True)  # 실행이 실패하는 실행기
+    try:
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        await svc.dispatch(prop)
+        assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
+        _status, body = await _click(svc, prop, "accept", _delivered_nonce(svc))
+        assert "exec-failed" in body, body
+        assert fx.executed == []
+
+        # 거부(ExecutionDenied)도 같은 결론이어야 한다.
+        async def denied(action):  # noqa: ANN001
+            raise ExecutionDenied("화이트리스트 밖")
+
+        svc2, fx2, db2 = await _service(enabled=True)
+        try:
+            fx2.execute = denied
+            prop2 = _proposal("light", "turn_on", "light", RiskTier.DUSK, "light.living_room")
+            await svc2.dispatch(prop2)
+            _s, body2 = await _click(svc2, prop2, "accept", _delivered_nonce(svc2))
+            assert "exec-failed" in body2, body2
+        finally:
+            await db2.close()
+    finally:
+        await db.close()
+
+
+async def test_undo_without_prior_state_is_not_found():
+    """되돌릴 이전 상태가 없으면 404 — `or` 가 `and` 로 바뀌면 None 으로 되돌리려 든다."""
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal("light", "turn_on", "light", RiskTier.BREATH, "light.living_room")
+        await svc.dispatch(prop)
+        svc._prior.pop(prop.proposal_id, None)  # 이전 상태 없음
+        tier_int = int(prop.risk_tier)
+        sig = sign_feedback(SECRET, prop.proposal_id, tier_int, "undo", "")
+        line = (f"GET /feedback?p={prop.proposal_id}&t={tier_int}&sig={sig}&a=undo HTTP/1.1")
+        status, body = await svc._route_feedback(line)
+        assert "404" in status, f"{status} {body}"
+        assert fx.undone == []
+    finally:
+        await db.close()
+
+
+async def test_second_confirmation_without_transport_still_advances():
+    """배달 경로가 없으면(sanitize-only) 2차 확인은 '보냈다'로 취급한다 — 흐름 유지.
+
+    스윕: transport 없음 분기의 `return True` 를 False 로 바꿔도 초록이었다 —
+    그러면 sanitize-only 구성에서 1차 수락이 매번 '재시도' 상태로 떨어진다.
+    """
+    db = await init_db(":memory:")
+    try:
+        clock = Clock(fixed=DAY)
+        app = LiotApp(clock=clock, categories=CATS)
+        fx = FakeExecutor()
+        svc = LiotService(app, db, clock=clock, transport=None, topic="liot-test",
+                          secret=SECRET, executor=fx, policy=ExecutionPolicy(enabled=True))
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        await svc.dispatch(prop)
+        nonce = svc._nonce[prop.proposal_id]
+        _s, body = await _click(svc, prop, "accept", nonce)
+        assert "confirm-again(1/2)" in body, body
+        assert prop.proposal_id in svc._awaiting_second
+    finally:
+        await db.close()
