@@ -749,3 +749,93 @@ async def test_try_execute_is_false_without_an_executor():
         assert svc._prior == {}
     finally:
         await db.close()
+
+
+# ── 개인화 신호·토큰 수명 가드(2026-09-16 야간 스윕 3라운드) ─────────────
+async def test_preference_signal_is_applied_once_per_proposal():
+    """같은 제안에 신호를 두 번 넣어도 셀은 한 번만 움직인다(중복 반영 금지).
+
+    스윕: `key is None or pid in _pref_signaled` 의 or→and 가 살아남았다 —
+    그러면 같은 제안이 셀을 여러 번 밀어 개인화가 한쪽으로 쏠린다.
+    """
+    from liot.layers.l2_context.feature_vector import load_cells
+
+    svc, fx, db = await _service(enabled=False)
+    try:
+        prop = _proposal("light", "turn_on", "light", RiskTier.BREATH, "light.living_room")
+        await svc.dispatch(prop)
+        svc._prop_cell[prop.proposal_id] = "night|vacant|light:turn_on"
+
+        await svc._apply_pref_signal(prop.proposal_id, "accepted")
+        once = (await load_cells(svc.prefs))["night|vacant|light:turn_on"]
+        await svc._apply_pref_signal(prop.proposal_id, "accepted")
+        twice = (await load_cells(svc.prefs))["night|vacant|light:turn_on"]
+        assert once == twice, f"두 번째 신호가 또 반영됐다: {once} → {twice}"
+    finally:
+        await db.close()
+
+
+async def test_expired_signal_only_for_expired_proposals():
+    """약한 비선호 신호는 **만료된** 제안에만 간다(대기 중·수락된 제안은 건드리지 않는다)."""
+    from liot.layers.l2_context.feature_vector import load_cells
+
+    svc, fx, db = await _service(enabled=False)
+    try:
+        pending = _proposal("light", "turn_on", "light", RiskTier.BREATH, "light.living_room")
+        await svc.dispatch(pending)
+        svc._prop_cell[pending.proposal_id] = "night|vacant|light:turn_on"
+
+        await svc._apply_expired_signals()
+        assert await load_cells(svc.prefs) == {}, "pending 제안에 신호가 갔다"
+
+        await svc.proposals.set_state(pending.proposal_id, "expired")
+        await svc._apply_expired_signals()
+        cells = await load_cells(svc.prefs)
+        assert "night|vacant|light:turn_on" in cells, "만료 제안에 신호가 안 갔다"
+
+        before = cells["night|vacant|light:turn_on"]
+        await svc._apply_expired_signals()  # 두 번째 호출은 건너뛴다
+        assert (await load_cells(svc.prefs))["night|vacant|light:turn_on"] == before
+    finally:
+        await db.close()
+
+
+async def test_sweep_drops_nonce_of_a_resolved_proposal():
+    """해소된(거절 등) 제안의 토큰은 스윕이 버린다 — 상태 검사가 무력화되면 남는다."""
+    svc, fx, db = await _service(enabled=False)
+    try:
+        prop = _proposal("light", "turn_on", "light", RiskTier.BREATH, "light.living_room")
+        await svc.dispatch(prop)
+        await svc.proposals.set_state(prop.proposal_id, "dismissed")
+        svc._nonce[prop.proposal_id] = "leftover"
+        svc._nonce_issued[prop.proposal_id] = svc.clock.now_dt()
+        await svc._sweep_nonces()
+        assert prop.proposal_id not in svc._nonce
+    finally:
+        await db.close()
+
+
+async def test_second_link_survives_a_future_expiry_and_dies_exactly_at_it():
+    """제안 만료 시각이 **미래**면 2차 링크는 살아 있고, 그 시각이 되면 죽는다(경계 포함).
+
+    스윕: 만료 비교의 `and`→`or` 와 `<=`→`<` 가 둘 다 살아남았다 — 전자는 만료가
+    아직인 제안의 링크까지 죽이고, 후자는 만료 정각에 링크를 하루 더 살린다.
+    """
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = prop.model_copy(update={"expires_at": "2026-06-02T12:10:00+00:00"})
+        await svc.dispatch(prop)
+        assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
+        second = _delivered_nonce(svc)
+
+        svc.clock.set_fixed("2026-06-02T12:05:00+00:00")  # 만료 전 · 창 안
+        assert svc._nonce_is_live(prop.proposal_id, "accepted", prop.expires_at) is True
+
+        svc.clock.set_fixed("2026-06-02T12:10:00+00:00")  # 만료 정각
+        assert svc._nonce_is_live(prop.proposal_id, "accepted", prop.expires_at) is False
+        status, body = await _click(svc, prop, "accept", second)
+        assert "403" in status, f"{status} {body}"
+        assert fx.executed == []
+    finally:
+        await db.close()
