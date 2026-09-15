@@ -208,6 +208,23 @@ def _apply_preset(payload: Any) -> tuple[dict[str, Any], int]:
         pref_snap = dict(_PREF_CELLS)
         applied = {"sensors": 0, "devices": 0, "rules": 0}
         stage = ""
+
+        def rollback(detail: str, field: str | None) -> tuple[dict[str, Any], int]:
+            """스냅샷으로 되돌리고 400 응답을 만든다(두 except 가 공유).
+
+            되돌릴 것과 응답 형태가 두 벌로 갈라지면, 한쪽만 고쳐서 '어떤 예외는
+            롤백되고 어떤 예외는 안 되는' 상태가 조용히 생긴다. stage 는 호출
+            시점 값을 읽는다(어느 단계에서 멈췄는지).
+            """
+            _REGISTRY.restore(snap)
+            _PREF_CELLS.clear()
+            _PREF_CELLS.update(pref_snap)
+            where = _PRESET_STAGE_KO.get(stage, stage)
+            return {
+                "ok": False,
+                "error": f"프리셋 적용 실패({where}): {detail}",
+                "field": field,
+            }, 400
         try:
             if reset:
                 _REGISTRY.reset()
@@ -235,28 +252,12 @@ def _apply_preset(payload: Any) -> tuple[dict[str, Any], int]:
                 applied["rules"] += 1
         except RegistryError as exc:
             # 원자 롤백: 프리셋이 건드린 등록 상태·선호 셀맵을 이전으로 되돌린다.
-            _REGISTRY.restore(snap)
-            _PREF_CELLS.clear()
-            _PREF_CELLS.update(pref_snap)
-            where = _PRESET_STAGE_KO.get(stage, stage)
-            return {
-                "ok": False,
-                "error": f"프리셋 적용 실패({where}): {exc.message}",
-                "field": exc.field,
-            }, 400
+            return rollback(exc.message, exc.field)
         except Exception as exc:  # noqa: BLE001 - 상태 파괴 방지가 우선
             # 검증을 통과한 뒤에도 예상 못 한 예외가 날 수 있다(레지스트리 내부
             # 변경, 새 필드 등). 그때 롤백 없이 빠져나가면 reset 이 이미 지운
             # 상태가 그대로 남는다 — 어떤 예외든 반드시 이전 상태로 되돌린다.
-            _REGISTRY.restore(snap)
-            _PREF_CELLS.clear()
-            _PREF_CELLS.update(pref_snap)
-            where = _PRESET_STAGE_KO.get(stage, stage)
-            return {
-                "ok": False,
-                "error": f"프리셋 적용 실패({where}): {type(exc).__name__}: {exc}",
-                "field": None,
-            }, 400
+            return rollback(f"{type(exc).__name__}: {exc}", None)
     return {"ok": True, "applied": applied, "values": values}, 200
 
 
