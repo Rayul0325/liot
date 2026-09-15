@@ -88,3 +88,43 @@ def test_block_rule_forces_ember() -> None:
     res = g.evaluate(_cand("door", action="open"), ctx)
     assert res.blocked is True
     assert res.floor_tier == RiskTier.EMBER
+
+
+# ── 뮤테이션 스윕이 찾은 미고정 가드(2026-09-16 야간) ────────────────────
+def test_gate1_result_is_immutable() -> None:
+    """Gate1Result 는 얼려 둔다 — 하류에서 안전 하한을 덮어쓸 수 없어야 한다.
+
+    스윕에서 `@dataclass(frozen=True)` 를 False 로 바꿔도 아무 테스트가 울지 않았다.
+    풀리면 floor_tier 를 조용히 낮추는 코드가 타입검사도 통과한 채 들어올 수 있다.
+    """
+    import dataclasses
+
+    g = Guardrail()
+    res = g.evaluate(
+        CandidateAction(capability="valve", action="open", params={},
+                        entity_id="switch.gas_valve", category="gas")
+    )
+    assert res.floor_tier is RiskTier.EMBER
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        res.floor_tier = RiskTier.AMBIENT  # type: ignore[misc]
+
+
+def test_gate1_facts_merge_trigger_but_structured_wins() -> None:
+    """맥락 사실은 structured 를 우선하고, 빠진 것만 trigger 로 보강한다.
+
+    스윕 두 건이 여기서 살아남았다: trigger 병합을 통째로 없애도(`or`→`and`),
+    우선순위를 뒤집어도(`not in`→`in`) 아무도 몰랐다.
+    """
+    g = Guardrail()
+    candidate = CandidateAction(capability="light", action="turn_on", params={},
+                                entity_id="light.living_room", category="light")
+    ctx = ContextSnapshot(
+        snapshot_id="s", trace_id="t", home_id="singleton",
+        trigger={"time_bucket": "day", "occupancy": "vacant"},   # 여기에만 occupancy
+        structured={"time_bucket": "night"},                     # 겹치는 키는 이쪽이 이긴다
+        nl_summary="", summary_template_sha="x",
+        created_at="2026-06-02T22:00:00+00:00",
+    )
+    facts = g._facts(candidate, ctx)
+    assert facts["time_bucket"] == "night", "structured 가 trigger 를 이겨야 한다"
+    assert facts["occupancy"] == "vacant", "structured 에 없는 키는 trigger 에서 보강"
