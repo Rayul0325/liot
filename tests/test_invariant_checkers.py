@@ -168,3 +168,56 @@ def test_execution_gate_catches_auto_under_injected_extras(
     monkeypatch.setattr(ex, "ExecutionPolicy", _StubPolicy)
     with pytest.raises(InvariantError, match="확장 주입 상태"):
         assert_execution_gated()
+
+
+# ── 검사기의 '기본값'과 '범위' 자체를 고정 (2026-09-20 검증 무결성 감사) ──
+def test_default_scan_target_exists_and_covers_the_sanctioned_module() -> None:
+    """기본 스캔 대상이 실제로 존재하고, 전용 모듈을 품고 있어야 한다.
+
+    감사 [2]: 기본 `package_name` 에 오타 한 글자만 나도 임포트 실패 → 조용히 통과라
+    전체 스위트도 CI 게이트도 "OK" 를 찍었다(재현함). 기본값을 이름으로 고정한다.
+    """
+    import importlib
+    import inspect
+
+    sig = inspect.signature(assert_executor_confined)
+    package_name = sig.parameters["package_name"].default
+    sanctioned = sig.parameters["sanctioned_module"].default
+    assert package_name == "liot", package_name
+    assert sanctioned == "liot.layers.l4_execution.executor", sanctioned
+    assert sanctioned.startswith(package_name + "."), "전용 모듈이 스캔 범위 밖이다"
+    importlib.import_module(package_name)  # 없으면 ModuleNotFoundError 로 즉시 빨강
+    importlib.import_module(sanctioned)
+
+
+def test_missing_liot_package_is_an_error_not_a_silent_pass() -> None:
+    """우리 패키지를 못 찾으면 통과가 아니라 InvariantError (fail-closed).
+
+    '0개 모듈을 스캔하고 통과' 가 이 검사기의 가장 위험한 실패 방식이다.
+    """
+    with pytest.raises(InvariantError, match="무력화"):
+        assert_executor_confined("liot.layers.l4_execution_absent")
+    with pytest.raises(InvariantError, match="무력화"):
+        assert_executor_confined("liot_typo")
+    # 우리 패키지가 아닌 이름(테스트용 임시 패키지)은 예전처럼 조용히 통과한다.
+    assert_executor_confined("some_external_package_that_does_not_exist")
+
+
+def test_scan_reaches_modules_outside_the_execution_layer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """스캔 범위가 실행 계층 밖까지 닿는다 — docstring 이 말하는 '흩어진 실행기'.
+
+    감사 [2] 부수 지적: 예전 기본값(`liot.layers.l4_execution`)으로는 service.py·
+    demo_server.py 에 구체 실행기를 둬도 못 잡았다. 임시 패키지의 **실행 계층이 아닌**
+    하위 모듈에 심어서 잡히는지 본다.
+    """
+    pkg = tmp_path / "probe_scope" / "service_like"
+    pkg.mkdir(parents=True)
+    (tmp_path / "probe_scope" / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "daemon.py").write_text(CONCRETE, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    with pytest.raises(InvariantError, match="PlantedExecutor"):
+        assert_executor_confined("probe_scope",
+                                 sanctioned_module="probe_scope.layers.executor")

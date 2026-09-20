@@ -93,7 +93,7 @@ def _is_abstract_executor(obj: object) -> bool:
 
 
 def assert_executor_confined(
-    package_name: str = "liot.layers.l4_execution",
+    package_name: str = "liot",
     *,
     sanctioned_module: str = "liot.layers.l4_execution.executor",
 ) -> None:
@@ -104,12 +104,25 @@ def assert_executor_confined(
     추상/Protocol 제외)는 ``sanctioned_module`` 한 곳에만 두도록 강제한다.
     그 밖의 모듈에서 발견되면 위반이다.
 
-    importlib/pkgutil 로 패키지의 모든 서브모듈을 임포트해 스캔한다. 패키지가
-    아직 없으면(스켈레톤) 위반 없음.
+    importlib/pkgutil 로 패키지의 모든 서브모듈을 임포트해 스캔한다.
+
+    스캔 범위는 **`liot` 전체**다. 예전 기본값은 `liot.layers.l4_execution` 이어서
+    docstring 이 말하는 '다른 모듈에 흩어진 실행기'(service.py·demo_server.py 등)를
+    정작 못 봤다(2026-09-20 감사).
+
+    패키지를 못 찾으면: 이름이 `liot` 으로 시작하면 **InvariantError** 다. 검사기가
+    조용히 0개 모듈을 스캔하고 통과하는 게 가장 위험한 실패 방식이기 때문이다 —
+    기본값에 오타 한 글자만 나도 CI 가 "OK" 를 찍었다(같은 감사에서 재현). 우리
+    패키지가 아닌 이름(테스트용 임시 패키지 등)은 예전처럼 조용히 통과한다.
     """
     try:
         package = importlib.import_module(package_name)
     except ModuleNotFoundError:
+        if package_name.startswith("liot"):  # 오타 한 글자도 여기 걸린다
+            raise InvariantError(
+                f"실행기 스캔 대상 패키지를 임포트할 수 없습니다: {package_name!r} — "
+                "검사기가 아무것도 보지 않는 상태(무력화)."
+            ) from None
         return
 
     module_names: list[str] = [package_name]
