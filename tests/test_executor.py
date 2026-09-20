@@ -238,3 +238,63 @@ def test_env_flag_reads_truthy_values_only(monkeypatch) -> None:
     monkeypatch.delenv("LIOT_TEST_FLAG", raising=False)
     assert env_flag("LIOT_TEST_FLAG") is False
     assert env_flag("LIOT_TEST_FLAG", default=True) is True
+
+
+# ── FORBIDDEN_OPEN 의 '내용'을 리터럴로 고정 (2026-09-20 검증 무결성 감사) ──
+def test_forbidden_open_contents_are_pinned_literally():
+    """금지 목록의 구성원을 **리터럴로** 고정한다.
+
+    기존 테스트는 전부 `for cap, act in FORBIDDEN_OPEN` 처럼 집합 자신을 입력이자
+    기대값으로 써서, 원소를 빼면 루프가 덜 돌고 교집합도 함께 줄어 항상 통과했다
+    (동어반복). 실제로 ("valve","open") 을 빼도 전체 스위트가 초록이었고, 그 상태에서
+    확장 주입된 valve.open 이 비안전 카테고리 위장으로 **AUTO** 가 됐다.
+    """
+    expected = frozenset({("lock", "unlock"), ("valve", "open")})
+    assert expected == FORBIDDEN_OPEN
+
+
+@pytest.mark.parametrize("cap,act", [("lock", "unlock"), ("valve", "open")])
+def test_named_open_action_is_never_executable_even_injected(cap: str, act: str):
+    """이름을 직접 적은 각 금지 쌍이, 확장 주입 + 비안전 위장에도 실행되지 않는다.
+
+    카테고리를 'appliance'(비안전)로 두는 게 핵심이다 — 안전 카테고리를 쓰면
+    decide 의 안전 분기에서 먼저 걸려 FORBIDDEN_OPEN 과 무관하게 통과해 버린다
+    (기존 test_safety_open_direction_excluded 가 정확히 그 형태였다).
+    """
+    injected = frozenset({(cap, act)})
+    assert (cap, act) not in effective_comfort(injected)
+    pol = ExecutionPolicy(enabled=True, extra_executable=injected)
+    for tier in RiskTier:
+        assert pol.decide(_act(cap, act, "appliance"), tier) == ExecDecision.NOTIFY_ONLY
+
+
+async def test_fake_executor_denies_named_open_actions_even_injected():
+    """실행기 자신도 같은 쌍을 거부한다(정책과 실행기 이중 방어)."""
+    fx = FakeExecutor(extra_executable=frozenset({("lock", "unlock"), ("valve", "open")}))
+    for cap, act in (("lock", "unlock"), ("valve", "open")):
+        with pytest.raises(ExecutionDenied):
+            await fx.execute(_act(cap, act, "appliance"))
+    assert fx.executed == []
+
+
+def test_registry_derived_extras_never_carry_a_forbidden_open_pair():
+    """실제 주입 경로(RuntimeRegistry.executable_extras)도 금지 쌍을 싣지 않는다.
+
+    감사 지적: 이 경로에 테스트가 0건이었다. 오늘 기준 1차 방어는 레지스트리의
+    확장 전용 규칙(등급을 낮출 수 없음)이고, 2차 방어가 FORBIDDEN_OPEN 이다.
+    """
+    from liot.registry import RegistryError, RuntimeRegistry
+
+    reg = RuntimeRegistry()
+    extras = reg.executable_extras()
+    assert not (extras & frozenset({("lock", "unlock"), ("valve", "open")}))
+
+    # 1차 방어: valve.open 을 낮은 등급으로 재등록하려 하면 거부된다.
+    with pytest.raises(RegistryError):
+        reg.add_device(entity_id="valve.side", name="측면 밸브", capability="valve",
+                       category="appliance",
+                       actions=[{"action": "open", "tier": "breath"}])
+
+    # 2차 방어: 설령 확장분에 섞여 들어와도 실효 실행집합에서 제거된다.
+    smuggled = reg.executable_extras() | frozenset({("valve", "open"), ("lock", "unlock")})
+    assert not (effective_comfort(smuggled) & frozenset({("valve", "open"), ("lock", "unlock")}))
