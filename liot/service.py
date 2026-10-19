@@ -8,6 +8,16 @@ LiotApp(두뇌, 네트워크 없음·결정만)을 둘러싸고 부수효과를 
   - **만료**: 주기적으로 expire_due() 로 신선도 지난 제안을 정리.
   - **틱**: 주기적 app.tick() 으로 능동 제안(AI 가 먼저)을 굴린다.
   - **피드백**: 서명 검증 HTTP 수신구로 수락/거절 → 상태 전이 → 수용률 학습.
+  - **상황 에피소드(spec §3.4.1·§6.1)**: 안전 센서의 이상 신호는 (집, 카테고리,
+    엔티티) 에피소드를 열거나 잇고, 정상 신호는 닫는다. 새 에피소드만 상황 알림을
+    만든다. 닫힐 때는 새 `alert` 없이 거주자에게 '해소됨'(NOTICE)을 보내고, 그
+    상황의 대기 제안(원탭 링크 포함)을 만료시킨다.
+  - **표 우선 두 단계 발송(spec §6.2)**: 상황 알림은 Gate1+파급도 하한으로 *먼저*
+    보내고, 결정 모델 판정은 그 뒤 별도 스레드에서 제한시간 안에 돈다. 2단계는
+    추적되는 백그라운드 태스크라 handle_reading 은 1단계 발송 직후 돌아온다 —
+    다음 센서 신호(다른 안전 상황)가 앞 상황의 모델 판정 뒤에 줄 서지 않는다.
+    모델이 올렸을 때만 같은 situation_id 의 후속 제안을 보낸다. 판단 행은 항상 저장한다.
+  - **판단 저장**: 판단마다 judgments 에 한 행(SafetyRepo.save_judgment).
 
 불변식 보존:
   - 실행 없음(불변식 3): 여기서 하는 외부 I/O 는 *알림 송신* 뿐, 액추에이터
@@ -21,13 +31,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import math
 import secrets
+import uuid
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from liot.app import LiotApp
+from liot.app import LiotApp, SafetySignal, StagedAlert
 from liot.core.clock import Clock
+from liot.core.contracts import CandidateAction, Judgment, Proposal
+from liot.core.risk import RiskTier
 from liot.core.scoped_repo import ScopedRepo
+from liot.core.severity import SeverityLevel, SeverityResult
+from liot.db.safety_repo import SafetyRepo
 from liot.layers.l2_context.feature_vector import (
     apply_decay,
     apply_signal,
@@ -37,6 +54,7 @@ from liot.layers.l2_context.feature_vector import (
 )
 from liot.layers.l2_context.feedback_store import InMemoryFeedbackStore
 from liot.layers.l2_context.preference_store import PreferenceStore
+from liot.layers.l3_judgment.decision_backend import DEFAULT_DECISION_TIMEOUT_S
 from liot.layers.l4_execution.executor import (
     ExecDecision,
     ExecutionDenied,
@@ -62,10 +80,40 @@ from liot.layers.l4_execution.proposal_service import ProposalService
 if TYPE_CHECKING:  # pragma: no cover
     import aiosqlite
 
-    from liot.core.contracts import Proposal, SensorReading
+    from liot.core.contracts import SensorReading
     from liot.layers.l1_sensing.ha_bridge import HABridge
 
-__all__ = ["DEV_SIGNING_SECRET", "DispatchResult", "LiotService"]
+__all__ = [
+    "DEV_SIGNING_SECRET",
+    "PHASE2_REQUESTS_PER_CALL",
+    "DispatchResult",
+    "LiotService",
+    "default_phase2_deadline",
+]
+
+logger = logging.getLogger(__name__)
+
+# 2단계(결정 모델) 판정 한 번이 보내는 HTTP 요청 수의 상한. 결정 백엔드의
+# 제한시간은 요청 하나당이라(LIOT_DECISION_TIMEOUT), 판정 전체 마감은 그 배수다.
+PHASE2_REQUESTS_PER_CALL = 4
+
+
+def default_phase2_deadline(backend: object) -> float:
+    """2단계 판정 전체 마감(초)의 기본값 = 요청당 제한시간 × 판정당 요청 수.
+
+    백엔드가 요청당 제한시간(timeout_s)을 드러내면 그 값을, 아니면 결정 모델
+    기본값(1.5초)을 쓴다. 조정 가능한 기본값이다(LiotService(phase2_deadline_s=)).
+    """
+    raw = getattr(backend, "timeout_s", None)
+    per_request = DEFAULT_DECISION_TIMEOUT_S
+    if (
+        isinstance(raw, (int, float))
+        and not isinstance(raw, bool)
+        and math.isfinite(raw)
+        and raw > 0
+    ):
+        per_request = float(raw)
+    return per_request * PHASE2_REQUESTS_PER_CALL
 
 _DEDUP_WINDOW = timedelta(hours=2)
 
@@ -125,6 +173,8 @@ class LiotService:
         budget_per_hour: int = 6,
         executor: Executor | None = None,
         policy: ExecutionPolicy | None = None,
+        safety_repo: SafetyRepo | None = None,
+        phase2_deadline_s: float | None = None,
     ) -> None:
         self.app = app
         self.clock = clock or app.clock
@@ -166,6 +216,53 @@ class LiotService:
         # 개인화 루프(Phase3): 제안 → 선호 셀 키(맥락+행동), 신호 중복 방지.
         self._prop_cell: dict[str, str] = {}  # proposal_id → cell_key
         self._pref_signaled: set[str] = set()  # 이미 신호 반영된 proposal_id
+        # 안전 영속(상황 에피소드·취약 거주자 여부·판단 저장).
+        self.safety = safety_repo or SafetyRepo(db, clock=self.clock)
+        # 2단계 판정 전체 마감(초). None 이면 판정 시점의 백엔드로 기본값을 계산한다.
+        self._phase2_deadline_s = phase2_deadline_s
+        self._started = False  # 시작 시 1회 작업(표 로드 실패 감사) 완료 여부
+        # 진행 중인 2단계 판정 태스크. 끝나면 스스로 빠진다(_on_phase2_done).
+        self._phase2_tasks: set[asyncio.Task[DispatchResult | None]] = set()
+
+    # ------------------------------------------------------------------
+    # 시작
+    # ------------------------------------------------------------------
+    async def start(self) -> None:
+        """시작 시 1회 작업. 진입점(handle_reading·run_tick·run)이 먼저 부른다.
+
+        파급도 표가 로드에 실패해 fail-closed(모든 안전 카테고리 CRITICAL)로 돌고
+        있으면, 그 사실을 audit_log 에 **한 번** 남기고 경고 로그를 낸다 — 조용히
+        fail-closed 로만 돌면 '표가 안 읽혔다'는 걸 아무도 모른다.
+        """
+        if self._started:
+            return
+        self._started = True
+        table = self.app.severity_table
+        if not table.load_failed:
+            return
+        logger.warning(
+            "severity table load failed — running fail-closed (every safety category "
+            "CRITICAL) source=%s error=%s",
+            table.source,
+            table.load_error,
+        )
+        await self._repo.insert(
+            self._db,
+            "audit_log",
+            {
+                "id": None,
+                "trace_id": None,
+                "actor": "SYSTEM",
+                "event_type": "severity_table_load_failed",
+                "ref_id": table.source,
+                "detail": json.dumps(
+                    {"error": table.load_error, "fallback": "all safety categories CRITICAL"},
+                    ensure_ascii=False,
+                ),
+                "ts": self.clock.now_utc(),
+            },
+        )
+        await self._db.commit()
 
     # ------------------------------------------------------------------
     # 발화 컨텍스트
@@ -384,11 +481,235 @@ class LiotService:
     # 진입점들
     # ------------------------------------------------------------------
     async def handle_reading(self, reading: SensorReading) -> DispatchResult | None:
-        """단일 센서 읽기를 파이프라인에 흘리고, 제안이 나오면 디스패치."""
-        proposal = await self.app.process_reading(reading)
-        if proposal is None:
+        """단일 센서 읽기를 파이프라인에 흘리고, 제안이 나오면 디스패치.
+
+        안전 카테고리(spec §3.4.1):
+          - 이상 + 열린 상황 없음 → 상황을 열고 1단계 상황 알림을 즉시 보낸 뒤
+            2단계 판정(별도 스레드, 제한시간)을 돌린다. 반환은 1단계 결과.
+          - 이상 + 열린 상황 있음 → 같은 상황을 잇는다. 새 알림 제안 없음(None).
+            재알림은 사다리(T8) 몫이다.
+          - 정상 → 열린 상황을 닫고 해소 알림. 새 `alert` 없음(None). 열린 상황이
+            없으면 아무 일도 없다.
+        비안전 카테고리는 예전 그대로다(관찰은 침묵, 판단이 있으면 저장).
+        """
+        await self.start()
+        signal = self.app.classify_safety(reading)
+        if signal is None:
+            proposal = await self.app.process_reading(reading)
+            await self._save_last_judgment()
+            if proposal is None:
+                return None
+            return await self.dispatch(proposal)
+        if signal.abnormal:
+            return await self._on_abnormal(signal)
+        await self._on_normal(signal)
+        return None
+
+    # ------------------------------------------------------------------
+    # 상황 에피소드(spec §3.4.1·§6.1·§6.2)
+    # ------------------------------------------------------------------
+    async def _on_abnormal(self, signal: SafetySignal) -> DispatchResult | None:
+        """이상 신호: 상황을 열거나 잇는다. 새 에피소드만 상황 알림을 보낸다."""
+        reading = signal.reading
+        # 취약 거주자 여부는 불리언 하나만 쓴다(특성 자체는 여기서 끝난다 — 모델
+        # 입력·알림·로그에 들어가지 않는다). spec §3.6.
+        vulnerable = await self.safety.has_vulnerable_resident(self.home_id)
+        sev = self.app.severity_table.compute(signal.category, vulnerable_resident=vulnerable)
+        if sev is None:  # pragma: no cover - 안전 카테고리면 표가 항상 값을 낸다(방어)
+            sev = SeverityResult(
+                floor=SeverityLevel.CRITICAL, sources=("table",), damage=None, time_to_harm=None
+            )
+        sid, opened_new = await self.safety.open_or_get_situation(
+            self.home_id, signal.category, reading.entity_id, sev.floor, self.clock.now_utc()
+        )
+        if not opened_new:
+            self.app.observe_reading(
+                reading, reason="열린 상황 이어감 — 새 알림 제안 없음(재알림은 사다리 몫)"
+            )
             return None
-        return await self.dispatch(proposal)
+
+        # 1단계: 표 우선 상황 알림을 만들어 **즉시** 보낸다(모델 호출 없음).
+        # 여기서 실패하면 방금 연 상황을 닫는다 — 알림 없이 열린 상황이 남으면 다음
+        # 이상 신호가 '이어 가기'로 묻혀 그 상황 전체가 조용해진다.
+        try:
+            staged = await self.app.process_situation_reading(
+                reading, situation_id=sid, severity=sev
+            )
+            if staged is None:
+                await self.safety.close_situation(sid, self.clock.now_utc())
+                return None
+            first = await self.dispatch(staged.proposal)
+        except BaseException:
+            await self.safety.close_situation(sid, self.clock.now_utc())
+            raise
+        await self.safety.save_judgment(staged.judgment)
+        await self._on_situation_opened(sid, staged.proposal)
+        # 2단계: 결정 모델(별도 스레드·제한시간)을 백그라운드로 돌린다. 기다리지 않는다 —
+        # 기다리면 스트림의 다음 신호(예: 가스 직후 연기)가 이 상황의 모델 판정이
+        # 끝날 때까지 묶여, 두 번째 안전 알림이 늦게 나간다(spec §6.2 '즉시').
+        self._spawn_phase2(staged)
+        return first
+
+    def _spawn_phase2(self, staged: StagedAlert) -> None:
+        """2단계 판정을 추적되는 백그라운드 태스크로 띄운다."""
+        task = asyncio.create_task(self._run_phase2(staged))
+        self._phase2_tasks.add(task)
+        task.add_done_callback(self._on_phase2_done)
+
+    def _on_phase2_done(self, task: asyncio.Task[DispatchResult | None]) -> None:
+        """끝난 2단계 태스크를 추적에서 빼고, 예외가 있으면 로그로 남긴다(삼키지 않는다)."""
+        self._phase2_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error("phase-2 judgment task failed: %s", type(exc).__name__, exc_info=exc)
+
+    async def drain_phase2(self, timeout: float | None = None) -> None:
+        """진행 중인 2단계 태스크가 모두 끝날 때까지 기다린다.
+
+        timeout(초)을 주면 그 안에 끝나지 않은 태스크는 취소한다(종료 경로용).
+        각 태스크는 자체 마감(_phase2_deadline)이 있어 timeout 없이도 유한하게 끝난다.
+        테스트는 잠자기 대신 이걸 기다린다.
+        """
+        while self._phase2_tasks:
+            pending = set(self._phase2_tasks)
+            _, not_done = await asyncio.wait(pending, timeout=timeout)
+            for t in not_done:
+                t.cancel()
+            if not_done:
+                await asyncio.gather(*not_done, return_exceptions=True)
+            self._phase2_tasks.difference_update(pending)
+
+    def _phase2_deadline(self) -> float:
+        if self._phase2_deadline_s is not None:
+            return self._phase2_deadline_s
+        return default_phase2_deadline(self.app.judge.backend)
+
+    async def _run_phase2(self, staged: StagedAlert) -> DispatchResult | None:
+        """2단계 판정을 이벤트 루프 밖(스레드)에서 돌리고, 행을 저장하고, 올렸으면 보낸다.
+
+        제한시간을 넘기거나 판정이 예외로 끝나면 하한 그대로의 degraded 행을 남긴다
+        (알림은 이미 1단계로 나갔다). 판단 행은 결과와 무관하게 **항상** 저장한다 —
+        하한 아래로 낮추려 한 답(injection_suspect)도 감사 기록에 남는다.
+        """
+        req = staged.deferred
+        deadline = self._phase2_deadline()
+        try:
+            judgment = await asyncio.wait_for(
+                asyncio.to_thread(self.app.run_deferred_judge, req), timeout=deadline
+            )
+        except TimeoutError:
+            judgment = self.app.deadline_judgment(
+                req, reason=f"제한시간 {deadline:g}초 초과"
+            )
+        except Exception as exc:  # noqa: BLE001 — 2단계 실패는 1단계 알림을 무르지 않는다
+            judgment = self.app.deadline_judgment(req, reason=f"판정 오류 {type(exc).__name__}")
+        await self.safety.save_judgment(judgment)
+        followup = self.app.route_followup(judgment)
+        if not self._raised(staged.proposal, followup):
+            return None
+        # 2단계가 백그라운드로 도는 동안 상황이 닫혔을 수 있다(정상 복귀). 닫힌 상황의
+        # 후속 알림은 낡은 경보다 — 보내지 않는다(판단 행은 위에서 이미 남겼다).
+        cand = req.candidate
+        current = await self.safety.get_open_situation(
+            self.home_id, cand.category, cand.entity_id
+        )
+        if current is None or current.situation_id != req.situation_id:
+            return None
+        return await self.dispatch(followup)
+
+    @staticmethod
+    def _raised(first: Proposal, followup: Proposal) -> bool:
+        """2단계 제안이 1단계보다 확인 강도나 파급도를 올렸는가."""
+        if followup.risk_tier > first.risk_tier:
+            return True
+        if followup.severity is None:
+            return False
+        return first.severity is None or followup.severity > first.severity
+
+    async def _on_normal(self, signal: SafetySignal) -> None:
+        """정상 신호: 열린 상황이 있으면 닫는다. 새 `alert` 는 만들지 않는다."""
+        reading = signal.reading
+        self.app.observe_reading(reading, reason="정상 신호 — 새 알림 제안 없음")
+        situation = await self.safety.get_open_situation(
+            self.home_id, signal.category, reading.entity_id
+        )
+        if situation is None:
+            return
+        if not await self.safety.close_situation(situation.situation_id, self.clock.now_utc()):
+            return  # pragma: no cover - 같은 연결에서 방금 읽은 열린 상황(방어)
+        sid = situation.situation_id
+        # 그 상황의 대기 제안(상황 알림·원탭 조치)을 만료 → 낡은 링크가 통하지 않는다.
+        for pid in await self.proposals.expire_situation(sid):
+            self._drop_nonce(pid)
+        await self._send_resolved_notice(sid, signal)
+        await self._on_situation_closed(sid)
+
+    async def _send_resolved_notice(self, situation_id: str, signal: SafetySignal) -> bool:
+        """거주자에게 '해소됨' 알림(파급도 NOTICE)을 보낸다. 보냈으면 True.
+
+        제안으로 영속하지 않는다 — 응답할 행동이 없는 정보 알림이라 수용률·대기
+        목록에 섞이면 안 된다. 발화 게이트는 그대로 지난다: 헌장 OFF·음소거는
+        존중하고, 시의성(perishable)으로 중복·야간·예산에만 묶이지 않는다.
+        정제(egress)도 그대로다 — 기기·방·근거는 나가지 않는다.
+        """
+        now = self.clock.now_utc()
+        notice = Proposal(
+            proposal_id=str(uuid.uuid4()),
+            judgment_id=f"situation:{situation_id}",
+            home_id=self.home_id,
+            risk_tier=RiskTier.BREATH,
+            action=CandidateAction(
+                capability=signal.category,
+                action="resolved",
+                params={"__origin__": "safety:resolved"},
+                entity_id=signal.reading.entity_id,
+                category=signal.category,
+            ),
+            rationale="상황 해소(센서 정상 복귀) — 거주자 알림",
+            required_confirmation="none",
+            perishable=True,
+            state="expired",  # 응답 대상이 아니다(영속하지도 않는다)
+            created_at=now,
+            severity=SeverityLevel.NOTICE,
+            situation_id=situation_id,
+        )
+        now_dt = self.clock.now_dt()
+        self._roll_budget(now_dt)
+        ctx = await self._build_context(now_dt)
+        decision, sanitized = self.notifier.notify(notice, ctx, self._budget)
+        if decision != "IMMEDIATE" or sanitized is None:
+            return False
+        if self.transport is not None:
+            try:
+                self.transport.send(self.topic, sanitized)
+            except NtfyError:
+                return False
+        await self.proposals.record_notification(sanitized, now=now)
+        return self.transport is not None
+
+    async def _on_situation_opened(self, situation_id: str, proposal: Proposal) -> None:
+        """새 상황 에피소드의 첫 알림을 보낸 직후 불린다. 지금은 아무것도 하지 않는다.
+
+        T8 이 채운다: 이 상황의 사다리를 시작한다(재알림·보호자 전달·119 안내).
+        보호자 전달 조건은 상황의 severity_floor(표+거주자, situations 테이블)를
+        본다 — 모델 상향은 그 값을 바꾸지 못한다.
+        """
+
+    async def _on_situation_closed(self, situation_id: str) -> None:
+        """상황이 닫힌 직후(거주자 해소 알림 뒤) 불린다. 지금은 아무것도 하지 않는다.
+
+        T8 이 채운다: 사다리를 취소하고, 이미 전달받은 보호자에게 '해소됨'을 보낸다.
+        """
+
+    async def _save_last_judgment(self) -> None:
+        """앱이 직전 진입에서 만든 판단을 judgments 에 한 행으로 남긴다(1회만)."""
+        judgment: Judgment | None = self.app.last_judgment
+        if judgment is None:
+            return
+        self.app.last_judgment = None  # 같은 판단을 두 번 저장하지 않는다
+        await self.safety.save_judgment(judgment)
 
     async def run_tick(self) -> DispatchResult | None:
         """능동 틱 1회 + 만료 스윕. 능동 제안이 나오면 디스패치.
@@ -397,12 +718,14 @@ class LiotService:
         틱 후에 후보 평가 결과(무행동 선택 포함)를 candidate_evaluations 로
         영속한다 — 어떤 후보들이 점수화됐고 왜 그 선택이었는지가 남는다.
         """
+        await self.start()
         await self.proposals.expire_due()
         await self._apply_expired_signals()  # 만료 = 약한 비선호 신호
         await self._sweep_nonces()
         await self._refresh_feedback()
         await self._load_pref_cells()  # 영속 선호 셀 → 임베더(개인화 반영)
         proposal = await self.app.tick()
+        await self._save_last_judgment()  # 컴포트 판단도 저장(억제된 판단 포함)
         await self._record_evaluation()
         if proposal is None:
             return None
@@ -583,6 +906,7 @@ class LiotService:
         bridge 가 None 이면 능동 틱만(센서 스트림 없이) 돈다. max_events/
         max_ticks 는 테스트용 경계(미지정 시 무한).
         """
+        await self.start()
         tasks = [asyncio.create_task(self._tick_loop(tick_seconds, max_ticks))]
         if bridge is not None:
             tasks.append(asyncio.create_task(self._stream_loop(bridge, max_events)))
@@ -591,6 +915,9 @@ class LiotService:
         finally:
             for t in tasks:
                 t.cancel()
+            # 남은 2단계 판정을 DB 가 닫히기 전에 마무리한다(호출자가 run 뒤에 DB 를
+            # 닫는다). 각 태스크의 자체 마감 + 여유 1초를 넘기면 취소한다.
+            await self.drain_phase2(timeout=self._phase2_deadline() + 1.0)
 
     async def _stream_loop(self, bridge: HABridge, max_events: int | None) -> None:
         n = 0

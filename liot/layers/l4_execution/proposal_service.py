@@ -329,6 +329,30 @@ class ProposalService:
             await self._db.commit()
         return count
 
+    async def expire_situation(self, situation_id: str) -> list[str]:
+        """그 상황(situation_id)의 pending 제안을 모두 'expired' 로 전이한다.
+
+        상황이 닫히면(센서 정상 복귀) 그 상황에서 나온 대기 제안 — 상황 알림과
+        원탭 조치(밸브 잠그기·현관 잠그기) — 의 링크가 더는 통하면 안 된다. 기존
+        만료 상태를 그대로 쓴다(새 상태 없음). 이미 결론 난 제안(accepted 등)은
+        건드리지 않는다. 반환: 만료 처리된 proposal_id 목록.
+        """
+        rows = await self._repo.fetchall(
+            self._db,
+            "proposals",
+            columns="proposal_id",
+            extra_where="state = ? AND situation_id = ?",
+            extra_params=("pending", situation_id),
+        )
+        expired: list[str] = []
+        for r in rows:
+            pid = str(r["proposal_id"] if _is_mapping(r) else r[0])
+            await self._set_state(pid, "expired", trace_id=None)
+            expired.append(pid)
+        if expired:
+            await self._db.commit()
+        return expired
+
     # ------------------------------------------------------------------
     # 피드백
     # ------------------------------------------------------------------
