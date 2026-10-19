@@ -26,6 +26,7 @@ from ...core.contracts import CandidateAction, ContextSnapshot
 from ...core.egress_gate import AliasMap, Destination, emit_external
 from ...core.invariants import EgressViolation
 from ...core.risk import RiskTier
+from ...core.severity import SeverityLevel
 from .llm_judge import LLMResult, LLMUnavailable
 
 __all__ = [
@@ -208,8 +209,13 @@ class OllamaBackend:
         }
 
     def judge_raw(
-        self, candidate: CandidateAction, ctx: ContextSnapshot | None, gate1_floor: RiskTier
+        self,
+        candidate: CandidateAction,
+        ctx: ContextSnapshot | None,
+        gate1_floor: RiskTier,
+        severity_floor: SeverityLevel | None = None,
     ) -> LLMResult:
+        """후보 행동의 tier 만 판정한다. 파급도는 묻지 않으므로 severity=None(올리지 않음)."""
         payload = self._build_payload(candidate, ctx, gate1_floor)
         # ── SE-D3: 단일 egress 통과(가명화 + PII 그물). ──
         # PII 등으로 안전하게 내보낼 수 없으면(EgressViolation) 전송하지 않고

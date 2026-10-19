@@ -128,7 +128,7 @@ class _DowngradingLLM:
 
     model_id = "downgrader"
 
-    def judge_raw(self, candidate, ctx, gate1_floor):  # noqa: ANN001
+    def judge_raw(self, candidate, ctx, gate1_floor, severity_floor=None):  # noqa: ANN001
         return LLMResult(
             tier=RiskTier.AMBIENT,
             confidence=0.99,
@@ -226,7 +226,7 @@ class _AlwaysUnavailableLLM:
 
     model_id = "broken-llm"
 
-    def judge_raw(self, candidate, ctx, gate1_floor):  # noqa: ANN001
+    def judge_raw(self, candidate, ctx, gate1_floor, severity_floor=None):  # noqa: ANN001
         raise LLMUnavailable("forced failure for test")
 
 
