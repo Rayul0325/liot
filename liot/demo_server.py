@@ -15,19 +15,26 @@ app.html, ``/assets/*`` 가 정적 자산, 나머지는 WEB_DIR 안에서 정적
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 import re
+import sqlite3
 import threading
 import time
+from collections.abc import Awaitable, Callable, Sequence
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from liot.app import LiotApp
 from liot.core.clock import Clock
 from liot.core.contracts import SensorReading
 from liot.core.risk import RiskTier, _reset_safety_extensions_for_tests
+from liot.core.severity import SeverityLevel
+from liot.db.database import init_db
+from liot.db.safety_repo import Guardian, Resident, SafetyRepo
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l2_context.context_builder import derive_occupancy
 from liot.layers.l2_context.external_provider import FakeExternalProvider
@@ -45,6 +52,10 @@ from liot.layers.l3_judgment.llm_judge import FakeLLM, LLMBackend
 from liot.layers.l3_judgment.ollama_backend import HTTPOllamaTransport, OllamaBackend
 from liot.layers.l4_execution.executor import ExecutionPolicy
 from liot.registry import RegistryError, RuntimeRegistry
+from liot.serve import resolve_db_path
+
+if TYPE_CHECKING:  # pragma: no cover
+    import aiosqlite
 
 # ── 세션 공유 상태와 그 잠금 ─────────────────────────────────────────────
 # 이 서버는 ThreadingHTTPServer 라 핸들러가 여러 스레드에서 동시에 돈다. 아래
@@ -347,6 +358,31 @@ def _reading(entity_id: str, value: Any, ts: str) -> SensorReading:
 
 def _tier_view(tier: RiskTier) -> dict[str, Any]:
     return {"name": tier.name.lower(), "ko": tier.label_ko, "glyph": tier.glyph, "level": int(tier)}
+
+
+# 파급도 출처(SeveritySource) → 화면 표기. 판단·제안 결과 옆에 "어디서 왔나"를 보인다.
+SEVERITY_SOURCE_KO: dict[str, str] = {"table": "표", "resident": "거주자", "model": "모델"}
+
+
+def _severity_view(
+    level: SeverityLevel | int | str | None, sources: Sequence[str] = ()
+) -> dict[str, Any] | None:
+    """상황 파급도(기록만/주의/경고/위험)와 그 출처(표·거주자·모델)를 화면용으로 만든다.
+
+    파급도가 없는 판단(쾌적 등)은 None — 화면은 "파급도 없음"으로 보인다. 출처
+    문자열은 SEVERITY_SOURCE_KO 에 없는 값이면 원문 그대로 둔다(숨기지 않는다).
+    """
+    if level is None:
+        return None
+    lvl = SeverityLevel.from_str(level)
+    src = [str(x) for x in sources]
+    return {
+        "level": int(lvl),
+        "name": lvl.name.lower(),
+        "ko": lvl.label_ko,
+        "sources": src,
+        "sources_ko": [SEVERITY_SOURCE_KO.get(x, x) for x in src],
+    }
 
 
 def _catalog_view() -> dict[str, Any]:
@@ -694,6 +730,9 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
             "gate1_verdict": jd.gate1_verdict,
             "gate2_verdict": jd.gate2_verdict,
             "degraded": jd.degraded,
+            # 상황 파급도(위험 등급과 별개의 축)와 그 출처. 없으면 None.
+            "severity": _severity_view(jd.severity, jd.severity_sources),
+            "severity_floor": _severity_view(jd.severity_floor),
         }
 
     # 최종 제안 or 침묵
@@ -717,6 +756,10 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
             "rationale": proposal.rationale,
             "expires_at": proposal.expires_at,
             "origin": proposal.action.params.get("__origin__"),
+            # 제안은 판단의 파급도를 이어받는다 — 출처도 그 판단의 것을 보인다.
+            "severity": _severity_view(
+                proposal.severity, jd.severity_sources if jd is not None else ()
+            ),
         }
         out["intervention"] = {
             "condition": app.condition,
@@ -735,6 +778,450 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
         )
 
     return out
+
+
+# ==========================================================================
+# 안전 설정 — 거주자 정보·보호자·전달 동의·전달 기록 (데몬과 같은 DB 에 영속)
+# ==========================================================================
+# 위의 시뮬레이션 상태(_REGISTRY 등)는 세션 메모리지만, 여기서 다루는 것은 데몬
+# (liot.serve)이 실제로 읽는 값이다. 그래서 요청마다 **데몬과 같은 SQLite 파일**
+# (LIOT_DB_PATH, 기본값은 liot.serve.DEFAULT_DB_PATH 한 곳)을 열어 마이그레이션을
+# 적용하고 SafetyRepo 로만 읽고 쓴 뒤 닫는다. 연결을 오래 쥐지 않으므로 데몬과
+# 같은 파일을 함께 써도 된다(WAL).
+#
+# 지키는 것:
+#   - 거주자 특성은 이 기기 밖으로 나가지 않는다. /api/safety/* 는 루프백 접속만
+#     받고(Host·Origin 도 이 기기 이름이어야 한다), 다른 곳으로 보내는 코드가 없다.
+#   - 보호자 알림 토픽(비밀)은 등록 응답에 **한 번만** 싣는다. 목록·이력 응답과
+#     로그에는 절대 넣지 않는다(뷰를 손으로 조립해 topic 필드가 끼어들 수 없다).
+#   - 생년월일·진단명을 받을 칸이 없다. 답은 예/아니오뿐이고, 모르는 키는 거부한다.
+
+# 이 락은 STATE_LOCK 과 별개다 — DB 작업이 시뮬레이션(레지스트리) 요청을 막지 않게.
+SAFETY_DB_LOCK = threading.Lock()
+
+# 별칭 길이 상한(화면 한 줄에 들어가는 정도). 실명 대신 별칭을 받는다.
+MAX_ALIAS_LEN = 40
+
+_ENTERED_BY_KO: dict[str, str] = {"resident": "거주자 본인", "guardian": "보호자"}
+_CONSENT_EVENT_KO: dict[str, str] = {"grant": "전달 동의", "revoke": "동의 철회"}
+_FORWARD_KIND_KO: dict[str, str] = {
+    "forward": "보호자에게 알림 전달",
+    "resolved": "상황 해제 알림",
+    "guidance_119": "거주자에게 119 안내",
+}
+# 상황 카테고리 → 화면 표기(config/severity/situations.yaml 의 안전 카테고리).
+_SITUATION_KO: dict[str, str] = {
+    "gas": "가스",
+    "smoke": "연기·화재",
+    "oven": "오븐",
+    "high_temp": "고온",
+    "leak": "누수",
+    "water_main": "수도",
+    "door": "문",
+    "lock": "잠금장치",
+    "inactivity": "움직임 없음",
+}
+
+# 화면 질문(답 키) → 저장 특성. invert=True 면 '아니요'(False)가 특성 참으로 저장된다
+# ("혼자 대피할 수 있나요? 아니요" = cannot_self_evacuate=True). 뒤집기는 여기 한 곳.
+_QUESTIONS: tuple[tuple[str, str, bool, str], ...] = (
+    ("age_75_plus", "age_75_plus", False, "75세 이상인가요?"),
+    ("can_self_evacuate", "cannot_self_evacuate", True, "혼자 대피할 수 있나요?"),
+    ("cognitive_decline", "cognitive_decline", False, "인지 저하가 있나요? (보호자만 입력)"),
+)
+_GUARDIAN_ONLY_ANSWERS: frozenset[str] = frozenset({"cognitive_decline"})
+
+
+class SafetyRequestError(Exception):
+    """안전 설정 요청 거부. message 는 화면에 그대로 보이는 한국어 한 줄."""
+
+    def __init__(self, message: str, status: int = 400, field: str | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status = status
+        self.field = field
+
+
+def safety_home_id() -> str:
+    """데몬과 같은 테넌트(LIOT_HOME_ID, 기본 'singleton')."""
+    return os.environ.get("LIOT_HOME_ID", "singleton").strip() or "singleton"
+
+
+def _req_text(body: dict[str, Any], key: str, label: str) -> str:
+    raw = body.get(key)
+    text = raw.strip() if isinstance(raw, str) else ""
+    if not text:
+        raise SafetyRequestError(f"{label}을(를) 입력해 주세요.", field=key)
+    if len(text) > MAX_ALIAS_LEN:
+        raise SafetyRequestError(
+            f"{label}은(는) {MAX_ALIAS_LEN}자 이하로 적어 주세요.", field=key
+        )
+    return text
+
+
+def _opt_bool(value: Any, key: str) -> bool | None:
+    if value is None or isinstance(value, bool):
+        return value
+    raise SafetyRequestError("예/아니오로만 답할 수 있습니다.", field=key)
+
+
+def _resident_view(r: Resident) -> dict[str, Any]:
+    """거주자 한 사람(화면 질문 기준 답). 이 응답은 이 기기 화면에만 간다."""
+    answers: dict[str, Any] = {}
+    for key, trait, invert, question in _QUESTIONS:
+        tv = r.traits.get(trait)
+        answers[key] = {
+            "question": question,
+            "answer": None if tv is None else (not tv.value if invert else tv.value),
+            "entered_by": None if tv is None else tv.entered_by,
+            "entered_by_ko": None if tv is None else _ENTERED_BY_KO.get(tv.entered_by),
+            "updated_at": None if tv is None else tv.updated_at,
+        }
+    return {
+        "resident_id": r.resident_id,
+        "alias": r.alias,
+        "created_at": r.created_at,
+        "updated_at": r.updated_at,
+        "answers": answers,
+    }
+
+
+def _guardian_view(g: Guardian, consented: set[str]) -> dict[str, Any]:
+    """보호자 한 사람. **topic 은 넣지 않는다** — 필드를 하나씩 골라 조립한다."""
+    return {
+        "guardian_id": g.guardian_id,
+        "alias": g.alias,
+        "created_at": g.created_at,
+        "active": g.active,
+        "consented": g.guardian_id in consented,
+    }
+
+
+async def _resident_of_home(repo: SafetyRepo, home: str, resident_id: str) -> Resident:
+    res = await repo.get_resident(resident_id)
+    if res is None or res.home_id != home:
+        raise SafetyRequestError("해당 거주자를 찾지 못했습니다.", 404, "resident_id")
+    return res
+
+
+async def _guardians_view(repo: SafetyRepo, home: str) -> list[dict[str, Any]]:
+    consented = {g.guardian_id for g in await repo.consented_guardians(home)}
+    return [
+        _guardian_view(g, consented)
+        for g in await repo.list_guardians(home, active_only=False)
+    ]
+
+
+async def _get_home(
+    repo: SafetyRepo, db: aiosqlite.Connection, home: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    settings = await repo.get_home_settings(home)
+    return {"home": {"home_alias": settings.home_alias, "lives_alone": settings.lives_alone}}
+
+
+async def _post_home(
+    repo: SafetyRepo, db: aiosqlite.Connection, home: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    has_alias = body.get("home_alias") is not None
+    lives_alone = _opt_bool(body.get("lives_alone"), "lives_alone")
+    if not has_alias and lives_alone is None:
+        raise SafetyRequestError("바꿀 내용이 없습니다.")
+    alias = _req_text(body, "home_alias", "집 이름") if has_alias else None
+    if alias is not None:
+        await repo.set_home_alias(home, alias)
+    if lives_alone is not None:
+        await repo.set_lives_alone(home, lives_alone)
+    return await _get_home(repo, db, home, body)
+
+
+async def _get_residents(
+    repo: SafetyRepo, db: aiosqlite.Connection, home: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    return {"residents": [_resident_view(r) for r in await repo.list_residents(home)]}
+
+
+async def _post_resident(
+    repo: SafetyRepo, db: aiosqlite.Connection, home: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    rid = await repo.add_resident(home, _req_text(body, "alias", "부르는 이름"))
+    return {"resident": _resident_view(await _resident_of_home(repo, home, rid))}
+
+
+async def _post_traits(
+    repo: SafetyRepo, db: aiosqlite.Connection, home: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    """질문 답 저장. 전부 검사한 **뒤에** 쓴다 — 하나라도 틀리면 아무것도 안 바뀐다."""
+    entered_by = body.get("entered_by")
+    if entered_by not in _ENTERED_BY_KO:
+        raise SafetyRequestError(
+            "누가 입력하는지(거주자 본인/보호자) 골라 주세요.", field="entered_by"
+        )
+    answers = body.get("answers")
+    if not isinstance(answers, dict):
+        raise SafetyRequestError("답이 올바르지 않습니다.", field="answers")
+    known = {q[0] for q in _QUESTIONS}
+    unknown = sorted(str(k) for k in answers if k not in known)
+    if unknown:
+        # 생년월일·진단명 같은 칸은 없다 — 모르는 키는 저장하지 않고 거부한다.
+        raise SafetyRequestError(
+            "받지 않는 항목이 있습니다: " + ", ".join(unknown), field="answers"
+        )
+    plan: list[tuple[str, bool]] = []
+    for key, trait, invert, _question in _QUESTIONS:
+        ans = _opt_bool(answers.get(key), key)
+        if ans is None:
+            continue
+        if key in _GUARDIAN_ONLY_ANSWERS and entered_by != "guardian":
+            raise SafetyRequestError(
+                "인지 저하 여부는 보호자만 입력할 수 있습니다.", 403, key
+            )
+        plan.append((trait, (not ans) if invert else ans))
+    if not plan:
+        raise SafetyRequestError("저장할 답이 없습니다. 하나 이상 골라 주세요.")
+    rid = str(body.get("resident_id") or "")
+    await _resident_of_home(repo, home, rid)
+    for trait, value in plan:
+        await repo.set_trait(rid, trait, value, entered_by=str(entered_by))
+    return {"resident": _resident_view(await _resident_of_home(repo, home, rid))}
+
+
+async def _post_resident_delete(
+    repo: SafetyRepo, db: aiosqlite.Connection, home: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    if body.get("confirm") is not True:
+        raise SafetyRequestError("삭제하려면 확인이 필요합니다.", field="confirm")
+    res = await _resident_of_home(repo, home, str(body.get("resident_id") or ""))
+    await repo.delete_resident(res.resident_id)
+    return {"deleted": res.resident_id}
+
+
+async def _get_guardians(
+    repo: SafetyRepo, db: aiosqlite.Connection, home: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    return {"guardians": await _guardians_view(repo, home)}
+
+
+async def _post_guardian(
+    repo: SafetyRepo, db: aiosqlite.Connection, home: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    """보호자 등록. 비밀 토픽은 **이 응답에서 한 번만** 돌려준다(다시 볼 방법 없음)."""
+    gid, topic = await repo.add_guardian(home, _req_text(body, "alias", "보호자 이름"))
+    view = next(g for g in await _guardians_view(repo, home) if g["guardian_id"] == gid)
+    return {"guardian": view, "topic": topic}
+
+
+async def _post_guardian_deactivate(
+    repo: SafetyRepo, db: aiosqlite.Connection, home: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    gid = str(body.get("guardian_id") or "")
+    known = {g.guardian_id for g in await repo.list_guardians(home, active_only=False)}
+    if gid not in known:
+        raise SafetyRequestError("해당 보호자를 찾지 못했습니다.", 404, "guardian_id")
+    changed = await repo.deactivate_guardian(home, gid)
+    return {"changed": changed, "guardians": await _guardians_view(repo, home)}
+
+
+async def _post_consent(
+    repo: SafetyRepo, db: aiosqlite.Connection, home: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    """(집, 보호자) 전달 동의/철회. 이 집 거주자 누구나 할 수 있다."""
+    action = body.get("action")
+    if action not in _CONSENT_EVENT_KO:
+        raise SafetyRequestError("동의 또는 철회를 골라 주세요.", field="action")
+    by = str(body.get("by_resident_id") or "")
+    res = await repo.get_resident(by)
+    if res is None or res.home_id != home:
+        raise SafetyRequestError(
+            "동의는 이 집 거주자만 바꿀 수 있습니다. 거주자를 골라 주세요.", 403, "by_resident_id"
+        )
+    gid = str(body.get("guardian_id") or "")
+    guardians = {g.guardian_id: g for g in await repo.list_guardians(home, active_only=False)}
+    target = guardians.get(gid)
+    if target is None:
+        raise SafetyRequestError("해당 보호자를 찾지 못했습니다.", 404, "guardian_id")
+    if action == "grant":
+        if not target.active:
+            raise SafetyRequestError(
+                "사용 중지된 보호자에게는 전달 동의를 할 수 없습니다.", field="guardian_id"
+            )
+        await repo.grant_consent(home, gid, by)
+    else:
+        await repo.revoke_consent(home, gid, by)
+    return {"guardians": await _guardians_view(repo, home)}
+
+
+async def _get_consent_history(
+    repo: SafetyRepo, db: aiosqlite.Connection, home: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    """동의 이력(최근 것이 위). 삭제된 거주자는 별칭 없이 '삭제된 거주자'로 보인다."""
+    residents = {r.resident_id: r.alias for r in await repo.list_residents(home)}
+    guardians = {g.guardian_id: g.alias for g in await repo.list_guardians(home, False)}
+    rows = []
+    for e in reversed(await repo.consent_history(home)):
+        rows.append(
+            {
+                "event_id": e.event_id,
+                "at": e.at,
+                "event": e.event,
+                "event_ko": _CONSENT_EVENT_KO.get(e.event, e.event),
+                "guardian_id": e.guardian_id,
+                "guardian_alias": guardians.get(e.guardian_id),
+                "by_resident_id": e.by_resident_id,
+                "by_resident_alias": residents.get(e.by_resident_id),
+            }
+        )
+    return {"history": rows}
+
+
+async def _get_forwards(
+    repo: SafetyRepo, db: aiosqlite.Connection, home: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    """전달 기록 — 언제 어떤 상황이 누구에게 전달됐는지(최근 것이 위)."""
+    guardians = {g.guardian_id: g.alias for g in await repo.list_guardians(home, False)}
+    # 상황 종류는 situations 표에서 읽는다(SafetyRepo 에 목록 조회가 없어 읽기 전용 SQL).
+    cur = await db.execute(
+        "SELECT situation_id, category FROM situations WHERE home_id = ?", (home,)
+    )
+    try:
+        categories = {str(r[0]): str(r[1]) for r in await cur.fetchall()}
+    finally:
+        await cur.close()
+    rows = []
+    for f in reversed(await repo.list_forwards(home)):
+        cat = categories.get(f.situation_id)
+        rows.append(
+            {
+                "forward_id": f.forward_id,
+                "at": f.at,
+                "kind": f.kind,
+                "kind_ko": _FORWARD_KIND_KO.get(f.kind, f.kind),
+                "situation_id": f.situation_id,
+                "category": cat,
+                "situation_ko": (
+                    f"{_SITUATION_KO.get(cat, cat)} 상황" if cat is not None else "알 수 없는 상황"
+                ),
+                "guardian_id": f.guardian_id,
+                "guardian_alias": (
+                    guardians.get(f.guardian_id) if f.guardian_id is not None else None
+                ),
+            }
+        )
+    return {"forwards": rows}
+
+
+_SafetyRoute = Callable[
+    [SafetyRepo, "aiosqlite.Connection", str, dict[str, Any]], Awaitable[dict[str, Any]]
+]
+SAFETY_ROUTES: dict[tuple[str, str], _SafetyRoute] = {
+    ("GET", "/api/safety/home"): _get_home,
+    ("POST", "/api/safety/home"): _post_home,
+    ("GET", "/api/safety/residents"): _get_residents,
+    ("POST", "/api/safety/residents"): _post_resident,
+    ("POST", "/api/safety/residents/traits"): _post_traits,
+    ("POST", "/api/safety/residents/delete"): _post_resident_delete,
+    ("GET", "/api/safety/guardians"): _get_guardians,
+    ("POST", "/api/safety/guardians"): _post_guardian,
+    ("POST", "/api/safety/guardians/deactivate"): _post_guardian_deactivate,
+    ("POST", "/api/safety/consent"): _post_consent,
+    ("GET", "/api/safety/consent-history"): _get_consent_history,
+    ("GET", "/api/safety/forwards"): _get_forwards,
+}
+
+
+async def _safety_async(
+    route: _SafetyRoute, body: dict[str, Any]
+) -> dict[str, Any]:
+    db = await init_db(resolve_db_path(), durable=True)
+    try:
+        return await route(SafetyRepo(db), db, safety_home_id(), body)
+    finally:
+        await db.close()
+
+
+def safety_call(
+    method: str, path: str, body: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], int]:
+    """안전 설정 요청 하나를 처리한다 → ``(응답 dict, HTTP 상태)``.
+
+    엔드포인트와 테스트가 공유하는 코어. 요청마다 DB 를 열고 닫는다. 오류 응답에는
+    예외 원문을 싣지 않는다(내부 값이 화면·로그로 새지 않게) — 한국어 한 줄만.
+    """
+    route = SAFETY_ROUTES.get((method, path))
+    if route is None:
+        return {"ok": False, "error": "없는 안전 설정 주소입니다."}, 404
+    try:
+        with SAFETY_DB_LOCK:
+            out = asyncio.run(_safety_async(route, dict(body or {})))
+    except SafetyRequestError as exc:
+        err: dict[str, Any] = {"ok": False, "error": exc.message}
+        if exc.field is not None:
+            err["field"] = exc.field
+        return err, exc.status
+    except PermissionError:
+        return {"ok": False, "error": "이 집 거주자만 할 수 있는 일입니다."}, 403
+    except LookupError:
+        return {"ok": False, "error": "대상을 찾지 못했습니다."}, 404
+    except ValueError:
+        return {"ok": False, "error": "입력 값이 올바르지 않습니다."}, 400
+    except (sqlite3.Error, OSError) as exc:
+        return {
+            "ok": False,
+            "error": f"저장소(DB)를 열거나 쓰지 못했습니다 ({type(exc).__name__}).",
+        }, 500
+    return {"ok": True, **out}, 200
+
+
+def _host_of(value: str) -> str:
+    """'host:port' · '[::1]:port' · 'host' → 소문자 host."""
+    v = value.strip().lower()
+    if v.startswith("["):
+        end = v.find("]")
+        return v[1:end] if end > 0 else ""
+    if v.count(":") == 1:
+        return v.split(":", 1)[0]
+    return v
+
+
+def _is_loopback_ip(host: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        return False
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped.is_loopback
+    return ip.is_loopback
+
+
+def _is_local_name(host: str) -> bool:
+    return host == "localhost" or _is_loopback_ip(host)
+
+
+def safety_block_reason(
+    client_ip: str,
+    host_header: str | None,
+    origin: str | None,
+    content_type: str | None,
+    *,
+    write: bool,
+) -> str | None:
+    """안전 설정 API 를 막아야 하는 이유(한국어 한 줄) 또는 None(허용).
+
+    거주자 정보는 이 기기 화면에만 보여야 한다. 그래서
+      - 접속이 루프백(이 기기)에서 와야 하고(LIOT_LAB_HOST=0.0.0.0 으로 띄워도 막힌다),
+      - Host 가 이 기기 이름이어야 하며(남의 도메인을 127.0.0.1 로 돌리는 DNS 리바인딩 차단),
+      - 쓰기는 JSON 본문 + (있다면) 이 기기 Origin 이어야 한다(다른 웹페이지가 몰래
+        동의를 바꾸는 요청 위조 차단 — JSON 형식은 브라우저가 사전 확인을 거치게 한다).
+    """
+    if not _is_loopback_ip(client_ip):
+        return "이 화면은 이 기기(관제실 컴퓨터)에서만 열 수 있습니다."
+    if not _is_local_name(_host_of(host_header or "")):
+        return "이 기기 주소(127.0.0.1 또는 localhost)로 접속해 주세요."
+    if write:
+        if origin is not None and not _is_local_name(urlsplit(origin).hostname or ""):
+            return "다른 웹페이지에서 보낸 요청은 받지 않습니다."
+        if not (content_type or "").lower().startswith("application/json"):
+            return "요청 형식이 올바르지 않습니다(JSON 이어야 합니다)."
+    return None
 
 
 # ==========================================================================
@@ -784,8 +1271,31 @@ class Handler(BaseHTTPRequestHandler):
         self._json(400, payload)
         return None
 
+    def _safety_request(self, method: str, path: str) -> None:
+        """안전 설정 API(``/api/safety/*``). 이 기기 접속만 받고, 코어는 ``safety_call``."""
+        block = safety_block_reason(
+            str(self.client_address[0]),
+            self.headers.get("Host"),
+            self.headers.get("Origin"),
+            self.headers.get("Content-Type"),
+            write=method == "POST",
+        )
+        if block is not None:
+            self._json(403, {"ok": False, "error": block})
+            return
+        body: dict[str, Any] | None = {}
+        if method == "POST":
+            body = self._read_json()
+            if body is None:
+                return
+        result, code = safety_call(method, path, body)
+        self._json(code, result)
+
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
+        if path.startswith("/api/safety/"):
+            self._safety_request("GET", path)
+            return
         if path == "/api/catalog":
             self._json(200, _catalog_view())
             return
@@ -858,6 +1368,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
+        if path.startswith("/api/safety/"):
+            self._safety_request("POST", path)
+            return
         if path == "/api/directive":
             body = self._read_json()
             if body is None:
