@@ -47,9 +47,11 @@ from liot.layers.l3_judgment.decision_backend import (  # noqa: E402
     DecisionBackend,
     HTTPDecisionTransport,
 )
-from liot.layers.l3_judgment.guardrail import Gate1Result, Guardrail  # noqa: E402
+from liot.layers.l3_judgment.guardrail import Guardrail  # noqa: E402
 from liot.layers.l3_judgment.llm_judge import LLMJudge, LLMResult, LLMUnavailable  # noqa: E402
 from liot.layers.l3_judgment.prompt_registry import PromptRegistry  # noqa: E402
+# 케이스 조립과 특성 낱말은 라이브 그래프와 함께 쓴다(의존 방향 bench → liot).
+from liot.live_graph import TRAIT_WORDS, Built, CaseError, build_one  # noqa: E402, F401
 
 CASES_PATH = HERE / "cases.yaml"
 LABELS_PATH = HERE / "labels.yaml"
@@ -70,27 +72,11 @@ OVER_RAISE_MAX = 0.10
 TIERS = ("ambient", "breath", "dusk", "ember")
 SEVERITIES = ("record", "notice", "warning", "critical")
 
-# 거주자 특성(safety_repo.PERSON_TRAITS + lives_alone)을 떠올리게 하는 낱말. 모델 입력 금지.
-TRAIT_WORDS = (
-    "75세", "고령", "노인", "어르신", "치매", "인지 저하", "인지저하", "혼자 거주", "혼자 살",
-    "독거", "1인 가구", "자력 대피", "대피 불가", "거동", "휠체어", "와상",
-)
 # DecisionBackend 가 모델에 싣는 evidence 의 키. 이 밖의 키(거주자 정보 등)가 보이면 중단.
 EVIDENCE_KEYS = frozenset({"context_summary", "time_bucket", "candidate", "gate1_floor"})
 
 
 # ── 케이스 조립 ──────────────────────────────────────────────────────────────
-
-
-@dataclass(frozen=True)
-class Built:
-    cid: str
-    spec: dict[str, Any]
-    candidate: CandidateAction
-    ctx: ContextSnapshot
-    gate1: Gate1Result
-    severity_floor: SeverityLevel | None
-    severity_sources: tuple[str, ...]
 
 
 def _load_yaml(path: Path) -> Any:
@@ -126,39 +112,10 @@ def build_all(cases: list[dict[str, Any]]) -> list[Built]:
         raise SystemExit(f"파급도 표 로드 실패: {table.load_error}")
     out: list[Built] = []
     for spec in cases:
-        cid = spec["id"]
-        text = spec["context"]
-        hits = [w for w in TRAIT_WORDS if w in text]
-        if hits:
-            raise SystemExit(f"{cid}: 거주자 특성 낱말이 맥락에 있다 {hits}")
-        c = spec["candidate"]
-        cand = CandidateAction(
-            capability=c["capability"],
-            action=c["action"],
-            params=dict(c.get("params") or {}),
-            entity_id=c["entity_id"],
-            category=c["category"],
-        )
-        trace = "bench-" + cid.replace("/", "-")
-        ctx = ContextSnapshot(
-            snapshot_id=trace,
-            trace_id=trace,
-            home_id="singleton",
-            trigger={"kind": "bench"},
-            structured={"time_bucket": spec["time_bucket"]},
-            nl_summary=text,
-            summary_template_sha="deadbeef",
-            created_at="2026-09-20T12:00:00+00:00",
-        )
-        g1 = guard.evaluate(cand, ctx)
-        sev_floor: SeverityLevel | None = None
-        sev_sources: tuple[str, ...] = ()
-        if spec.get("situation"):
-            res = table.compute(cand.category, vulnerable_resident=False)
-            if res is None:
-                raise SystemExit(f"{cid}: situation 인데 안전 카테고리가 아니다({cand.category})")
-            sev_floor, sev_sources = res.floor, tuple(res.sources)
-        out.append(Built(cid, spec, cand, ctx, g1, sev_floor, sev_sources))
+        try:
+            out.append(build_one(spec, guard, table))
+        except CaseError as exc:
+            raise SystemExit(str(exc)) from None
     # 쌍은 자유 텍스트만 다르다 → 두 하한이 같아야 한다.
     pairs: dict[str, list[Built]] = {}
     for b in out:
