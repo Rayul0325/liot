@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LIOT 가상 집</title>
+    <meta
+      name="description"
+      content="센서 하나의 값이 거주자·보호자 폰에 어떤 알림으로, 언제 닿는지 3D 가상 집에서 재생한다. 모든 문구와 시각은 서버의 실제 코드가 계산한다."
+    />
+    <meta name="theme-color" content="#0a0e15" />
+    <link rel="stylesheet" href="assets/app.css" />
+    <link rel="stylesheet" href="assets/home3d.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0e15'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='%2335c6ff' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='2' fill='%2335c6ff'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body class="h3-body">
+    <header class="hdr">
+      <div class="hdr-brand">
+        <span class="hdr-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="26" height="26">
+            <path
+              d="M6 15 16 7l10 8v10H6z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linejoin="round"
+            />
+            <circle cx="16" cy="19" r="2.4" fill="currentColor" />
+          </svg>
+        </span>
+        <span class="hdr-titles">
+          <span class="hdr-title">LIOT 가상 집</span>
+          <span class="hdr-sub">센서 하나가 거주자·보호자 폰에 닿기까지</span>
+        </span>
+      </div>
+      <div class="hdr-right">
+        <a class="hdr-link" href="app.html">관제실</a>
+        <a class="hdr-link" href="safety.html">우리 집 · 보호자 설정</a>
+        <div class="hdr-status" id="status" data-state="loading">
+          <span class="hdr-dot" aria-hidden="true"></span>
+          <span class="hdr-status-text" id="statusText">불러오는 중…</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="h3-layout">
+      <section class="h3-controls" aria-label="시나리오 고르기">
+        <div class="h3-picker" role="radiogroup" aria-label="시나리오" id="scenarioPicker"></div>
+        <div class="h3-toggles">
+          <label class="h3-switch">
+            <input type="checkbox" id="vulnerableToggle" />
+            <span class="h3-switch-track" aria-hidden="true"></span>
+            <span class="h3-switch-text">취약 거주자</span>
+          </label>
+          <div class="h3-seg" role="radiogroup" aria-label="동의한 보호자 수" id="guardianSeg">
+            <span class="h3-seg-label">동의한 보호자</span>
+          </div>
+        </div>
+        <p class="h3-summary" id="scenarioSummary" aria-live="polite"></p>
+      </section>
+
+      <section class="h3-home" aria-label="3D 가상 집">
+        <div class="h3-stage" id="homeStage" tabindex="0" aria-describedby="homeHint">
+          <div class="h3-overlay" id="homeOverlay" aria-hidden="false"></div>
+        </div>
+        <p class="h3-hint" id="homeHint">끌어서 돌려 보세요 · 방향키로도 돌릴 수 있어요</p>
+        <ul class="h3-legend" aria-label="점 색 안내">
+          <li><span class="h3-swatch sev-3" aria-hidden="true"></span>위험</li>
+          <li><span class="h3-swatch sev-2" aria-hidden="true"></span>경고</li>
+          <li><span class="h3-swatch sev-1" aria-hidden="true"></span>주의</li>
+          <li><span class="h3-swatch is-unmonitorable" aria-hidden="true"></span>감시 불가</li>
+          <li><span class="h3-swatch is-normal" aria-hidden="true"></span>정상</li>
+        </ul>
+      </section>
+
+      <section class="h3-timeline" aria-label="타임라인">
+        <div class="h3-tl-controls">
+          <button class="h3-btn h3-play" type="button" id="playBtn" aria-pressed="false">
+            재생
+          </button>
+          <span class="h3-clock tabnum" id="clock">0초</span>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="assets/home3d.js"></script>
+  </body>
+</html>

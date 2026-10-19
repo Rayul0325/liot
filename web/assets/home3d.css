@@ -1,0 +1,473 @@
+/* LIOT 가상 집 — app.css(토큰·헤더) 위에 얹는 화면 전용 스타일.
+   파급도 색은 이 화면 전용 토큰 --sev-* 를 쓴다(--tier-* 는 행동 확인 강도용이라 쓰지 않는다). */
+
+:root {
+  /* 파급도(기록만·주의·경고·위험) */
+  --sev-0: #8391a7;
+  --sev-1: #f2c94c;
+  --sev-2: #ff8a3d;
+  --sev-3: #ff4f5e;
+  /* 감시 불가(센서를 읽지 못함)·정상 */
+  --sev-unk: #a993ff;
+  --h3-ok: #3fd0a0;
+
+  /* 3D 집 */
+  --h3-line: #24405a;
+  --h3-floor: #0f1826;
+  --h3-wall: #15263a;
+  --h3-stage-top: #0d1522;
+  --h3-stage-bottom: #070b11;
+}
+
+.h3-body {
+  min-height: 100vh;
+}
+
+/* ── 배치 ─────────────────────────────────────────────────────────── */
+.h3-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "controls"
+    "home"
+    "timeline";
+  gap: var(--s4);
+  padding: var(--s4) var(--s6) var(--s6);
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  flex: 1;
+}
+
+.h3-controls {
+  grid-area: controls;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3) var(--s5);
+  min-width: 0;
+}
+.h3-home {
+  grid-area: home;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+}
+.h3-timeline {
+  grid-area: timeline;
+  min-width: 0;
+}
+
+/* ── 시나리오 고르기 ─────────────────────────────────────────────── */
+.h3-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.h3-chip {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;
+}
+.h3-chip:hover {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.h3-chip[aria-checked="true"] {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.h3-chip:focus-visible,
+.h3-seg-btn:focus-visible,
+.h3-btn:focus-visible,
+.h3-stage:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.h3-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3) var(--s4);
+}
+
+.h3-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: 13.5px;
+  color: var(--ink-dim);
+  cursor: pointer;
+  position: relative;
+}
+.h3-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.h3-switch-track {
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  position: relative;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+.h3-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  transition: transform 0.14s ease, background 0.14s ease;
+}
+.h3-switch input:checked + .h3-switch-track {
+  background: color-mix(in srgb, var(--accent) 30%, var(--bg-inset));
+  border-color: var(--accent);
+}
+.h3-switch input:checked + .h3-switch-track::after {
+  transform: translateX(14px);
+  background: var(--accent);
+}
+.h3-switch input:focus-visible + .h3-switch-track {
+  box-shadow: var(--focus);
+}
+
+.h3-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+}
+.h3-seg-label {
+  font-size: 13.5px;
+  color: var(--ink-dim);
+  margin-right: var(--s1);
+}
+.h3-seg-btn {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.h3-seg-btn[aria-checked="true"] {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-panel));
+}
+
+.h3-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s2);
+  font-size: 13px;
+  color: var(--ink-dim);
+  min-height: 24px;
+  flex-basis: 100%;
+  margin-top: calc(var(--s2) * -1);
+}
+.h3-sum-key {
+  color: var(--ink-faint);
+}
+.h3-sum-val {
+  color: var(--ink);
+  font-weight: 600;
+  margin-right: var(--s2);
+}
+.h3-sum-src {
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
+.h3-sev-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 999px;
+  color: var(--chip, var(--ink));
+  background: color-mix(in srgb, var(--chip, var(--ink)) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chip, var(--ink)) 50%, transparent);
+}
+
+/* ── 3D 집 ─────────────────────────────────────────────────────────── */
+.h3-stage {
+  position: relative;
+  height: clamp(320px, 52vh, 560px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: radial-gradient(120% 90% at 50% 0%, var(--h3-stage-top), var(--h3-stage-bottom));
+  overflow: hidden;
+  cursor: grab;
+  /* 세로 끌기는 페이지 스크롤, 가로 끌기는 회전(손가락). */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.h3-stage.is-dragging {
+  cursor: grabbing;
+}
+.h3-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.h3-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.h3-overlay > * {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.h3-room-tag {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
+  translate: -50% -50%;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px #000;
+}
+
+/* 센서 점: 색 = 서버가 준 파급도(sev-N) 또는 상태(감시 불가·정상) */
+.h3-dot {
+  --dot: var(--ink-faint);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  translate: -50% -7px;
+  pointer-events: none;
+}
+.h3-dot-core {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--dot);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot) 22%, transparent),
+    0 0 14px color-mix(in srgb, var(--dot) 70%, transparent);
+}
+.h3-dot-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+}
+.h3-dot.is-idle .h3-dot-core {
+  width: 8px;
+  height: 8px;
+  box-shadow: none;
+  background: color-mix(in srgb, var(--ink-faint) 80%, transparent);
+}
+.h3-dot.is-idle .h3-dot-label {
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+.h3-dot.is-minor.is-idle .h3-dot-label {
+  display: none;
+}
+.h3-dot.is-target .h3-dot-core {
+  width: 16px;
+  height: 16px;
+}
+.h3-dot.is-target .h3-dot-label {
+  color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--dot) 55%, transparent);
+}
+
+.sev-0 {
+  --dot: var(--sev-0);
+  --chip: var(--sev-0);
+}
+.sev-1 {
+  --dot: var(--sev-1);
+  --chip: var(--sev-1);
+}
+.sev-2 {
+  --dot: var(--sev-2);
+  --chip: var(--sev-2);
+}
+.sev-3 {
+  --dot: var(--sev-3);
+  --chip: var(--sev-3);
+}
+.is-unmonitorable {
+  --dot: var(--sev-unk);
+  --chip: var(--sev-unk);
+}
+.is-normal {
+  --dot: var(--h3-ok);
+  --chip: var(--h3-ok);
+}
+
+/* 위험은 깜빡인다(움직임 줄이기 설정이면 멈춘다). 감시 불가는 점선 고리. */
+.h3-dot.sev-3 .h3-dot-core {
+  animation: h3-blink 0.9s ease-in-out infinite;
+}
+.h3-dot.is-unmonitorable .h3-dot-core {
+  background: transparent;
+  border: 2px dashed var(--dot);
+  box-shadow: none;
+}
+@keyframes h3-blink {
+  50% {
+    opacity: 0.25;
+    box-shadow: 0 0 0 9px color-mix(in srgb, var(--dot) 10%, transparent),
+      0 0 24px color-mix(in srgb, var(--dot) 90%, transparent);
+  }
+}
+
+.h3-hint {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.h3-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.h3-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.h3-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+.h3-swatch.is-unmonitorable {
+  background: transparent;
+  border: 2px dashed var(--dot);
+}
+
+/* 2D 평면도(WebGL 불가 시) */
+.h3-stage.is-plan {
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  padding: var(--s4);
+}
+.h3-plan {
+  position: relative;
+  width: min(100%, calc((100% - 30px) * 1));
+  max-height: calc(100% - 30px);
+  aspect-ratio: 10 / 7;
+  border: 2px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 6px;
+  background-image: linear-gradient(var(--h3-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--h3-line) 1px, transparent 1px);
+  background-size: 10% calc(100% / 7);
+  background-color: var(--h3-floor);
+}
+.h3-plan-room {
+  position: absolute;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  background: color-mix(in srgb, var(--room-tint, transparent) 22%, transparent);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 6px 8px;
+}
+.h3-plan-room .h3-room-tag {
+  translate: none;
+}
+.h3-plan .h3-dot {
+  position: absolute;
+}
+.h3-plan-note {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+/* ── 타임라인 ─────────────────────────────────────────────────────── */
+.h3-tl-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s3);
+}
+.h3-btn {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--ink);
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 7px 14px;
+  cursor: pointer;
+}
+.h3-btn:hover {
+  border-color: var(--accent);
+}
+.h3-play[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.h3-clock {
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+
+/* ── 움직임 줄이기 ─────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .h3-dot.sev-3 .h3-dot-core {
+    animation: none;
+  }
+  .h3-chip,
+  .h3-switch-track,
+  .h3-switch-track::after {
+    transition: none;
+  }
+}
+
+/* ── 좁은 화면 ─────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .h3-layout {
+    padding: var(--s3) var(--s4) var(--s5);
+    gap: var(--s3);
+  }
+  .h3-stage {
+    height: 300px;
+  }
+  .h3-chip {
+    font-size: 13px;
+    padding: 6px 11px;
+  }
+}
