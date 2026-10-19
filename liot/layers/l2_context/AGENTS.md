@@ -27,11 +27,11 @@ Not this module's scope: safety situations, severity, abnormal detection, notifi
 - Every proactive candidate passes `validate_proactive_candidate`: (capability, action) in the catalog-derived allow-list, category not a safety category, capability equals the catalog's capability for that entity, catalog tier ≤ BREATH. `SAFETY_ACTUATOR_CAPABILITIES` (lock, valve, oven) can never be allowed by registration.
 - `PROACTIVE_TIER_CEILING` is BREATH; anything above is suppressed (silence), not downgraded.
 - Every `CandidateSet` contains a NoOp candidate (validator-enforced). `safety_risk` is always taken from the catalog, overriding any submitted value. Degraded external context makes the evaluator choose NoOp.
-- `app.tick` fetches external context before `propose`; propose facts carry `external` (`ExternalContext.rule_facts()`) only when a provider answered, so paths without a provider keep their old candidate-set hash. `external:` rule predicates (pm25, cloud_cover, outdoor_temp_c; lt/le/gt/ge only) never hold when the context is missing, degraded, or the value is empty.
+- `app.tick` fetches external context before `propose`; propose facts carry `external` (`ExternalContext.rule_facts()`) only when a provider answered, and `local_hour` only when the ruleset has an `hours:` rule. The candidate-set hash covers both, so on the shipped config (bedtime-dim uses `hours:`) the hash changes with the local hour even without a weather provider; only rulesets with neither keep the pre-2026-10-19 hash. `external:` rule predicates (pm25, cloud_cover, outdoor_temp_c; lt/le/gt/ge only) never hold when the context is missing, degraded, or the value is empty.
 - A rule whose candidate key (`cap:action:entity:category`) is in the recently-rejected snapshot is skipped in `propose` before cooldown or the bucket/day budget is spent (`suppressed_by='rejected'`).
 - Directives suppress only comfort candidates; safety categories and EMBER are never suppressed.
 - Line confidence is telemetry only; it does not enter `final_score`.
-- The derived allow-list on the shipped catalog equals the historical six-tuple list (regression-tested).
+- The derived allow-list on the shipped catalog is pinned as an exact 9-tuple set (the historical six plus `fan.set_speed`, `advice.ventilate`, `advice.close_window`; regression-tested).
 
 ## Patterns
 

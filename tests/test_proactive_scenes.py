@@ -20,7 +20,12 @@ import pytest
 
 from liot.app import LiotApp
 from liot.core.clock import Clock
-from liot.core.contracts import CandidateAction, SensorReading
+from liot.core.contracts import (
+    CandidateAction,
+    ExternalContext,
+    SensorReading,
+    compute_snapshot_hash,
+)
 from liot.core.invariants import assert_execution_gated
 from liot.core.risk import RiskTier
 from liot.db.database import init_db
@@ -158,7 +163,6 @@ async def test_cloudy_day_desk_light_is_ambient_digest() -> None:
         (MORNING, {"weather": {"pm25": 16.0}}),  # 아침인데 바깥 공기 보통
         (MORNING, {"weather": {"pm25": 8.0}, "occupied": False}),  # 아무도 없음
         (MORNING, {}),  # 날씨를 모름
-        (MORNING, {"weather": {"pm25": 8.0, "degraded": True}}),  # 날씨 조회 실패
         (DAYTIME, {"weather": {"pm25": 35.0}}),  # 미세먼지 '보통' 끝
         (DAYTIME, {"weather": {"pm25": 52.0}, "occupied": False}),  # 재실 아님
         (EARLY_EVENING, {"living_light": True}),  # 저녁이지만 21시대가 아님
@@ -169,6 +173,59 @@ async def test_cloudy_day_desk_light_is_ambient_digest() -> None:
 async def test_scene_does_not_fire_outside_its_conditions(at: str, kwargs: dict[str, Any]) -> None:
     res, _ = await _tick(at, **kwargs)
     assert res is None
+
+
+class _DegradedWithValues:
+    """조회 실패 표시와 함께 (믿으면 안 되는) 수치를 실어 보내는 외부 공급자."""
+
+    def __init__(self, clock: Clock) -> None:
+        self.clock = clock
+
+    async def fetch(self) -> ExternalContext:
+        return ExternalContext(
+            pm25=8.0, cloud_cover=0.9, fetched_at=self.clock.now_utc(), degraded=True
+        )
+
+
+async def test_degraded_weather_with_values_never_matches_a_scene() -> None:
+    # 조회 실패면 값이 실려 와도 규칙이 읽지 않는다 — 평가기의 무행동 선택에 기대지 않고
+    # 발의 단계에서 불성립해야 한다(예산도 쓰지 않는다).
+    reg = RuntimeRegistry()
+    clock = Clock(fixed=MORNING, tz=KST)
+    app = LiotApp(
+        clock=clock, catalog=reg.to_catalog(), categories=reg.categories(),
+        llm_backend=FakeLLM(), external_provider=_DegradedWithValues(clock),
+    )
+    app.observe_reading(_reading(MOTION, True, MORNING), reason="seed")
+    db = await init_db(":memory:")
+    try:
+        assert await LiotService(app, db, clock=clock).run_tick() is None
+    finally:
+        await db.close()
+    assert app.proactive.state.fired_today(app.home_id, clock.local_dt()) == 0
+
+
+def test_shipped_candidate_hash_includes_the_local_hour_without_weather() -> None:
+    # 출하 규칙(bedtime-dim 의 hours:)이 있으면 날씨 공급자가 없어도 후보 해시에 지역 시가 들어간다.
+    reg = RuntimeRegistry()
+    cur = {MOTION: True, LIVING_LIGHT: True}
+
+    def cset_hash(at: str) -> tuple[str, int]:
+        clock = Clock(fixed=at, tz=KST)
+        app = LiotApp(clock=clock, catalog=reg.to_catalog(), categories=reg.categories(),
+                      llm_backend=FakeLLM())
+        gen = app.proactive
+        cset = gen.candidate_set_for(cur, gen.propose(cur))
+        return cset.snapshot_hash, clock.local_dt().hour
+
+    h20, hour20 = cset_hash(EARLY_EVENING)
+    h21, hour21 = cset_hash(BEDTIME)
+    assert (hour20, hour21) == (20, 21)
+    assert h20 != h21  # 같은 저녁 버킷이어도 시가 다르면 해시가 다르다
+    assert h21 == compute_snapshot_hash(
+        {"facts": {"time_bucket": "evening", "occupancy": "occupied", "local_hour": 21},
+         "cur": cur}
+    )
 
 
 async def test_bedtime_reads_kst_hour_not_utc() -> None:
