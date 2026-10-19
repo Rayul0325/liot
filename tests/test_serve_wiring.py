@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from liot import serve
+from liot.core.clock import Clock
 from liot.service import LiotService
 
 REAL_SECRET = "a-real-long-signing-secret-value"
@@ -22,7 +23,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch):
         "LIOT_HOME_ID", "LIOT_DB_PATH", "LIOT_TICK_SECONDS", "LIOT_NOTIFY_SECRET",
         "LIOT_NTFY_TOPIC", "LIOT_NTFY_URL", "LIOT_HA_URL", "LIOT_HA_TOKEN",
         "LIOT_FEEDBACK_HOST", "LIOT_FEEDBACK_PORT", "LIOT_FEEDBACK_ALLOW_DEV_KEY",
-        "LIOT_EXECUTION_ENABLED", "LIOT_LLM_BACKEND",
+        "LIOT_EXECUTION_ENABLED", "LIOT_LLM_BACKEND", "LIOT_HOME_TZ",
     ):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("LIOT_DB_PATH", ":memory:")
@@ -43,6 +44,8 @@ def _capture_run(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
         seen["transport"] = self.transport
         seen["home_id"] = self.proposals.home_id
         seen["topic"] = self.topic
+        seen["clock"] = self.clock
+        seen["app_clock"] = self.app.clock
 
     monkeypatch.setattr(LiotService, "run", fake_run)
     return seen
@@ -200,3 +203,30 @@ async def test_ha_bridge_needs_both_url_and_token(
     assert await serve._amain() == 0
     assert seen["bridge"] is None
     assert "미설정" in capsys.readouterr().out
+
+
+async def test_amain_uses_home_tz_seoul_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """데몬 시계는 집 시간대(기본 Asia/Seoul) — 서비스(야간 정숙)와 앱(버킷·예산)이 같은 시계다."""
+    seen = _capture_run(monkeypatch)
+    assert await serve._amain() == 0
+    clock = seen["clock"]
+    assert clock is seen["app_clock"]
+    assert isinstance(clock, Clock)
+    assert str(clock.tz) == "Asia/Seoul"
+    assert clock.time_bucket("2026-06-01T22:30:00+00:00") == "morning"  # KST 07:30
+
+
+async def test_amain_honors_liot_home_tz(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LIOT_HOME_TZ", "UTC")
+    seen = _capture_run(monkeypatch)
+    assert await serve._amain() == 0
+    clock = seen["clock"]
+    assert isinstance(clock, Clock)
+    assert clock.time_bucket("2026-06-01T22:30:00+00:00") == "night"
+
+
+async def test_amain_refuses_unknown_home_tz(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LIOT_HOME_TZ", "Seoul")
+    _capture_run(monkeypatch)
+    with pytest.raises(ValueError, match="LIOT_HOME_TZ"):
+        await serve._amain()

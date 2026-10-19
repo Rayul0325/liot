@@ -122,6 +122,7 @@ PYTHONPATH=. $V bench/risk/run_bench.py report                # results.md 재�
 | `LIOT_FEEDBACK_ALLOW_DEV_KEY` | 꺼짐 | 개발 키로도 수신구를 연다(로컬 확인 전용) |
 | `LIOT_FEEDBACK_HOST`, `LIOT_FEEDBACK_PORT` | `127.0.0.1`, `8099` | 수신구. 포트 0 이면 열지 않는다 |
 | `LIOT_TICK_SECONDS` | `300` | 능동 틱 주기. 사다리 루프(5초)와 별개 |
+| `LIOT_HOME_TZ` | `Asia/Seoul` | 집 시간대(IANA 이름). 시간대 버킷(야간 정숙 포함)과 능동 예산의 '하루'를 이 지역 시각으로 센다. 모르는 이름이면 기동 실패. 데몬만 읽는다(관제실 실험실은 UTC) |
 | `LIOT_EXECUTION_ENABLED` | 꺼짐 | 실행 옵트인. HA 가 연결돼 있을 때만 실행기를 만든다 |
 | `LIOT_EVENT_LLM` | 꺼짐 | 가짜 LLM 트리거 감지기를 함께 켠다 |
 | `LIOT_EXTERNAL_ENABLED` | 꺼짐 | 외부 데이터 공급자 옵트인. 데몬은 공급자를 연결하지 않아 지금은 효과가 없다 |

@@ -9,7 +9,7 @@ The kernel every layer depends on:
 - `contracts.py` — pydantic v2 models crossing layer boundaries (`SensorReading`, `CandidateAction`, `ContextSnapshot`, `Judgment`, `Proposal`, `NotificationPayload`, `GuardianNotificationPayload`, candidate-set models), `compute_snapshot_hash`.
 - `invariants.py` — exception hierarchy, `assert_monotonic`, `assert_executor_confined`, `assert_execution_gated`.
 - `egress_gate.py` — `emit_external`, `NTFY_ALLOWED_KEYS`, PII patterns, `AliasMap` pseudonymization, LLM entity-shaped backstop.
-- `event_bus.py` (`ALLOWED_EDGES`), `scoped_repo.py` (tenant scoping), `clock.py` (UTC clock, time buckets), `categories.py` (`resolve_category`), `env.py` (`env_flag`).
+- `event_bus.py` (`ALLOWED_EDGES`), `scoped_repo.py` (tenant scoping), `clock.py` (UTC timestamps, home-timezone time buckets), `categories.py` (`resolve_category`), `env.py` (`env_flag`).
 
 Not this module's scope: notification gating, ladder timing, judging, routing, SQL for the v3 safety tables, HTTP, config file contents.
 
@@ -39,7 +39,7 @@ Not this module's scope: notification gating, ladder timing, judging, routing, S
 - Category checks go through `is_safety_category` (built-in ∪ runtime), never `in SAFETY_CRITICAL_CATEGORIES`.
 - Severity config values are read only from the YAML; do not mirror table cells as Python constants.
 - `device` and other person/name-like keys are pseudonymized as `PERSON_n`, room-like keys as `ROOM_A…`; the alias token names are part of what models see.
-- `Clock.time_bucket` uses the UTC hour (06–11 morning, 11–17 day, 17–22 evening, else night).
+- `Clock.time_bucket` uses the hour in the clock's home timezone (06–11 morning, 11–17 day, 17–22 evening, else night). `Clock(tz=None)` is UTC (tests, lab); the daemon passes `LIOT_HOME_TZ` (default `Asia/Seoul`). Timestamps (`now_utc`, `now_dt`) are always UTC; only buckets and the proactive budget's day (`local_dt`) are local.
 
 ## Tests
 

@@ -192,15 +192,20 @@ class ProactiveState:
             return False
         return (now - last) < timedelta(minutes=minutes)
 
+    @staticmethod
+    def _same_day(ts: datetime, now: datetime) -> bool:
+        """같은 날인가 — now 의 시간대(집 지역 시각)로 센 날짜끼리 비교한다."""
+        return ts.astimezone(now.tzinfo).date() == now.date()
+
     def fired_in_bucket(self, home_id: str, now: datetime, bucket: str) -> int:
         return sum(
             1
             for ts, b in self._fired.get(home_id, [])
-            if b == bucket and ts.date() == now.date()
+            if b == bucket and self._same_day(ts, now)
         )
 
     def fired_today(self, home_id: str, now: datetime) -> int:
-        return sum(1 for ts, _ in self._fired.get(home_id, []) if ts.date() == now.date())
+        return sum(1 for ts, _ in self._fired.get(home_id, []) if self._same_day(ts, now))
 
     def record(
         self, home_id: str, entity_id: str, action: str, now: datetime, bucket: str
@@ -271,7 +276,9 @@ class ProactiveGenerator:
         첫 번째로 (match+state 성립 ∧ 검증 통과 ∧ 쿨다운 비활성) 인 규칙이
         이긴다(선언 순서 우선). 예산 초과면 규칙을 보지도 않는다.
         """
-        now = self.clock.now_dt()
+        # 집 지역 시각: 예산의 '하루'·시간대 묶음이 그 집의 날짜로 갈린다(UTC 자정이 아니라).
+        # 쿨다운은 시각 차이라 시간대와 무관하다. tz 미지정 Clock 이면 UTC 그대로다.
+        now = self.clock.local_dt()
         bucket = self.clock.time_bucket()
 
         # ── 예산(전역) — 알림 피로의 1차 빗장 ─────────────────────────
