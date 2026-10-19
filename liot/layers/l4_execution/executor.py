@@ -238,6 +238,19 @@ _INVERSE_ACTION: dict[str, str] = {
 }
 
 
+def _deny_opening_undo(action: CandidateAction) -> None:
+    """되돌리기의 역동작이 '여는 방향'(FORBIDDEN_OPEN)이면 거부한다.
+
+    밸브 잠그기·도어락 잠그기를 되돌리면 valve.open·lock.unlock 이 된다. 실행
+    화이트리스트에서 여는 방향을 뺀 것과 같은 이유로, 되돌리기 경로로도 AI 가 집을
+    여는 일은 없어야 한다 — 호출 전에 막는다(외부 호출 0).
+    """
+    cap, act = _key(action)
+    inverse = _INVERSE_ACTION.get(act)
+    if inverse is not None and (cap, inverse) in FORBIDDEN_OPEN:
+        raise ExecutionDenied(f"undo would open the home: {cap}.{inverse}")
+
+
 class HAExecutor:
     """HA ``call_service`` 로 실제 조작. 콜러블 주입(웹소켓 비의존 → 테스트 용이).
 
@@ -300,6 +313,7 @@ class HAExecutor:
         self, action: CandidateAction, prior_state: dict[str, Any]
     ) -> ExecutionResult:
         """이전 상태로 복원. on/off·open/close 는 역동작, set_* 는 prior 값 재적용."""
+        _deny_opening_undo(action)
         domain, service = self._service_for(action)
         _, act = _key(action)
         inverse = _INVERSE_ACTION.get(act)
@@ -344,6 +358,7 @@ class FakeExecutor:
     async def undo(
         self, action: CandidateAction, prior_state: dict[str, Any]
     ) -> ExecutionResult:
+        _deny_opening_undo(action)
         self.undone.append(action)
         return ExecutionResult(ok=True, service=f"{_key(action)[0]}.undo")
 
