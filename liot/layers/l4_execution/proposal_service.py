@@ -20,6 +20,7 @@ from liot.core.contracts import CandidateAction, FeedbackEvent, Judgment, Propos
 from liot.core.invariants import InvariantError
 from liot.core.risk import RiskTier
 from liot.core.scoped_repo import DEFAULT_HOME_ID, ScopedRepo
+from liot.core.severity import SeverityLevel
 
 if TYPE_CHECKING:  # pragma: no cover
     import aiosqlite
@@ -28,8 +29,8 @@ if TYPE_CHECKING:  # pragma: no cover
 
 __all__ = ["ProposalService", "FEEDBACK_STATE_MAP"]
 
-# user_action -> 제안 상태 전이.
-FEEDBACK_STATE_MAP: dict[str, str] = {
+# user_action -> 제안 상태 전이. None = 상태를 바꾸지 않는다(기록만).
+FEEDBACK_STATE_MAP: dict[str, str | None] = {
     "accepted": "accepted",
     "accept": "accepted",
     "confirmed": "accepted",
@@ -40,6 +41,9 @@ FEEDBACK_STATE_MAP: dict[str, str] = {
     "snoozed": "pending",
     "snooze": "pending",
     "stop": "dismissed",
+    # '괜찮아요'(ok): 상황 사다리 확인 전용. 상태를 옮기지 않아 수용률·거절 이력·
+    # 선호 셀 어디에도 신호가 남지 않는다(피드백 행은 감사용으로 남는다).
+    "ok": None,
 }
 
 
@@ -129,6 +133,9 @@ class ProposalService:
                 "expires_at": proposal.expires_at,
                 "state": proposal.state,
                 "created_at": proposal.created_at,
+                # 파급도·상황 id(마이그레이션 3). 없으면 NULL.
+                "severity": None if proposal.severity is None else int(proposal.severity),
+                "situation_id": proposal.situation_id,
             },
         )
         await self._audit(
@@ -325,6 +332,30 @@ class ProposalService:
             await self._db.commit()
         return count
 
+    async def expire_situation(self, situation_id: str) -> list[str]:
+        """그 상황(situation_id)의 pending 제안을 모두 'expired' 로 전이한다.
+
+        상황이 닫히면(센서 정상 복귀) 그 상황에서 나온 대기 제안 — 상황 알림과
+        원탭 조치(밸브 잠그기·현관 잠그기) — 의 링크가 더는 통하면 안 된다. 기존
+        만료 상태를 그대로 쓴다(새 상태 없음). 이미 결론 난 제안(accepted 등)은
+        건드리지 않는다. 반환: 만료 처리된 proposal_id 목록.
+        """
+        rows = await self._repo.fetchall(
+            self._db,
+            "proposals",
+            columns="proposal_id",
+            extra_where="state = ? AND situation_id = ?",
+            extra_params=("pending", situation_id),
+        )
+        expired: list[str] = []
+        for r in rows:
+            pid = str(r["proposal_id"] if _is_mapping(r) else r[0])
+            await self._set_state(pid, "expired", trace_id=None)
+            expired.append(pid)
+        if expired:
+            await self._db.commit()
+        return expired
+
     # ------------------------------------------------------------------
     # 피드백
     # ------------------------------------------------------------------
@@ -332,7 +363,8 @@ class ProposalService:
         """사용자 피드백을 기록하고 제안 상태를 전이한다.
 
         - feedback 행을 append 한다.
-        - user_action 에 따라 제안 상태를 전이(FEEDBACK_STATE_MAP).
+        - user_action 에 따라 제안 상태를 전이(FEEDBACK_STATE_MAP). 매핑이 None 인
+          행동('ok')은 상태를 그대로 둔다.
         - 알 수 없는 user_action 이면 InvariantError.
         반환: 갱신된 Proposal(없으면 None).
         """
@@ -373,9 +405,10 @@ class ProposalService:
             },
         )
 
-        await self._set_state(
-            feedback.proposal_id, new_state, trace_id=feedback.trace_id
-        )
+        if new_state is not None:
+            await self._set_state(
+                feedback.proposal_id, new_state, trace_id=feedback.trace_id
+            )
         await self._db.commit()
         return await self.get(feedback.proposal_id)
 
@@ -439,6 +472,7 @@ class ProposalService:
         else:  # pragma: no cover - row_factory 가 Row 가 아닐 때 방어
             raise InvariantError("expected aiosqlite.Row mapping for proposals")
         action = CandidateAction.model_validate_json(d["action_json"])
+        raw_severity = d.get("severity")
         return Proposal(
             proposal_id=d["proposal_id"],
             judgment_id=d["judgment_id"],
@@ -451,6 +485,8 @@ class ProposalService:
             expires_at=d["expires_at"],
             state=d["state"],
             created_at=d["created_at"],
+            severity=None if raw_severity is None else SeverityLevel.from_str(int(raw_severity)),
+            situation_id=d.get("situation_id"),
         )
 
 

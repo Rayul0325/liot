@@ -1,0 +1,42 @@
+# 상황 파급도 표 + 상황 매핑 + 이상/정상 규칙.
+#
+# !! 이 파일을 config/rules/ 로 옮기지 말 것 — 그 폴더의 yaml 은 전부 Gate1 규칙으로
+#    로드된다(rules_loader.load_rulesets). 파급도 설정은 규칙이 아니다.
+#
+# 두 축은 CAP 1.2(Common Alerting Protocol) 를 **우리 식으로 각색**한 것이다
+# (CAP 원문의 severity/urgency 정의 그대로가 아니다):
+#   - damage(피해 유형): life | injury | property | inconvenience
+#   - time(아무도 손대지 않으면 피해까지): minutes(CAP Immediate)
+#                                       | hour(CAP Expected, 1시간 안)
+#                                       | later(CAP Future)
+#
+# 점수 곱셈은 쓰지 않는다. 서열 척도끼리 곱하면 순위가 뒤집힐 수 있다
+# (Cox 2008, FMEA RPN 비판, AIAG-VDA 2019 가 RPN 을 조회표로 바꾼 근거).
+# 그래서 조회표(table)로만 정한다.
+#
+# 로드 실패·형식 오류 시 계산기는 fail-closed: 모든 안전 카테고리가 CRITICAL.
+version: "1"
+
+# 피해 유형 × 피해까지 시간 → 파급도. 12칸 모두 있어야 한다(빠지면 로드 실패).
+table:
+  life:          { minutes: CRITICAL, hour: CRITICAL, later: WARNING }
+  injury:        { minutes: CRITICAL, hour: WARNING,  later: WARNING }
+  property:      { minutes: WARNING,  hour: WARNING,  later: NOTICE }
+  inconvenience: { minutes: NOTICE,   hour: NOTICE,   later: RECORD }
+
+# 안전 카테고리 → (피해 유형, 시간) + 이상/정상 규칙(abnormal_when).
+#   abnormal_when: truthy        — 정규화 값이 True 면 이상, False 면 정상.
+#   abnormal_when: { above: N }  — 수치가 N 초과면 이상, N 이하면 정상.
+# 어느 쪽으로도 판정 못 하는 값(정규화 불가)은 이상으로 본다(fail-closed).
+# 여기 행이 없는 안전 카테고리(런타임 등록 등)는 CRITICAL + truthy 규칙.
+situations:
+  gas:        { damage: life,     time: minutes, abnormal_when: truthy }   # → CRITICAL
+  smoke:      { damage: life,     time: minutes, abnormal_when: truthy }   # → CRITICAL
+  oven:       { damage: injury,   time: hour,    abnormal_when: truthy }   # → WARNING
+  high_temp:  { damage: injury,   time: hour,    abnormal_when: { above: 55 } }  # ℃, 조정 가능 → WARNING
+  leak:       { damage: property, time: minutes, abnormal_when: truthy }   # → WARNING
+  water_main: { damage: property, time: hour,    abnormal_when: truthy }   # → WARNING
+  door:       { damage: property, time: minutes, abnormal_when: truthy }   # → WARNING
+  lock:       { damage: property, time: hour,    abnormal_when: truthy }   # → WARNING
+  # 예약 행 — 이번 주기에는 판정에 쓰지 않는다(enabled: false).
+  inactivity: { damage: life,     time: hour,    enabled: false }

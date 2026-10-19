@@ -14,6 +14,7 @@ import pytest
 
 from liot.core.contracts import CandidateAction, ContextSnapshot, Judgment
 from liot.core.risk import RiskTier
+from liot.core.severity import SeverityLevel
 from liot.layers.l3_judgment.guardrail import Gate1Result, Guardrail
 from liot.layers.l3_judgment.llm_judge import (
     FakeLLM,
@@ -50,7 +51,8 @@ class _StubBackend:
         self._tier, self._raw, self._exc = tier, raw, exc
 
     def judge_raw(
-        self, candidate: CandidateAction, ctx: ContextSnapshot | None, gate1_floor: RiskTier
+        self, candidate: CandidateAction, ctx: ContextSnapshot | None, gate1_floor: RiskTier,
+        severity_floor: SeverityLevel | None = None,
     ) -> LLMResult:
         if self._exc is not None:
             raise self._exc
@@ -133,7 +135,7 @@ def test_model_id_comes_from_the_result_not_the_backend_label() -> None:
     class _Renaming(_StubBackend):
         def judge_raw(
             self, candidate: CandidateAction, ctx: ContextSnapshot | None,
-            gate1_floor: RiskTier,
+            gate1_floor: RiskTier, severity_floor: SeverityLevel | None = None,
         ) -> LLMResult:
             return LLMResult(tier=RiskTier.BREATH, confidence=0.5, rationale="r",
                              model_id="resolved-v2")

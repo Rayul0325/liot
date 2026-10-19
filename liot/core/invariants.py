@@ -15,7 +15,8 @@
   - assert_execution_gated()   : 불변식 8(Execution-Authorized-Only). 기본
         ExecutionPolicy 는 비활성(옵트인 OFF), 안전 임계는 어떤 티어에서도
         자동 실행되지 않으며, '여는 방향'(unlock/valve open) 동작은 어떤
-        실행 화이트리스트에도 없어야 한다.
+        실행 화이트리스트에도 없어야 한다. 원탭 예외(ONE_TAP_SAFE_ACTIONS)는
+        실행 허용의 부분집합이고 그 밖으로 새지 않아야 한다.
 
 불변식 3 의 진화: 과거 "실행기 부재(제안-만)" → 현재 "실행은 옵트인·게이트".
 조작은 (a) 활성화 + (b) 화이트리스트 + (c) 티어 권한(자동은 비안전 ≤BREATH 만,
@@ -167,14 +168,21 @@ def assert_execution_gated() -> None:
          (개입 하한) — 실험 조건이 안전 확인 강도를 무르게 만들 수 없다.
       5) 카탈로그 파생 확장분(extra_executable)을 주입해도 FORBIDDEN_OPEN 은 어떤
          실효 실행집합에도 없고, 안전 카테고리는 확장 주입 상태에서도 AUTO 가 아니다.
+      6) 원탭 예외(T4) — 개입 하한의 **유일한** 명시 예외가 상수 밖으로 새지 않는다:
+         a) ONE_TAP_SAFE_ACTIONS 는 frozenset 이고 SAFETY_EXECUTABLE 의 부분집합.
+         b) 원탭 밖의 안전 행동(확장 주입·여는 방향 포함)은 단일 확인(CONFIRM)도
+            AUTO 도 아니다.
+         c) 라우터: 조건 A/B 모두 원탭 쌍은 EMBER + light, 상황 알림(alert)은
+            EMBER + double — 예외가 다른 안전 경로를 조용하게 만들지 않는다.
     """
-    from .contracts import CandidateAction
+    from .contracts import CandidateAction, Judgment
     from .risk import safety_categories
 
     try:
         from ..layers.l4_execution.executor import (  # 지연 임포트(순환 회피)
             COMFORT_EXECUTABLE,
             FORBIDDEN_OPEN,
+            ONE_TAP_SAFE_ACTIONS,
             SAFETY_EXECUTABLE,
             ExecDecision,
             ExecutionPolicy,
@@ -260,6 +268,59 @@ def assert_execution_gated() -> None:
             if pol_extra.decide(safe_probe, tier) == ExecDecision.AUTO:
                 raise InvariantError(
                     f"안전 카테고리 {cat!r} 가 확장 주입 상태 {tier.name} 에서 AUTO — 위반"
+                )
+
+    # (6) 원탭 예외는 상수에 갇혀 있다.
+    # 6a) 불변 집합 + 실행 허용의 부분집합(확인 완화 ⊆ 실행 허용).
+    if not isinstance(ONE_TAP_SAFE_ACTIONS, frozenset) or not (
+        ONE_TAP_SAFE_ACTIONS <= SAFETY_EXECUTABLE
+    ):
+        raise InvariantError(
+            "원탭 상수(ONE_TAP_SAFE_ACTIONS)가 SAFETY_EXECUTABLE 의 부분집합(frozenset)이 "
+            f"아님: {sorted(ONE_TAP_SAFE_ACTIONS - SAFETY_EXECUTABLE)}"
+        )
+    # 6b) 원탭 밖의 안전 행동은 확장 주입 상태에서도 단일 확인·자동이 아니다.
+    lenient = (ExecDecision.AUTO, ExecDecision.CONFIRM)
+    outside = (SAFETY_EXECUTABLE - ONE_TAP_SAFE_ACTIONS) | FORBIDDEN_OPEN | probe_extra
+    for cat in sorted(safety_categories()):
+        for cap, act in sorted(outside - ONE_TAP_SAFE_ACTIONS):
+            probe = CandidateAction(
+                capability=cap, action=act, category=cat,
+                entity_id=f"{cap}.probe", params={},
+            )
+            for tier in RiskTier:
+                if pol_extra.decide(probe, tier) in lenient:
+                    raise InvariantError(
+                        f"원탭 밖의 안전 행동 {cat!r} {cap}.{act} 가 {tier.name} 에서 "
+                        "단일 확인/자동으로 결정됨 — 원탭 예외 누수"
+                    )
+    # 6c) 라우터: 원탭 쌍만 EMBER + light, 상황 알림은 EMBER + double(A/B 동일).
+    from ..layers.l4_execution.risk_router import ONE_TAP_CONFIRMATION, RiskRouter
+
+    def _probe_judgment(cap: str, act: str, cat: str) -> Judgment:
+        return Judgment(
+            judgment_id="probe", trace_id="probe", home_id="probe", snapshot_hash="probe",
+            action=CandidateAction(
+                capability=cap, action=act, category=cat,
+                entity_id=f"{cap}.probe", params={},
+            ),
+            risk_tier=RiskTier.EMBER, confidence=1.0, rationale="probe",
+            gate1_verdict="gate1:probe", bundle_id="probe", model_id="probe",
+        )
+
+    probes = [(cap, act, "gas", ONE_TAP_CONFIRMATION) for cap, act in sorted(ONE_TAP_SAFE_ACTIONS)]
+    probes.append(("gas", "alert", "gas", RiskTier.EMBER.required_confirmation))
+    for intervention in (TieredIntervention(), UniformIntervention()):
+        router = RiskRouter(intervention=intervention)
+        for cap, act, cat, expected in probes:
+            prop = router.route(
+                _probe_judgment(cap, act, cat), created_at="1970-01-01T00:00:00+00:00"
+            )
+            if prop.risk_tier != RiskTier.EMBER or prop.required_confirmation != expected:
+                raise InvariantError(
+                    f"원탭 예외 위반(조건 {intervention.condition}): {cap}.{act} → "
+                    f"{prop.risk_tier.name}+{prop.required_confirmation} "
+                    f"(기대 EMBER+{expected})"
                 )
 
 

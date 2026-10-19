@@ -55,9 +55,9 @@ def test_non_allowlisted_comfort_is_notify_only():
 # ── 정책: 안전 임계는 절대 자동 금지, fail-safe 방향만 ─────────────────
 def test_safety_never_auto_even_at_low_tier():
     pol = ExecutionPolicy(enabled=True)
-    # 안전 카테고리는 BREATH 라도 자동 금지 → 이중확인
-    assert pol.decide(_act("lock", "lock", "lock"), RiskTier.BREATH) == ExecDecision.DOUBLE_CONFIRM
-    assert pol.decide(_act("valve", "close", "water_main"), RiskTier.AMBIENT) == ExecDecision.DOUBLE_CONFIRM
+    # 안전 카테고리는 BREATH 라도 자동 금지. 잠그기·밸브 잠그기는 원탭(T4) → 단일 확인
+    assert pol.decide(_act("lock", "lock", "lock"), RiskTier.BREATH) == ExecDecision.CONFIRM
+    assert pol.decide(_act("valve", "close", "water_main"), RiskTier.AMBIENT) == ExecDecision.CONFIRM
 
 
 def test_safety_open_direction_excluded():
@@ -298,3 +298,29 @@ def test_registry_derived_extras_never_carry_a_forbidden_open_pair():
     # 2차 방어: 설령 확장분에 섞여 들어와도 실효 실행집합에서 제거된다.
     smuggled = reg.executable_extras() | frozenset({("valve", "open"), ("lock", "unlock")})
     assert not (effective_comfort(smuggled) & frozenset({("valve", "open"), ("lock", "unlock")}))
+
+
+# ── 되돌리기는 집을 열지 못한다(FORBIDDEN_OPEN) ────────────────────────────
+@pytest.mark.parametrize(
+    ("cap", "act", "category"),
+    [("valve", "close", "gas"), ("lock", "lock", "lock")],
+)
+async def test_haexecutor_undo_never_opens_the_home(cap: str, act: str, category: str):
+    # 밸브 잠그기·도어락 잠그기의 역동작은 valve.open·lock.unlock 이다 —
+    # 되돌리기 경로로도 AI 가 집을 여는 일은 없어야 한다(호출 자체가 나가면 안 됨).
+    calls = []
+
+    async def call(d, s, e, data):
+        calls.append((d, s, e, data))
+
+    ex = HAExecutor(call_service=call)
+    with pytest.raises(ExecutionDenied):
+        await ex.undo(_act(cap, act, category), {"state": "open"})
+    assert calls == []
+
+
+async def test_fake_executor_undo_never_opens_the_home():
+    fx = FakeExecutor()
+    with pytest.raises(ExecutionDenied):
+        await fx.undo(_act("valve", "close", "gas"), {"state": "open"})
+    assert fx.undone == []

@@ -102,6 +102,11 @@ class FeedbackEvent(BaseModel):
 class NotificationPayload(BaseModel):   # device/room/rationale 필드 없음 (의도적)
     channel: str; proposal_id: str; risk_tier: RiskTier; glyph: str
     label: str; signed_deeplink: str; topic: str
+    severity_label: str | None = None   # 상황 알림의 파급도 라벨(ntfy 세기 결정)
+
+class GuardianNotificationPayload(BaseModel):   # 기기·방·근거·거주자 특성 필드 없음
+    channel: str; situation_label: str; home_alias: str; at: str
+    signed_ack_link: str; severity_label: str
 
 class EventMessage(BaseModel):
     trace_id: str; home_id: str; layer_from: Layer; layer_to: Layer
@@ -225,7 +230,8 @@ feedback, notifications, audit_log, trust_state, candidate_evaluations`.
 class Destination(str, Enum): LLM="LLM"; NTFY="NTFY"; KMA="KMA"
 ALLOWLIST: frozenset[Destination]    # = {LLM, NTFY, KMA}
 NTFY_ALLOWED_KEYS: frozenset[str]
-    # = {'channel','proposal_id','risk_tier','glyph','label','signed_deeplink','topic'}
+    # = {'channel','proposal_id','risk_tier','glyph','label','signed_deeplink','topic',
+    #    'severity_label','situation_label','home_alias','at'}   # 11개 — 정확한 집합을 테스트가 고정
 PII_PATTERNS: dict[str, re.Pattern]  # phone_kr, email, rrn_kr, geo_precise
 
 class AliasMap:
@@ -289,7 +295,7 @@ proposals, feedback, notifications, audit_log, llm_cache, trust_state`.
 
 ```python
 SCHEMA_SQL_PATH: Path                 # schema.sql 절대경로
-LATEST_VERSION: int                   # = 2
+LATEST_VERSION: int                   # = 3
 async def current_version(db) -> int                 # 없으면 0
 async def run_migrations(db) -> int                  # forward-only, 멱등. 적용 후 최신 버전 반환.
 ```
@@ -541,3 +547,48 @@ async def states_for(ids: Sequence[str]) -> dict[str, tuple[str, str | None]]
 검증: `tests/test_execution_wiring.py`(2차 링크 생존·창 만료·제안 만료·표식 누수·
 출하 카탈로그에 단일확인 실행 조합 0) · `tests/test_service.py`(서명↔검증 강제변환
 일치·nonce 바인딩·비-ASCII 거부) · `tests/test_feedback_exposure.py`(dev 키 게이트).
+
+## 상황 파급도·거주자·보호자 — 신규 모듈 계약 (2026-10)
+
+```python
+# liot.core.severity — 상황 파급도(행동 확인 강도 RiskTier 와 별개 축)
+class SeverityLevel(IntEnum): RECORD=0; NOTICE=1; WARNING=2; CRITICAL=3   # .label_ko · .ntfy_priority
+def escalate_severity(cur, target) -> SeverityLevel          # max — 승격만
+SeveritySource = Literal["table", "resident", "model"]       # 기록 순서 고정
+def load_severity_table(path=None) -> SeverityTable          # config/severity/situations.yaml
+SeverityTable.compute(category, *, vulnerable_resident) -> SeverityResult | None   # 비안전 → None
+SeverityTable.is_abnormal(category, norm_value) -> bool      # 정규화 불가 → 이상(fail-closed)
+SeverityTable.load_failed / load_error                       # 실패 시 모든 안전 카테고리 CRITICAL
+
+# liot.db.safety_repo.SafetyRepo(db) — 마이그레이션 3
+#   거주자(사람 단위, 특성 4종 + entered_by) · 가구(lives_alone, home_alias)
+#   보호자(비밀 토픽, 비활성화) · 동의(집×보호자, append-only 이벤트)
+#   상황 에피소드(엔티티당 열린 것 1개, severity_floor 는 오르기만) · 사다리 상태 · 전달 이력 · 판단 저장
+
+# liot.layers.l3_judgment.decision_backend — llama.cpp 결정 모델(LIOT_LLM_BACKEND=decision)
+#   LIOT_DECISION_URL(기본 http://127.0.0.1:18765) · LIOT_DECISION_MODEL · LIOT_DECISION_TIMEOUT(요청당, 1.5s)
+#   질문 2개(행동 4지선다 · 파급도 4지선다, severity_floor 있을 때만) — 글자 확률 argmax, 전부 없으면 LLMUnavailable
+# LLMJudge.judge(..., severity_floor=None, severity_sources=(), situation_id=None)
+#   severity = escalate_severity(floor, model); 하한 아래 답 → injection_suspect
+
+# liot.layers.l4_execution.escalation — 사다리 규칙(상수 전부 tunable)
+#   CRITICAL 재알림 1분 · WARNING 10분×3 · 보호자 전달 90초 · 119 안내 +5분(보호자 0명이면 90초+5분)
+#   guardian_path(floor) — 보호자·119 는 severity_floor 기준, 재알림 주기는 최종 파급도 기준
+# liot.layers.l4_execution.executor.ONE_TAP_SAFE_ACTIONS = {(valve, close), (lock, lock)}  # ⊆ SAFETY_EXECUTABLE
+```
+
+흐름(서비스): 안전 신호가 이상이면 다음 순서로 처리한다.
+1. 에피소드를 연다.
+2. 표+거주자로 제안을 만들어 **즉시 발송**한다.
+3. 결정 모델 판정을 백그라운드에서 돌린다. 올렸으면 같은 `situation_id` 로 후속 제안을 보낸다.
+4. 사다리를 시작한다.
+
+정상 신호가 오면 다음 순서로 처리한다.
+1. 에피소드를 닫는다.
+2. 그 상황의 대기 제안을 만료시킨다(탭 한 번 링크 포함).
+3. 거주자에게 해소 알림을 보낸다.
+4. 사다리를 취소하고, 전달받은 보호자에게 "해소됨"을 보낸다.
+
+검증: `tests/test_severity_*.py` · `test_safety_repo.py` · `test_migration_v3.py` · `test_decision_backend.py`
+· `test_notifier_severity.py` · `test_one_tap_safe_actions.py` · `test_pipeline_situations.py`
+· `test_escalation_ladder.py` · `test_demo_server_safety.py`. 시험 세트·후보 모델 측정은 `bench/risk/`.

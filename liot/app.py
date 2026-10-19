@@ -13,13 +13,22 @@ L1 정규화 → L2 스냅샷 → L3 Gate1+Gate2 → L4 Proposal 까지 end-to-e
   - 각 단계 진입 시 EventBus 로 (layer_from → layer_to) 메시지를 publish 한다.
     핸들러는 동일 trace 의 단계 산출물을 stash 에 보관해 동기적으로 이어 붙인다.
 
+상황 알림(안전 카테고리, 서비스 경로)은 두 단계다(spec §6.2):
+  - classify_safety(reading) 로 이상/정상을 판정한다(SeverityTable.is_abnormal).
+  - process_situation_reading 은 Gate1 하한 + 파급도 하한(severity_floor)만으로
+    1단계 제안을 만든다 — 모델을 부르지 않는다. 지연 판정 요청(DeferredJudgeRequest)
+    을 함께 돌려주고, 서비스가 제안을 먼저 보낸 뒤 별도 스레드에서
+    run_deferred_judge 로 2단계 판정을 돌린다.
+  - 상황 에피소드(열기·잇기·닫기)와 DB 는 서비스 몫이다. 앱은 여전히 DB 를 모른다.
+  - process_reading(앱 단독 경로: 데모·스크립트)은 예전 그대로 동기 판정이다.
+
 Phase1: 실행 코드 없음. L4 는 Proposal 생성에서 멈춘다.
 """
 
 from __future__ import annotations
 
 import uuid
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
 
@@ -37,7 +46,14 @@ from liot.core.contracts import (
 )
 from liot.core.egress_gate import AliasMap
 from liot.core.event_bus import InProcessBus
-from liot.core.risk import is_safety_category
+from liot.core.risk import RiskTier, escalate_only, is_safety_category
+from liot.core.severity import (
+    SeverityLevel,
+    SeverityResult,
+    SeveritySource,
+    SeverityTable,
+    load_severity_table,
+)
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l1_sensing.state_cache import StateCache
 from liot.layers.l2_context.candidate_llm import LLMCandidateBackend
@@ -64,13 +80,66 @@ from liot.layers.l2_context.proposal_lines import (
     ProposalLine,
     augment_candidate_set,
 )
-from liot.layers.l3_judgment.guardrail import Guardrail
+from liot.layers.l3_judgment.guardrail import Gate1Result, Guardrail
 from liot.layers.l3_judgment.llm_judge import LLMBackend, LLMJudge
 from liot.layers.l4_execution.device_catalog import DeviceCatalog, load_device_catalog
 from liot.layers.l4_execution.intervention import build_intervention
 from liot.layers.l4_execution.risk_router import RiskRouter
 
-__all__ = ["LiotApp"]
+__all__ = [
+    "DEADLINE_GATE2_VERDICT",
+    "PENDING_GATE2_VERDICT",
+    "PENDING_MODEL_ID",
+    "DeferredJudgeRequest",
+    "LiotApp",
+    "SafetySignal",
+    "StagedAlert",
+]
+
+# 1단계(표 우선) 판단의 기록값(spec §6.2). 모델을 부르지 않았다는 표시다.
+PENDING_MODEL_ID = "pending-decision-model"
+PENDING_GATE2_VERDICT = "pending"
+# 2단계가 제한시간을 넘겼을 때의 평결. 판정기 자신의 degraded 경로와 같은 값을 써서
+# '모델 없이 하한 그대로'인 행을 한 값으로 찾게 한다.
+DEADLINE_GATE2_VERDICT = "degraded_fail_safe"
+
+
+@dataclass(frozen=True)
+class SafetySignal:
+    """안전 카테고리 읽기 하나의 이상/정상 판정(spec §3.4.1).
+
+    reading 은 정규화를 마친 읽기다. 정규화할 수 없는 값은 abnormal=True(fail-closed).
+    """
+
+    reading: SensorReading
+    category: str
+    abnormal: bool
+
+
+@dataclass(frozen=True)
+class DeferredJudgeRequest:
+    """2단계(결정 모델) 판정에 필요한 입력 묶음. 1단계가 만들어 서비스에 넘긴다.
+
+    거주자 특성은 여기 없다 — 취약 거주자 여부는 이미 severity_floor 에 녹아 있다.
+    """
+
+    candidate: CandidateAction
+    snapshot: ContextSnapshot
+    gate1: Gate1Result
+    severity_floor: SeverityLevel
+    severity_sources: tuple[SeveritySource, ...]
+    situation_id: str
+    trace_id: str
+    phase1: Judgment
+
+
+@dataclass(frozen=True)
+class StagedAlert:
+    """1단계 결과: 즉시 보낼 제안 + 그 판단 + 지연 판정 요청."""
+
+    proposal: Proposal
+    judgment: Judgment
+    deferred: DeferredJudgeRequest
 
 
 class LiotApp:
@@ -96,6 +165,7 @@ class LiotApp:
         feedback_store: FeedbackStore | None = None,
         event_detector: EventDetector | None = None,
         condition: str = "B",
+        severity_table: SeverityTable | None = None,
     ) -> None:
         self.home_id = home_id
         self.clock = clock or Clock()
@@ -115,6 +185,11 @@ class LiotApp:
         )
         self.guardrail = guardrail if guardrail is not None else Guardrail()
         self.judge = LLMJudge(backend=llm_backend)
+        # 파급도 표·상황 매핑·이상 규칙(config/severity/situations.yaml). 로드 실패면
+        # fail-closed 표(모든 안전 카테고리 CRITICAL) — 감사 기록은 서비스가 남긴다.
+        self.severity_table: SeverityTable = (
+            severity_table if severity_table is not None else load_severity_table()
+        )
         # 연구 조건 A/B(개입 방식)는 라우터(L4)에서만 갈린다 — L2 의 후보
         # 생성·평가·선택은 condition 을 보지 못한다(동일 선택, 개입만 차등).
         self.condition = (condition or "B").strip().upper()
@@ -172,6 +247,9 @@ class LiotApp:
         # 최근 process_reading/tick 의 단계별 산출물 스냅샷(관찰/데모용). stash 는
         # 완료 시 pop 되므로, pop 직전에 여기로 복사해 외부에서 트레이스를 읽게 한다.
         self.last_trace: dict[str, Any] | None = None
+        # 최근 진입(process_reading/tick)에서 만들어진 판단. 진입마다 비우고, 판단이
+        # 나오면 채운다 — 서비스가 judgments 로 영속한다(앱은 DB 를 만지지 않는다).
+        self.last_judgment: Judgment | None = None
 
         # 한 번의 process_reading 동안 단계 산출물을 잇기 위한 trace-stash.
         self._stash: dict[str, dict[str, Any]] = {}
@@ -329,6 +407,28 @@ class LiotApp:
             )
             return
 
+        situation: tuple[str, SeverityResult] | None = stash.get("situation")
+        if situation is not None:
+            # ── 상황 알림 1단계(spec §6.2): 모델을 부르지 않는다 ─────────────
+            sid, sev = situation
+            judgment = self._phase1_judgment(
+                candidate, snapshot, gate1, trace_id=msg.trace_id, situation_id=sid, severity=sev
+            )
+            stash["deferred"] = DeferredJudgeRequest(
+                candidate=candidate,
+                snapshot=snapshot,
+                gate1=gate1,
+                severity_floor=sev.floor,
+                severity_sources=tuple(sev.sources),
+                situation_id=sid,
+                trace_id=msg.trace_id,
+                phase1=judgment,
+            )
+            self.last_judgment = judgment
+            stash["judgment"] = judgment
+            await self._publish_judgment(msg.trace_id, judgment)
+            return
+
         judgment = self.judge.judge(
             candidate,
             snapshot,
@@ -337,6 +437,7 @@ class LiotApp:
             trace_id=msg.trace_id,
             home_id=self.home_id,
         )
+        self.last_judgment = judgment
         # 불변식 7 후단: LLM(Gate2)이 BREATH 위로 승격시킨 능동 제안도 억제.
         # 인젝션된 LLM 의 최악 결과 = 침묵(fail-closed).
         if decision is not None and judgment.risk_tier > PROACTIVE_TIER_CEILING:
@@ -347,10 +448,13 @@ class LiotApp:
             )
             return
         stash["judgment"] = judgment
+        await self._publish_judgment(msg.trace_id, judgment)
 
+    async def _publish_judgment(self, trace_id: str, judgment: Judgment) -> None:
+        """L3→L4 허용 엣지로 판단을 넘긴다."""
         await self.bus.publish(
             EventMessage(
-                trace_id=msg.trace_id,
+                trace_id=trace_id,
                 home_id=self.home_id,
                 layer_from=Layer.L3,
                 layer_to=Layer.L4,
@@ -360,6 +464,103 @@ class LiotApp:
                 ts=self.clock.now_utc(),
             )
         )
+
+    # ------------------------------------------------------------------
+    # 상황 알림 두 단계(spec §6.2)
+    # ------------------------------------------------------------------
+    def _phase1_judgment(
+        self,
+        candidate: CandidateAction,
+        snapshot: ContextSnapshot,
+        gate1: Gate1Result,
+        *,
+        trace_id: str,
+        situation_id: str,
+        severity: SeverityResult,
+    ) -> Judgment:
+        """Gate1 하한 + 파급도 하한만으로 1단계 판단을 만든다(모델 호출 없음).
+
+        위험도는 Gate1 하한이고, 안전 카테고리면 EMBER 를 한 번 더 보장한다
+        (Gate1 이 이미 EMBER 를 주지만, 모델이 빠진 경로라 하한을 명시적으로 고정 —
+        오늘 판정기 경로의 안전 EMBER 보다 조용해지는 일이 없게).
+        """
+        tier = gate1.floor_tier
+        if gate1.safety_critical or is_safety_category(candidate.category):
+            tier = escalate_only(tier, RiskTier.EMBER)
+        bundle = self.judge.registry.make_bundle(
+            self.guardrail.ruleset_version,
+            policy={"model_id": PENDING_MODEL_ID, "gate": "gate1+severity_floor"},
+        )
+        floor = severity.floor
+        return Judgment(
+            judgment_id=f"jdg_{uuid.uuid4().hex[:16]}",
+            trace_id=trace_id,
+            home_id=self.home_id,
+            snapshot_hash=snapshot.snapshot_hash,
+            action=candidate,
+            risk_tier=tier,
+            confidence=0.0,  # 모델 신뢰도 없음(아직 묻지 않았다)
+            rationale=(
+                f"표 우선 1단계: Gate1 하한 {tier.label_ko}({tier.name}) + 파급도 하한 "
+                f"{floor.label_ko}({floor.name}). 결정 모델 판정은 발송 뒤에 돈다."
+            ),
+            gate1_verdict=gate1.gate1_verdict,
+            gate2_verdict=PENDING_GATE2_VERDICT,
+            bundle_id=bundle.bundle_id,
+            model_id=PENDING_MODEL_ID,
+            degraded=False,
+            severity=floor,
+            severity_floor=floor,
+            severity_sources=list(severity.sources),
+            situation_id=situation_id,
+            model_probs=None,
+        )
+
+    def run_deferred_judge(self, req: DeferredJudgeRequest) -> Judgment:
+        """2단계 판정(동기). 서비스가 별도 스레드에서 부른다.
+
+        판정기가 escalate-only 로 합성한다: 위험도 = max(Gate1, 모델),
+        파급도 = max(하한, 모델). 하한 아래 답은 injection_suspect 로 남는다.
+        스냅샷·상황 id 는 1단계와 같다(같은 snapshot_hash·situation_id).
+        """
+        return self.judge.judge(
+            req.candidate,
+            req.snapshot,
+            req.gate1,
+            ruleset_version=self.guardrail.ruleset_version,
+            trace_id=req.trace_id,
+            home_id=self.home_id,
+            severity_floor=req.severity_floor,
+            severity_sources=req.severity_sources,
+            situation_id=req.situation_id,
+        )
+
+    def deadline_judgment(self, req: DeferredJudgeRequest, *, reason: str) -> Judgment:
+        """2단계가 제한시간을 넘기거나 실패했을 때 남길 degraded 판단.
+
+        하한(1단계 값) 그대로다 — 올리지도 내리지도 않는다. 모델 id 는 실제로
+        불렀던 백엔드의 것을 남겨, 어느 모델이 늦었는지 감사에서 보이게 한다.
+        """
+        p1 = req.phase1
+        return p1.model_copy(
+            update={
+                "judgment_id": f"jdg_{uuid.uuid4().hex[:16]}",
+                "model_id": self.judge.backend.model_id,
+                "gate2_verdict": DEADLINE_GATE2_VERDICT,
+                "degraded": True,
+                "confidence": 0.0,
+                "rationale": (
+                    f"결정 모델 2단계 미완료(degraded: {reason}). 하한 그대로 유지 — "
+                    f"위험도 {p1.risk_tier.label_ko}, 파급도 "
+                    f"{p1.severity.label_ko if p1.severity is not None else '-'}."
+                ),
+                "model_probs": None,
+            }
+        )
+
+    def route_followup(self, judgment: Judgment) -> Proposal:
+        """2단계 판단을 제안으로 라우팅한다(실행 없음). 올렸는지는 서비스가 본다."""
+        return self.router.route(judgment, created_at=self.clock.now_utc())
 
     async def _on_l3_to_l4(self, msg: EventMessage) -> None:
         """L3→L4: Judgment 를 Proposal 로 라우팅한다(실행 없음).
@@ -408,6 +609,66 @@ class LiotApp:
     # ------------------------------------------------------------------
     # 공개 API
     # ------------------------------------------------------------------
+    @staticmethod
+    def _normalized(reading: SensorReading) -> SensorReading:
+        """L1 정규화: norm_value 가 비어 있으면 raw 로부터 보정한다."""
+        if reading.norm_value is None and reading.raw_value is not None:
+            return reading.model_copy(update={"norm_value": normalize(reading.raw_value)})
+        return reading
+
+    def classify_safety(self, reading: SensorReading) -> SafetySignal | None:
+        """안전 카테고리 읽기의 이상/정상을 판정한다. 비안전이면 None.
+
+        판정은 SeverityTable.is_abnormal 한 곳에서만 한다(정규화 불가 값 = 이상).
+        """
+        reading = self._normalized(reading)
+        category = self._category_of(reading.entity_id)
+        if not is_safety_category(category):
+            return None
+        return SafetySignal(
+            reading=reading,
+            category=category,
+            abnormal=self.severity_table.is_abnormal(category, reading.norm_value),
+        )
+
+    def observe_reading(self, reading: SensorReading, *, reason: str) -> None:
+        """읽기를 상태 캐시에만 반영한다(제안 없음).
+
+        열린 상황의 반복 이상 신호(재알림은 사다리 몫)와 정상 복귀 신호(닫기는
+        서비스 몫)에 쓴다. 맥락은 갱신돼야 다음 판단이 현재 상태를 본다.
+        """
+        reading = self._normalized(reading)
+        self.last_judgment = None
+        self.state_cache.update(reading)
+        self.last_trace = {"reading": reading, "proposal": None, "silence_reason": reason}
+
+    async def process_situation_reading(
+        self,
+        reading: SensorReading,
+        *,
+        situation_id: str,
+        severity: SeverityResult,
+    ) -> StagedAlert | None:
+        """새 상황 에피소드의 이상 신호 → 1단계 상황 알림(모델 호출 없음).
+
+        스냅샷은 강제한다 — 에피소드가 이미 열렸으므로 여기서 침묵하면 다음 이상
+        신호도 '이어 가기'로 묻혀 상황 전체가 조용해진다(Safety-Never-Silent).
+        반환된 deferred 로 서비스가 2단계 판정을 돌린다.
+        """
+        out = await self._run_reading(
+            reading,
+            action=None,
+            params=None,
+            force_snapshot=True,
+            situation=(situation_id, severity),
+        )
+        proposal, stash = out
+        deferred = stash.get("deferred")
+        judgment = stash.get("judgment")
+        if proposal is None or deferred is None or judgment is None:
+            return None
+        return StagedAlert(proposal=proposal, judgment=judgment, deferred=deferred)
+
     def set_directives(self, directives: list[UserDirective]) -> None:
         """활성 자연어 지시를 설정한다(다음 틱부터 comfort 후보 억제에 반영)."""
         self._directives = list(directives)
@@ -436,6 +697,7 @@ class LiotApp:
           3) L2→L3 허용 엣지로 publish — 기존 Gate1+Gate2+Router 를
              그대로 통과한다. BREATH 상한 초과는 침묵(불변식 7).
         """
+        self.last_judgment = None
         cur = self.state_cache.norm_values()
         # 트리거 감지 게이트(규칙 상시 + LLM 옵트인) — 이벤트 없으면 propose 이전에
         # 침묵(무회계). 실제 행동 게이팅은 통과 후 propose 가 정확히 1회 수행한다.
@@ -571,12 +833,28 @@ class LiotApp:
 
         action/params 를 주면 후보 행동을 명시할 수 있다(미지정 시 카테고리
         기반 기본값). 모든 레이어 이동은 EventBus 허용 엣지로만 흐른다.
+
+        앱 단독 경로다(데모·스크립트·테스트): 안전 카테고리도 예전처럼 동기 판정
+        후 제안을 돌려준다. 상황 에피소드·두 단계 발송은 서비스 경로
+        (classify_safety + process_situation_reading)가 한다.
         """
-        # L1 정규화: norm_value 가 비어 있으면 raw 로부터 보정.
-        if reading.norm_value is None and reading.raw_value is not None:
-            reading = reading.model_copy(
-                update={"norm_value": normalize(reading.raw_value)}
-            )
+        proposal, _ = await self._run_reading(
+            reading, action=action, params=params, force_snapshot=force_snapshot
+        )
+        return proposal
+
+    async def _run_reading(
+        self,
+        reading: SensorReading,
+        *,
+        action: str | None,
+        params: dict[str, Any] | None,
+        force_snapshot: bool,
+        situation: tuple[str, SeverityResult] | None = None,
+    ) -> tuple[Proposal | None, dict[str, Any]]:
+        """process_reading 의 본체. (제안, 단계 산출물 stash 사본)을 돌려준다."""
+        reading = self._normalized(reading)
+        self.last_judgment = None
 
         trace_id = uuid.uuid4().hex
 
@@ -590,6 +868,7 @@ class LiotApp:
             "action_name": action,
             "params": params,
             "force_snapshot": force_snapshot,
+            "situation": situation,
             "snapshot": None,
             "judgment": None,
             "proposal": None,
@@ -608,7 +887,8 @@ class LiotApp:
                     ts=self.clock.now_utc(),
                 )
             )
-            self.last_trace = dict(self._stash[trace_id])
-            return self._stash[trace_id].get("proposal")
+            stash = dict(self._stash[trace_id])
+            self.last_trace = stash
+            return stash.get("proposal"), stash
         finally:
             self._stash.pop(trace_id, None)

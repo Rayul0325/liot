@@ -7,7 +7,9 @@ LIOT 의 기본은 제안-만(불변식 3)이다. 이 모듈은 그 위에 *옵�
     NOTIFY_ONLY → 한 줄도 실행하지 않는다(현행 제안-만 보존). env
     ``LIOT_EXECUTION_ENABLED`` 가 참일 때만 켜진다.
   - **티어 = 실행 정책**: 비안전 컴포트는 BREATH 이하 자동, DUSK 단일확인,
-    EMBER 이중확인. 안전 임계 카테고리는 *절대 자동 금지* — 이중확인 후에만.
+    EMBER 이중확인. 안전 임계 카테고리는 *절대 자동 금지* — 사람 승인 후에만.
+    안전 조치는 기본이 이중확인이고, 유일한 명시 예외는 ``ONE_TAP_SAFE_ACTIONS``
+    (밸브 잠그기·현관 잠그기 — 안전한 방향)의 단일 확인(원탭)이다(T4).
   - **화이트리스트**: 조작 가능한 ``(capability, action)`` 만 실행. 그 외는
     NOTIFY_ONLY. 실행기는 정책이 허용해도 한 번 더 화이트리스트를 재검(방어심층).
   - **안전 조작은 fail-safe 방향만**: 밸브/수도 *잠그기*, 현관 *잠그기* 는
@@ -43,7 +45,9 @@ __all__ = [
     "COMFORT_EXECUTABLE",
     "SAFETY_EXECUTABLE",
     "FORBIDDEN_OPEN",
+    "ONE_TAP_SAFE_ACTIONS",
     "effective_comfort",
+    "is_one_tap_safe",
 ]
 
 
@@ -60,7 +64,7 @@ class ExecDecision(str, Enum):
 
     AUTO = "auto"  # 즉시 자동 실행(비안전 ≤BREATH 만)
     CONFIRM = "confirm"  # 단일 명시 확인(탭 1회) 후 실행 — DUSK
-    DOUBLE_CONFIRM = "double_confirm"  # 이중확인 후 실행 — EMBER/안전
+    DOUBLE_CONFIRM = "double_confirm"  # 이중확인 후 실행 — EMBER/안전(원탭 예외 제외)
     NOTIFY_ONLY = "notify_only"  # 실행하지 않음(조작 불가/비활성/비화이트리스트)
 
 
@@ -99,6 +103,22 @@ FORBIDDEN_OPEN: frozenset[tuple[str, str]] = frozenset(
     {("lock", "unlock"), ("valve", "open")}
 )
 
+# 원탭(단일 확인) 안전 조치 — 개입 하한("확인은 티어 기준선보다 약할 수 없다")의
+# **유일한 명시 예외**(T4). 닫는·잠그는 안전한 방향 두 쌍만: 위험이 생겼을 때 사람이
+# 탭 한 번으로 막을 수 있어야 한다. 위험도는 EMBER 그대로(알림 우회 권한 유지) —
+# 확인 강도만 light(라우터)·CONFIRM(실행 정책)으로 풀린다.
+#
+# SAFETY_EXECUTABLE 을 재사용하지 않는다: '실행해도 되는가'와 '확인을 풀어도 되는가'
+# 는 다른 결정이다(``ONE_TAP_SAFE_ACTIONS ⊆ SAFETY_EXECUTABLE`` 만 성립해야 한다 —
+# assert_execution_gated 가 검사). frozenset 리터럴이고 등록 경로가 없다: 카탈로그
+# 파생 확장분(extra_executable)·런타임 등록·사용자 지시 어느 것도 이 집합을 늘리지 못한다.
+ONE_TAP_SAFE_ACTIONS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("valve", "close"),  # 가스/수도 밸브 잠그기
+        ("lock", "lock"),  # 현관 잠그기
+    }
+)
+
 
 def effective_comfort(
     extra: frozenset[tuple[str, str]] | None = None,
@@ -126,6 +146,15 @@ def _is_safety(action: CandidateAction) -> bool:
     return is_safety_category(action.category)
 
 
+def is_one_tap_safe(action: CandidateAction) -> bool:
+    """이 행동이 원탭(단일 확인) 예외 대상인가 — ``ONE_TAP_SAFE_ACTIONS`` 로만 정한다.
+
+    (capability, action) 은 실행 화이트리스트와 같은 규칙(_key: 공백 제거·소문자)
+    으로 정규화한다 — 라우터(light)와 실행 정책(CONFIRM)이 같은 쌍을 보게 한다.
+    """
+    return _key(action) in ONE_TAP_SAFE_ACTIONS
+
+
 class ExecutionPolicy:
     """판정(action, tier) → ExecDecision. 순수 함수, 부수효과 없음.
 
@@ -149,8 +178,13 @@ class ExecutionPolicy:
         key = _key(action)
 
         if _is_safety(action):
-            # 안전 임계: 자동 절대 금지. 화이트리스트(차단/잠금)면 이중확인, 아니면 알림만.
-            return ExecDecision.DOUBLE_CONFIRM if key in SAFETY_EXECUTABLE else ExecDecision.NOTIFY_ONLY
+            # 안전 임계: 자동 절대 금지. 화이트리스트(차단/잠금) 밖이면 알림만.
+            if key not in SAFETY_EXECUTABLE:
+                return ExecDecision.NOTIFY_ONLY
+            # 원탭 예외(T4): 밸브 잠그기·현관 잠그기는 단일 확인. 나머지는 이중확인.
+            if is_one_tap_safe(action):
+                return ExecDecision.CONFIRM
+            return ExecDecision.DOUBLE_CONFIRM
 
         if key not in self._comfort:
             return ExecDecision.NOTIFY_ONLY  # 조작 대상이 아님 → 알림만
@@ -202,6 +236,19 @@ _INVERSE_ACTION: dict[str, str] = {
     "close": "open",
     "lock": "unlock",
 }
+
+
+def _deny_opening_undo(action: CandidateAction) -> None:
+    """되돌리기의 역동작이 '여는 방향'(FORBIDDEN_OPEN)이면 거부한다.
+
+    밸브 잠그기·도어락 잠그기를 되돌리면 valve.open·lock.unlock 이 된다. 실행
+    화이트리스트에서 여는 방향을 뺀 것과 같은 이유로, 되돌리기 경로로도 AI 가 집을
+    여는 일은 없어야 한다 — 호출 전에 막는다(외부 호출 0).
+    """
+    cap, act = _key(action)
+    inverse = _INVERSE_ACTION.get(act)
+    if inverse is not None and (cap, inverse) in FORBIDDEN_OPEN:
+        raise ExecutionDenied(f"undo would open the home: {cap}.{inverse}")
 
 
 class HAExecutor:
@@ -266,6 +313,7 @@ class HAExecutor:
         self, action: CandidateAction, prior_state: dict[str, Any]
     ) -> ExecutionResult:
         """이전 상태로 복원. on/off·open/close 는 역동작, set_* 는 prior 값 재적용."""
+        _deny_opening_undo(action)
         domain, service = self._service_for(action)
         _, act = _key(action)
         inverse = _INVERSE_ACTION.get(act)
@@ -310,6 +358,7 @@ class FakeExecutor:
     async def undo(
         self, action: CandidateAction, prior_state: dict[str, Any]
     ) -> ExecutionResult:
+        _deny_opening_undo(action)
         self.undone.append(action)
         return ExecutionResult(ok=True, service=f"{_key(action)[0]}.undo")
 

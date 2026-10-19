@@ -8,6 +8,22 @@ LiotApp(두뇌, 네트워크 없음·결정만)을 둘러싸고 부수효과를 
   - **만료**: 주기적으로 expire_due() 로 신선도 지난 제안을 정리.
   - **틱**: 주기적 app.tick() 으로 능동 제안(AI 가 먼저)을 굴린다.
   - **피드백**: 서명 검증 HTTP 수신구로 수락/거절 → 상태 전이 → 수용률 학습.
+  - **상황 에피소드(spec §3.4.1·§6.1)**: 안전 센서의 이상 신호는 (집, 카테고리,
+    엔티티) 에피소드를 열거나 잇고, 정상 신호는 닫는다. 새 에피소드만 상황 알림을
+    만든다. 닫힐 때는 새 `alert` 없이 거주자에게 '해소됨'(NOTICE)을 보내고, 그
+    상황의 대기 제안(원탭 링크 포함)을 만료시킨다.
+  - **표 우선 두 단계 발송(spec §6.2)**: 상황 알림은 Gate1+파급도 하한으로 *먼저*
+    보내고, 결정 모델 판정은 그 뒤 별도 스레드에서 제한시간 안에 돈다. 2단계는
+    추적되는 백그라운드 태스크라 handle_reading 은 1단계 발송 직후 돌아온다 —
+    다음 센서 신호(다른 안전 상황)가 앞 상황의 모델 판정 뒤에 줄 서지 않는다.
+    모델이 올렸을 때만 같은 situation_id 의 후속 제안을 보낸다. 판단 행은 항상 저장한다.
+  - **판단 저장**: 판단마다 judgments 에 한 행(SafetyRepo.save_judgment).
+  - **에스컬레이션 사다리(T8)**: 상황마다 사다리 하나(escalation_ladders 에 영속).
+    300초 틱과 별개인 사다리 루프(≤5초 해상도)가 DB 의 next_fire_at 을 보고 재알림·
+    보호자 전달·119 안내를 낸다. 재알림 주기는 최종 파급도, 보호자·119 는 상황
+    하한(표+거주자)이 CRITICAL 이고 동의가 유효할 때만. 거주자의 명시 응답이나 보호자의
+    서명 링크가 사다리를 멈추고, 상황이 닫히면 취소 + 전달받은 보호자에게 '해소됨'.
+    시작 시 열린 사다리를 DB 에서 다시 무장한다. 119 는 안내 문구뿐 — 자동 신고 없음.
 
 불변식 보존:
   - 실행 없음(불변식 3): 여기서 하는 외부 I/O 는 *알림 송신* 뿐, 액추에이터
@@ -21,13 +37,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import math
 import secrets
+import uuid
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from liot.app import LiotApp
+from liot.app import LiotApp, SafetySignal, StagedAlert
 from liot.core.clock import Clock
+from liot.core.contracts import CandidateAction, Judgment, Proposal
+from liot.core.invariants import EgressViolation
+from liot.core.risk import RiskTier
 from liot.core.scoped_repo import ScopedRepo
+from liot.core.severity import SeverityLevel, SeverityResult
+from liot.db.safety_repo import DEFAULT_HOME_ALIAS, Ladder, SafetyRepo
 from liot.layers.l2_context.feature_vector import (
     apply_decay,
     apply_signal,
@@ -37,6 +61,8 @@ from liot.layers.l2_context.feature_vector import (
 )
 from liot.layers.l2_context.feedback_store import InMemoryFeedbackStore
 from liot.layers.l2_context.preference_store import PreferenceStore
+from liot.layers.l3_judgment.decision_backend import DEFAULT_DECISION_TIMEOUT_S
+from liot.layers.l4_execution import escalation
 from liot.layers.l4_execution.executor import (
     ExecDecision,
     ExecutionDenied,
@@ -49,6 +75,7 @@ from liot.layers.l4_execution.feedback_gateway import (
     FeedbackGateway,
     compare_token,
     verify_feedback_sig,
+    verify_guardian_ack_sig,
 )
 from liot.layers.l4_execution.notifier import (
     NotificationBudget,
@@ -62,10 +89,40 @@ from liot.layers.l4_execution.proposal_service import ProposalService
 if TYPE_CHECKING:  # pragma: no cover
     import aiosqlite
 
-    from liot.core.contracts import Proposal, SensorReading
+    from liot.core.contracts import SensorReading
     from liot.layers.l1_sensing.ha_bridge import HABridge
 
-__all__ = ["DEV_SIGNING_SECRET", "DispatchResult", "LiotService"]
+__all__ = [
+    "DEV_SIGNING_SECRET",
+    "PHASE2_REQUESTS_PER_CALL",
+    "DispatchResult",
+    "LiotService",
+    "default_phase2_deadline",
+]
+
+logger = logging.getLogger(__name__)
+
+# 2단계(결정 모델) 판정 한 번이 보내는 HTTP 요청 수의 상한. 결정 백엔드의
+# 제한시간은 요청 하나당이라(LIOT_DECISION_TIMEOUT), 판정 전체 마감은 그 배수다.
+PHASE2_REQUESTS_PER_CALL = 4
+
+
+def default_phase2_deadline(backend: object) -> float:
+    """2단계 판정 전체 마감(초)의 기본값 = 요청당 제한시간 × 판정당 요청 수.
+
+    백엔드가 요청당 제한시간(timeout_s)을 드러내면 그 값을, 아니면 결정 모델
+    기본값(1.5초)을 쓴다. 조정 가능한 기본값이다(LiotService(phase2_deadline_s=)).
+    """
+    raw = getattr(backend, "timeout_s", None)
+    per_request = DEFAULT_DECISION_TIMEOUT_S
+    if (
+        isinstance(raw, (int, float))
+        and not isinstance(raw, bool)
+        and math.isfinite(raw)
+        and raw > 0
+    ):
+        per_request = float(raw)
+    return per_request * PHASE2_REQUESTS_PER_CALL
 
 _DEDUP_WINDOW = timedelta(hours=2)
 
@@ -125,6 +182,8 @@ class LiotService:
         budget_per_hour: int = 6,
         executor: Executor | None = None,
         policy: ExecutionPolicy | None = None,
+        safety_repo: SafetyRepo | None = None,
+        phase2_deadline_s: float | None = None,
     ) -> None:
         self.app = app
         self.clock = clock or app.clock
@@ -166,6 +225,57 @@ class LiotService:
         # 개인화 루프(Phase3): 제안 → 선호 셀 키(맥락+행동), 신호 중복 방지.
         self._prop_cell: dict[str, str] = {}  # proposal_id → cell_key
         self._pref_signaled: set[str] = set()  # 이미 신호 반영된 proposal_id
+        # 안전 영속(상황 에피소드·취약 거주자 여부·판단 저장).
+        self.safety = safety_repo or SafetyRepo(db, clock=self.clock)
+        # 2단계 판정 전체 마감(초). None 이면 판정 시점의 백엔드로 기본값을 계산한다.
+        self._phase2_deadline_s = phase2_deadline_s
+        self._started = False  # 시작 시 1회 작업(표 로드 실패 감사) 완료 여부
+        # 진행 중인 2단계 판정 태스크. 끝나면 스스로 빠진다(_on_phase2_done).
+        self._phase2_tasks: set[asyncio.Task[DispatchResult | None]] = set()
+
+    # ------------------------------------------------------------------
+    # 시작
+    # ------------------------------------------------------------------
+    async def start(self) -> None:
+        """시작 시 1회 작업. 진입점(handle_reading·run_tick·run)이 먼저 부른다.
+
+        열린 에스컬레이션 사다리를 DB(list_open_ladders)에서 다시 무장한다 — 재시작이
+        진행 중인 재알림·보호자 전달·119 안내를 지우지 않게(_rearm_ladders).
+
+        파급도 표가 로드에 실패해 fail-closed(모든 안전 카테고리 CRITICAL)로 돌고
+        있으면, 그 사실을 audit_log 에 **한 번** 남기고 경고 로그를 낸다 — 조용히
+        fail-closed 로만 돌면 '표가 안 읽혔다'는 걸 아무도 모른다.
+        """
+        if self._started:
+            return
+        self._started = True
+        await self._rearm_ladders()
+        table = self.app.severity_table
+        if not table.load_failed:
+            return
+        logger.warning(
+            "severity table load failed — running fail-closed (every safety category "
+            "CRITICAL) source=%s error=%s",
+            table.source,
+            table.load_error,
+        )
+        await self._repo.insert(
+            self._db,
+            "audit_log",
+            {
+                "id": None,
+                "trace_id": None,
+                "actor": "SYSTEM",
+                "event_type": "severity_table_load_failed",
+                "ref_id": table.source,
+                "detail": json.dumps(
+                    {"error": table.load_error, "fallback": "all safety categories CRITICAL"},
+                    ensure_ascii=False,
+                ),
+                "ts": self.clock.now_utc(),
+            },
+        )
+        await self._db.commit()
 
     # ------------------------------------------------------------------
     # 발화 컨텍스트
@@ -307,8 +417,15 @@ class LiotService:
     async def _on_approved(self, proposal: Proposal, *, used_nonce: str) -> str:
         """승인(accepted) 피드백 후 정책에 따라 실행한다.
 
-        CONFIRM(DUSK) → 즉시 실행. DOUBLE_CONFIRM(EMBER/안전) → 1차는 보류하고
-        한 번 더 확인 요청, 2차에서 실행. AUTO 는 이미 dispatch 에서 실행됨.
+        CONFIRM(DUSK, 그리고 원탭 안전 조치) → 즉시 실행. DOUBLE_CONFIRM(EMBER/안전)
+        → 1차는 보류하고 한 번 더 확인 요청, 2차에서 실행. AUTO 는 이미 dispatch 에서
+        실행됨.
+
+        원탭 예외(T4): ONE_TAP_SAFE_ACTIONS(밸브 잠그기·현관 잠그기)는 실행 정책이
+        CONFIRM 으로 판정하므로 2차 확인 대기(_awaiting_second)·2차 알림
+        (_request_second_confirmation)을 건너뛰고 첫 승인에서 실행된다. 링크의 1회용
+        nonce 는 그대로라 같은 링크를 재생해도 두 번 실행되지 않는다. 그 밖의 안전
+        조치는 여전히 이중확인이다(이 분기는 실행 정책만 따르고 스스로 완화하지 않는다).
 
         used_nonce: 방금 소비된 링크의 nonce. 2차 알림이 나가지 못했을 때 그
         링크를 되살리는 데만 쓴다.
@@ -377,11 +494,629 @@ class LiotService:
     # 진입점들
     # ------------------------------------------------------------------
     async def handle_reading(self, reading: SensorReading) -> DispatchResult | None:
-        """단일 센서 읽기를 파이프라인에 흘리고, 제안이 나오면 디스패치."""
-        proposal = await self.app.process_reading(reading)
-        if proposal is None:
+        """단일 센서 읽기를 파이프라인에 흘리고, 제안이 나오면 디스패치.
+
+        안전 카테고리(spec §3.4.1):
+          - 이상 + 열린 상황 없음 → 상황을 열고 1단계 상황 알림을 즉시 보낸 뒤
+            2단계 판정(별도 스레드, 제한시간)을 돌린다. 반환은 1단계 결과.
+          - 이상 + 열린 상황 있음 → 같은 상황을 잇는다. 새 알림 제안 없음(None).
+            재알림은 사다리(T8) 몫이다.
+          - 정상 → 열린 상황을 닫고 해소 알림. 새 `alert` 없음(None). 열린 상황이
+            없으면 아무 일도 없다.
+        비안전 카테고리는 예전 그대로다(관찰은 침묵, 판단이 있으면 저장).
+        """
+        await self.start()
+        signal = self.app.classify_safety(reading)
+        if signal is None:
+            proposal = await self.app.process_reading(reading)
+            await self._save_last_judgment()
+            if proposal is None:
+                return None
+            return await self.dispatch(proposal)
+        if signal.abnormal:
+            return await self._on_abnormal(signal)
+        await self._on_normal(signal)
+        return None
+
+    # ------------------------------------------------------------------
+    # 상황 에피소드(spec §3.4.1·§6.1·§6.2)
+    # ------------------------------------------------------------------
+    async def _on_abnormal(self, signal: SafetySignal) -> DispatchResult | None:
+        """이상 신호: 상황을 열거나 잇는다. 새 에피소드만 상황 알림을 보낸다."""
+        reading = signal.reading
+        # 취약 거주자 여부는 불리언 하나만 쓴다(특성 자체는 여기서 끝난다 — 모델
+        # 입력·알림·로그에 들어가지 않는다). spec §3.6.
+        vulnerable = await self.safety.has_vulnerable_resident(self.home_id)
+        sev = self.app.severity_table.compute(signal.category, vulnerable_resident=vulnerable)
+        if sev is None:  # pragma: no cover - 안전 카테고리면 표가 항상 값을 낸다(방어)
+            sev = SeverityResult(
+                floor=SeverityLevel.CRITICAL, sources=("table",), damage=None, time_to_harm=None
+            )
+        sid, opened_new = await self.safety.open_or_get_situation(
+            self.home_id, signal.category, reading.entity_id, sev.floor, self.clock.now_utc()
+        )
+        if not opened_new:
+            self.app.observe_reading(
+                reading, reason="열린 상황 이어감 — 새 알림 제안 없음(재알림은 사다리 몫)"
+            )
             return None
-        return await self.dispatch(proposal)
+
+        # 1단계: 표 우선 상황 알림을 만들어 **즉시** 보낸다(모델 호출 없음).
+        # 여기서 실패하면 방금 연 상황을 닫는다 — 알림 없이 열린 상황이 남으면 다음
+        # 이상 신호가 '이어 가기'로 묻혀 그 상황 전체가 조용해진다.
+        try:
+            staged = await self.app.process_situation_reading(
+                reading, situation_id=sid, severity=sev
+            )
+            if staged is None:
+                await self.safety.close_situation(sid, self.clock.now_utc())
+                return None
+            first = await self.dispatch(staged.proposal)
+        except BaseException:
+            await self.safety.close_situation(sid, self.clock.now_utc())
+            raise
+        await self.safety.save_judgment(staged.judgment)
+        await self._on_situation_opened(sid, staged.proposal)
+        # 2단계: 결정 모델(별도 스레드·제한시간)을 백그라운드로 돌린다. 기다리지 않는다 —
+        # 기다리면 스트림의 다음 신호(예: 가스 직후 연기)가 이 상황의 모델 판정이
+        # 끝날 때까지 묶여, 두 번째 안전 알림이 늦게 나간다(spec §6.2 '즉시').
+        self._spawn_phase2(staged)
+        return first
+
+    def _spawn_phase2(self, staged: StagedAlert) -> None:
+        """2단계 판정을 추적되는 백그라운드 태스크로 띄운다."""
+        task = asyncio.create_task(self._run_phase2(staged))
+        self._phase2_tasks.add(task)
+        task.add_done_callback(self._on_phase2_done)
+
+    def _on_phase2_done(self, task: asyncio.Task[DispatchResult | None]) -> None:
+        """끝난 2단계 태스크를 추적에서 빼고, 예외가 있으면 로그로 남긴다(삼키지 않는다)."""
+        self._phase2_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error("phase-2 judgment task failed: %s", type(exc).__name__, exc_info=exc)
+
+    async def drain_phase2(self, timeout: float | None = None) -> None:
+        """진행 중인 2단계 태스크가 모두 끝날 때까지 기다린다.
+
+        timeout(초)을 주면 그 안에 끝나지 않은 태스크는 취소한다(종료 경로용).
+        각 태스크는 자체 마감(_phase2_deadline)이 있어 timeout 없이도 유한하게 끝난다.
+        테스트는 잠자기 대신 이걸 기다린다.
+        """
+        while self._phase2_tasks:
+            pending = set(self._phase2_tasks)
+            _, not_done = await asyncio.wait(pending, timeout=timeout)
+            for t in not_done:
+                t.cancel()
+            if not_done:
+                await asyncio.gather(*not_done, return_exceptions=True)
+            self._phase2_tasks.difference_update(pending)
+
+    def _phase2_deadline(self) -> float:
+        if self._phase2_deadline_s is not None:
+            return self._phase2_deadline_s
+        return default_phase2_deadline(self.app.judge.backend)
+
+    async def _run_phase2(self, staged: StagedAlert) -> DispatchResult | None:
+        """2단계 판정을 이벤트 루프 밖(스레드)에서 돌리고, 행을 저장하고, 올렸으면 보낸다.
+
+        제한시간을 넘기거나 판정이 예외로 끝나면 하한 그대로의 degraded 행을 남긴다
+        (알림은 이미 1단계로 나갔다). 판단 행은 결과와 무관하게 **항상** 저장한다 —
+        하한 아래로 낮추려 한 답(injection_suspect)도 감사 기록에 남는다.
+        """
+        req = staged.deferred
+        deadline = self._phase2_deadline()
+        try:
+            judgment = await asyncio.wait_for(
+                asyncio.to_thread(self.app.run_deferred_judge, req), timeout=deadline
+            )
+        except TimeoutError:
+            judgment = self.app.deadline_judgment(
+                req, reason=f"제한시간 {deadline:g}초 초과"
+            )
+        except Exception as exc:  # noqa: BLE001 — 2단계 실패는 1단계 알림을 무르지 않는다
+            judgment = self.app.deadline_judgment(req, reason=f"판정 오류 {type(exc).__name__}")
+        await self.safety.save_judgment(judgment)
+        followup = self.app.route_followup(judgment)
+        if not self._raised(staged.proposal, followup):
+            return None
+        # 2단계가 백그라운드로 도는 동안 상황이 닫혔을 수 있다(정상 복귀). 닫힌 상황의
+        # 후속 알림은 낡은 경보다 — 보내지 않는다(판단 행은 위에서 이미 남겼다).
+        cand = req.candidate
+        current = await self.safety.get_open_situation(
+            self.home_id, cand.category, cand.entity_id
+        )
+        if current is None or current.situation_id != req.situation_id:
+            return None
+        result = await self.dispatch(followup)
+        # 최종 파급도가 올랐다 → 재알림 주기를 다시 잡는다(없던 사다리면 지금 만든다).
+        # 보호자·119 조건(하한)은 모델이 바꾸지 못하므로 그대로다.
+        await self._arm_ladder(req.situation_id)
+        return result
+
+    @staticmethod
+    def _raised(first: Proposal, followup: Proposal) -> bool:
+        """2단계 제안이 1단계보다 확인 강도나 파급도를 올렸는가."""
+        if followup.risk_tier > first.risk_tier:
+            return True
+        if followup.severity is None:
+            return False
+        return first.severity is None or followup.severity > first.severity
+
+    async def _on_normal(self, signal: SafetySignal) -> None:
+        """정상 신호: 열린 상황이 있으면 닫는다. 새 `alert` 는 만들지 않는다."""
+        reading = signal.reading
+        self.app.observe_reading(reading, reason="정상 신호 — 새 알림 제안 없음")
+        situation = await self.safety.get_open_situation(
+            self.home_id, signal.category, reading.entity_id
+        )
+        if situation is None:
+            return
+        if not await self.safety.close_situation(situation.situation_id, self.clock.now_utc()):
+            return  # pragma: no cover - 같은 연결에서 방금 읽은 열린 상황(방어)
+        sid = situation.situation_id
+        # 그 상황의 대기 제안(상황 알림·원탭 조치)을 만료 → 낡은 링크가 통하지 않는다.
+        for pid in await self.proposals.expire_situation(sid):
+            self._drop_nonce(pid)
+        await self._send_resolved_notice(sid, signal)
+        await self._on_situation_closed(sid)
+
+    async def _send_resolved_notice(self, situation_id: str, signal: SafetySignal) -> bool:
+        """거주자에게 '해소됨' 알림(파급도 NOTICE)을 보낸다. 보냈으면 True.
+
+        제안으로 영속하지 않는다 — 응답할 행동이 없는 정보 알림이라 수용률·대기
+        목록에 섞이면 안 된다. 발화 게이트는 그대로 지난다: 헌장 OFF·음소거는
+        존중하고, 시의성(perishable)으로 중복·야간·예산에만 묶이지 않는다.
+        정제(egress)도 그대로다 — 기기·방·근거는 나가지 않는다.
+        """
+        now = self.clock.now_utc()
+        notice = Proposal(
+            proposal_id=str(uuid.uuid4()),
+            judgment_id=f"situation:{situation_id}",
+            home_id=self.home_id,
+            risk_tier=RiskTier.BREATH,
+            action=CandidateAction(
+                capability=signal.category,
+                action="resolved",
+                params={"__origin__": "safety:resolved"},
+                entity_id=signal.reading.entity_id,
+                category=signal.category,
+            ),
+            rationale="상황 해소(센서 정상 복귀) — 거주자 알림",
+            required_confirmation="none",
+            perishable=True,
+            state="expired",  # 응답 대상이 아니다(영속하지도 않는다)
+            created_at=now,
+            severity=SeverityLevel.NOTICE,
+            situation_id=situation_id,
+        )
+        now_dt = self.clock.now_dt()
+        self._roll_budget(now_dt)
+        ctx = await self._build_context(now_dt)
+        decision, sanitized = self.notifier.notify(notice, ctx, self._budget)
+        if decision != "IMMEDIATE" or sanitized is None:
+            return False
+        if self.transport is not None:
+            try:
+                self.transport.send(self.topic, sanitized)
+            except NtfyError:
+                return False
+        await self.proposals.record_notification(sanitized, now=now)
+        return self.transport is not None
+
+    async def _on_situation_opened(self, situation_id: str, proposal: Proposal) -> None:
+        """새 상황 에피소드의 첫 알림을 보낸 직후 불린다 — 이 상황의 사다리를 시작한다.
+
+        보호자 전달 조건은 상황의 severity_floor(표+거주자, situations 테이블)를
+        본다 — 모델 상향은 그 값을 바꾸지 못한다. 재알림 주기는 최종 파급도다.
+        """
+        await self._arm_ladder(situation_id)
+
+    async def _on_situation_closed(self, situation_id: str) -> None:
+        """상황이 닫힌 직후(거주자 해소 알림 뒤) 불린다.
+
+        사다리를 취소하고, 이미 전달받은 보호자 중 지금도 동의가 유효한 사람에게
+        '해소됨'을 보낸다(전달 기록 kind='resolved'). 이미 닫힌 사다리면 아무것도
+        하지 않는다 — 해소 알림이 두 번 나가지 않게.
+        """
+        ladder = await self.safety.get_ladder(situation_id)
+        if ladder is None or ladder.closed:
+            return
+        await self.safety.update_ladder(
+            situation_id, closed=True, cancelled=True, next_fire_at=None
+        )
+        if not ladder.notified_guardian_ids:
+            return
+        info = await escalation.load_situation(self._db, situation_id)
+        if info is None:  # pragma: no cover - 사다리는 상황 없이 만들 수 없다(방어)
+            return
+        final = await self._final_severity(info)
+        consented = {g.guardian_id: g for g in await self.safety.consented_guardians(self.home_id)}
+        now = self.clock.now_utc()
+        for gid in ladder.notified_guardian_ids:
+            guardian = consented.get(gid)
+            if guardian is None:
+                continue  # 동의를 철회했다 — 더는 보내지 않는다
+            msg = await self._summary_message(info, final, "resolved", at=now)
+            if msg is not None and self._deliver(guardian.topic, msg):
+                await self.safety.record_forward(situation_id, gid, "resolved", now)
+
+    # ------------------------------------------------------------------
+    # 에스컬레이션 사다리(T8) — 정책은 escalation 모듈, 송신·영속은 여기
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _ladder_open(ladder: Ladder) -> bool:
+        return not (ladder.acked or ladder.closed or ladder.cancelled)
+
+    async def _final_severity(self, info: escalation.SituationInfo) -> SeverityLevel:
+        """최종 파급도 = max(상황 하한, 그 상황 제안들의 최대 파급도)."""
+        found = await escalation.final_severity_of(self._db, self.home_id, info.situation_id)
+        if found is None or found < info.severity_floor:
+            return info.severity_floor
+        return found
+
+    async def _first_forward_at(self, situation_id: str) -> datetime | None:
+        """그 상황의 첫 보호자 전달 시각(전달 기록에서). 없으면 None."""
+        times = [
+            f.at
+            for f in await self.safety.list_forwards(self.home_id)
+            if f.situation_id == situation_id and f.kind == "forward"
+        ]
+        return escalation.parse_iso(min(times)) if times else None
+
+    async def _plan_next(
+        self,
+        info: escalation.SituationInfo,
+        final: SeverityLevel,
+        *,
+        stage: int,
+        guidance_sent: bool,
+        retry: bool = False,
+    ) -> str | None:
+        return escalation.to_iso(
+            escalation.next_fire_at(
+                opened=escalation.parse_iso(info.opened_at),
+                final=final,
+                floor=info.severity_floor,
+                realerts_sent=stage,
+                now=self.clock.now_dt(),
+                guidance_sent=guidance_sent,
+                first_forward_at=await self._first_forward_at(info.situation_id),
+                retry=retry,
+            )
+        )
+
+    async def _arm_ladder(self, situation_id: str) -> None:
+        """사다리를 만들거나(없으면) 다음 발화 시각을 다시 잡는다. 여기서는 보내지 않는다.
+
+        RECORD·NOTICE(재알림 없음, 하한도 CRITICAL 아님)는 사다리를 만들지 않는다.
+        """
+        info = await escalation.load_situation(self._db, situation_id)
+        if info is None or info.closed_at is not None:
+            return
+        final = await self._final_severity(info)
+        if not escalation.needs_ladder(final, info.severity_floor):
+            return
+        ladder = await self.safety.get_ladder(situation_id)
+        if ladder is None:
+            nxt = await self._plan_next(info, final, stage=0, guidance_sent=False)
+            await self.safety.create_ladder(situation_id, 0, nxt)
+            return
+        if not self._ladder_open(ladder):
+            return
+        nxt = await self._plan_next(
+            info, final, stage=ladder.stage, guidance_sent=ladder.guidance_119_sent
+        )
+        await self.safety.update_ladder(situation_id, next_fire_at=nxt)
+
+    async def _rearm_ladders(self) -> int:
+        """시작 시 열린 사다리를 DB 에서 다시 무장한다. 무장한 수를 돌려준다.
+
+        상황이 이미 닫혔는데 사다리가 열려 있으면(닫기 직후 프로세스가 죽은 경우)
+        닫기 처리(취소 + 보호자 해소 알림)를 마저 한다.
+        """
+        armed = 0
+        for ladder in await self.safety.list_open_ladders():
+            if ladder.home_id != self.home_id:
+                continue
+            info = await escalation.load_situation(self._db, ladder.situation_id)
+            if info is None or info.closed_at is not None:
+                await self._on_situation_closed(ladder.situation_id)
+                continue
+            await self._arm_ladder(ladder.situation_id)
+            armed += 1
+        if armed:
+            logger.info("re-armed %d open escalation ladder(s)", armed)
+        return armed
+
+    async def ladder_tick(self) -> int:
+        """발화 시각(next_fire_at)이 된 사다리를 처리한다. 처리한 사다리 수를 돌려준다.
+
+        사다리 하나의 실패가 다른 사다리를 막지 않는다(로그만 남긴다).
+        """
+        now_iso = self.clock.now_utc()
+        fired = 0
+        for ladder in await self.safety.list_open_ladders():
+            if ladder.home_id != self.home_id:
+                continue
+            if ladder.next_fire_at is None or ladder.next_fire_at > now_iso:
+                continue
+            try:
+                await self._fire_ladder(ladder.situation_id)
+            except Exception as exc:  # noqa: BLE001 — 루프는 죽지 않는다
+                logger.error("escalation ladder failed: %s", type(exc).__name__, exc_info=exc)
+            fired += 1
+        return fired
+
+    async def _ladder_still_open(self, situation_id: str) -> bool:
+        """송신 직전 재확인 — 그 사이 확인(ack)·해소가 들어왔으면 보내지 않는다."""
+        ladder = await self.safety.get_ladder(situation_id)
+        return ladder is not None and self._ladder_open(ladder)
+
+    async def _fire_ladder(self, situation_id: str) -> None:
+        """사다리 한 번 발화: 밀린 재알림 1회 → (하한 CRITICAL) 보호자 전달 → 119 안내."""
+        ladder = await self.safety.get_ladder(situation_id)
+        if ladder is None or not self._ladder_open(ladder):
+            return
+        info = await escalation.load_situation(self._db, situation_id)
+        if info is None or info.closed_at is not None:
+            await self._on_situation_closed(situation_id)
+            return
+        now_dt = self.clock.now_dt()
+        opened = escalation.parse_iso(info.opened_at)
+        final = await self._final_severity(info)
+
+        stage = ladder.stage
+        due = escalation.realerts_due(opened, final, now_dt)
+        if due > stage:
+            # 공유 연결에서 닫힘이 끼어들었을 수 있다 — 해소 뒤 낡은 재알림 금지.
+            if not await self._ladder_still_open(situation_id):
+                return
+            await self._send_realert(info, final)
+            stage = due  # 재시작 뒤 밀린 재알림은 한 번으로 따라잡는다
+
+        notified = list(ladder.notified_guardian_ids)
+        guidance_sent = ladder.guidance_119_sent
+        retry = False
+        # 보호자 전달·119 안내: 상황 하한(표+거주자)이 CRITICAL 일 때만.
+        if escalation.guardian_path(info.severity_floor):
+            if now_dt >= escalation.forward_due_at(opened) and await self._ladder_still_open(
+                situation_id
+            ):
+                newly, failed = await self._forward_to_guardians(info, final, notified)
+                notified.extend(newly)
+                retry = retry or failed
+            if not guidance_sent:
+                due_119 = escalation.guidance_due_at(
+                    opened, await self._first_forward_at(situation_id)
+                )
+                if now_dt >= due_119 and await self._ladder_still_open(situation_id):
+                    guidance_sent = await self._send_guidance_119(info, final, notified)
+
+        nxt = await self._plan_next(
+            info, final, stage=stage, guidance_sent=guidance_sent, retry=retry
+        )
+        await self.safety.update_ladder(
+            situation_id,
+            stage=stage,
+            next_fire_at=nxt,
+            notified_guardian_ids=notified,
+            guidance_119_sent=guidance_sent,
+        )
+
+    async def _send_realert(self, info: escalation.SituationInfo, final: SeverityLevel) -> bool:
+        """거주자 재알림: 그 상황의 가장 높은 파급도 제안을 다시 보낸다.
+
+        게이트는 escalation.realert_allowed 뿐이다(CRITICAL=헌장 OFF 만, WARNING=헌장
+        OFF·음소거). 링크는 살아 있는 토큰을 그대로 쓴다 — 새로 발급하면 앞선 알림의
+        버튼이 전부 무효가 돼, 첫 알림에서 '괜찮아요'를 눌러도 403 이 된다.
+        """
+        ctx = await self._build_context(self.clock.now_dt())
+        if not escalation.realert_allowed(final, ctx, info.category, info.entity_id):
+            return False
+        pid = await escalation.latest_alert_proposal_id(self._db, self.home_id, info.situation_id)
+        proposal = await self.proposals.get(pid) if pid is not None else None
+        if proposal is None:
+            return False
+        nonce = self._nonce.get(proposal.proposal_id) or self._issue_nonce(proposal.proposal_id)
+        sanitized = self.notifier.sanitize(proposal, nonce)
+        if not self._deliver(self.topic, sanitized):
+            return False
+        await self.proposals.record_notification(sanitized, now=self.clock.now_utc())
+        return True
+
+    async def _forward_to_guardians(
+        self,
+        info: escalation.SituationInfo,
+        final: SeverityLevel,
+        notified: list[str],
+    ) -> tuple[list[str], bool]:
+        """동의가 유효한 보호자 전원(아직 안 받은 사람)에게 동시에 전달한다.
+
+        반환: (이번에 전달된 보호자 id 목록, 실패가 있었는가). 실패한 보호자는 다음
+        발화에서 다시 시도한다. 전달마다 kind='forward' 기록을 남긴다.
+        """
+        newly: list[str] = []
+        failed = False
+        now = self.clock.now_utc()
+        for guardian in await self.safety.consented_guardians(self.home_id):
+            gid = guardian.guardian_id
+            if gid in notified:
+                continue
+            msg = await self._summary_message(
+                info, final, "forward", at=info.opened_at, guardian_id=gid
+            )
+            if msg is not None and self._deliver(guardian.topic, msg):
+                await self.safety.record_forward(info.situation_id, gid, "forward", now)
+                newly.append(gid)
+            else:
+                failed = True
+        return newly, failed
+
+    async def _send_guidance_119(
+        self,
+        info: escalation.SituationInfo,
+        final: SeverityLevel,
+        notified: list[str],
+    ) -> bool:
+        """119 전화 **안내**(번호 문구 + 상황 요약)를 거주자와 전달받은 보호자에게 보낸다.
+
+        전화를 걸거나 신고하지 않는다 — 알림 한 건씩일 뿐이다. 거주자 쪽은 헌장 OFF 를
+        존중하고, 보호자 쪽은 지금도 동의가 유효한 사람만 받는다. 한 곳이라도 나가면
+        kind='guidance_119' 기록 한 줄(보호자 칸 없음). 반환: 이 단계가 끝났는가
+        (모든 송신이 실패했으면 False → 재시도).
+        """
+        delivered = False
+        failed = False
+        ctx = await self._build_context(self.clock.now_dt())
+        if ctx.charter_enabled:
+            msg = await self._summary_message(info, final, "guidance_119", at=info.opened_at)
+            if msg is not None and self._deliver(self.topic, msg):
+                delivered = True
+            else:
+                failed = True
+        consented = {g.guardian_id: g for g in await self.safety.consented_guardians(self.home_id)}
+        for gid in notified:
+            guardian = consented.get(gid)
+            if guardian is None:
+                continue  # 철회했다 — 더는 보내지 않는다
+            msg = await self._summary_message(
+                info, final, "guidance_119", at=info.opened_at, guardian_id=gid
+            )
+            if msg is not None and self._deliver(guardian.topic, msg):
+                delivered = True
+            else:
+                failed = True
+        if delivered:
+            await self.safety.record_forward(
+                info.situation_id, None, "guidance_119", self.clock.now_utc()
+            )
+        return delivered or not failed
+
+    async def _summary_message(
+        self,
+        info: escalation.SituationInfo,
+        final: SeverityLevel,
+        kind: escalation.MessageKind,
+        *,
+        at: str,
+        guardian_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """상황 요약 알림을 만들어 egress 로 정제한다. 정제가 거부하면 None.
+
+        집 별칭이 PII 스캔에 걸리면 기본 별칭으로 한 번 더 시도한다 — 별칭 때문에
+        보호자 알림이 통째로 막히면 안전이 조용해진다. 확인 링크는 보호자 전달과
+        보호자 119 안내에만 싣는다(해소 알림·거주자 안내는 링크 없음).
+        """
+        settings = await self.safety.get_home_settings(self.home_id)
+        with_link = guardian_id if kind != "resolved" else None
+        for alias in dict.fromkeys((settings.home_alias, DEFAULT_HOME_ALIAS)):
+            payload = self.notifier.build_guardian_payload(
+                situation_label=escalation.message_label(info.category, kind),
+                home_alias=alias,
+                at=at,
+                # 해소 알림은 NOTICE(주의) — 상황의 최종 파급도로 다시 깨우지 않는다.
+                severity=SeverityLevel.NOTICE if kind == "resolved" else final,
+                situation_id=info.situation_id if with_link else None,
+                guardian_id=with_link,
+            )
+            try:
+                return self.notifier.sanitize_summary(payload, trace_id=info.situation_id)
+            except EgressViolation:
+                logger.warning("summary payload rejected by egress (kind=%s)", kind)
+        return None
+
+    def _deliver(self, topic: str, sanitized: dict[str, Any]) -> bool:
+        """정제된 알림 한 건을 보낸다. 보냈으면 True.
+
+        토픽은 보호자의 비밀일 수 있어 로그에 남기지 않는다(예외 메시지도 남기지 않는다).
+        transport 가 없으면(sanitize-only) 배달이 없으므로 False.
+        """
+        if self.transport is None:
+            return False
+        try:
+            self.transport.send(topic, sanitized)
+        except NtfyError as exc:
+            logger.warning("escalation send failed: %s", type(exc).__name__)
+            return False
+        return True
+
+    async def _ack_situation(self, situation_id: str, by: str) -> bool:
+        """그 상황의 사다리를 확인(ack)으로 멈춘다. 멈췄으면 True(이미 멈췄으면 False)."""
+        ladder = await self.safety.get_ladder(situation_id)
+        if ladder is None or ladder.home_id != self.home_id or not self._ladder_open(ladder):
+            return False
+        await self.safety.update_ladder(
+            situation_id,
+            acked=True,
+            acked_by=by,
+            acked_at=self.clock.now_utc(),
+            next_fire_at=None,
+        )
+        return True
+
+    async def _handle_guardian_ack(self, sid: str, gid: str, sig: str) -> tuple[str, str]:
+        """보호자 확인 링크(GET /guardian-ack?s=&g=&sig=). 알림 열기는 이 경로가 아니다.
+
+        서명(보호자별 HMAC)이 맞고, 그 보호자가 이 상황을 전달받았고, 지금도 동의가
+        유효해야 한다. 확인은 멱등이다.
+        """
+        if not (sid and gid and verify_guardian_ack_sig(self._secret, sid, gid, sig)):
+            return "403 Forbidden", "invalid signature"
+        ladder = await self.safety.get_ladder(sid)
+        if ladder is None or ladder.home_id != self.home_id:
+            return "404 Not Found", "no such situation"
+        if gid not in ladder.notified_guardian_ids:
+            return "403 Forbidden", "not forwarded to this guardian"
+        consented = {g.guardian_id for g in await self.safety.consented_guardians(self.home_id)}
+        if gid not in consented:
+            return "403 Forbidden", "consent revoked"
+        if not self._ladder_open(ladder):
+            return "200 OK", "ok: already acknowledged"
+        await self._ack_situation(sid, f"guardian:{gid}")
+        return "200 OK", "ok: acknowledged"
+
+    async def _ack_only_click(
+        self, proposal: Proposal, tier: str, sig: str, key: str, nonce: str
+    ) -> bool:
+        """살아 있지 않은 제안(만료 등)의 재알림 링크를 확인 전용으로 받는다.
+
+        제안 만료는 사다리를 취소하지 않으므로, 재알림은 만료된 제안으로도 나간다.
+        그 링크의 응답은 상태를 바꾸지 않고(만료 그대로) 사다리만 멈춘다. 서명은
+        피드백과 똑같이 검증한다(action·nonce 바인딩).
+        """
+        if proposal.situation_id is None or key not in FeedbackGateway._ACTION_ALIASES:
+            return False
+        if not verify_feedback_sig(self._secret, proposal.proposal_id, tier, key, sig, nonce):
+            return False
+        return await self._ack_situation(proposal.situation_id, "resident")
+
+    async def _ladder_loop(
+        self,
+        resolution_s: float = escalation.LADDER_RESOLUTION_S,
+        max_iterations: int | None = None,
+    ) -> None:
+        """300초 틱과 별개인 사다리 루프. resolution_s 마다 DB 의 발화 시각을 본다."""
+        n = 0
+        while True:
+            try:
+                await self.ladder_tick()
+            except Exception as exc:  # noqa: BLE001 — 사다리 루프는 죽지 않는다
+                logger.error("escalation ladder tick failed: %s", type(exc).__name__)
+            n += 1
+            if max_iterations and n >= max_iterations:
+                return
+            await asyncio.sleep(resolution_s)
+
+    async def _save_last_judgment(self) -> None:
+        """앱이 직전 진입에서 만든 판단을 judgments 에 한 행으로 남긴다(1회만)."""
+        judgment: Judgment | None = self.app.last_judgment
+        if judgment is None:
+            return
+        self.app.last_judgment = None  # 같은 판단을 두 번 저장하지 않는다
+        await self.safety.save_judgment(judgment)
 
     async def run_tick(self) -> DispatchResult | None:
         """능동 틱 1회 + 만료 스윕. 능동 제안이 나오면 디스패치.
@@ -390,12 +1125,14 @@ class LiotService:
         틱 후에 후보 평가 결과(무행동 선택 포함)를 candidate_evaluations 로
         영속한다 — 어떤 후보들이 점수화됐고 왜 그 선택이었는지가 남는다.
         """
+        await self.start()
         await self.proposals.expire_due()
         await self._apply_expired_signals()  # 만료 = 약한 비선호 신호
         await self._sweep_nonces()
         await self._refresh_feedback()
         await self._load_pref_cells()  # 영속 선호 셀 → 임베더(개인화 반영)
         proposal = await self.app.tick()
+        await self._save_last_judgment()  # 컴포트 판단도 저장(억제된 판단 포함)
         await self._record_evaluation()
         if proposal is None:
             return None
@@ -570,20 +1307,29 @@ class LiotService:
         tick_seconds: float = 300.0,
         max_events: int | None = None,
         max_ticks: int | None = None,
+        ladder_resolution_s: float = escalation.LADDER_RESOLUTION_S,
     ) -> None:
-        """상시 데몬: HA 스트림 소비 + 주기 틱을 동시에 굴린다.
+        """상시 데몬: HA 스트림 소비 + 주기 틱 + 사다리 루프를 동시에 굴린다.
 
         bridge 가 None 이면 능동 틱만(센서 스트림 없이) 돈다. max_events/
-        max_ticks 는 테스트용 경계(미지정 시 무한).
+        max_ticks 는 테스트용 경계(미지정 시 무한). 사다리 루프(ladder_resolution_s
+        해상도)는 틱과 별개로 돌고, 틱·스트림이 끝나면 함께 멈춘다.
         """
+        await self.start()
         tasks = [asyncio.create_task(self._tick_loop(tick_seconds, max_ticks))]
         if bridge is not None:
             tasks.append(asyncio.create_task(self._stream_loop(bridge, max_events)))
+        ladder_task = asyncio.create_task(self._ladder_loop(ladder_resolution_s))
         try:
             await asyncio.gather(*tasks)
         finally:
             for t in tasks:
                 t.cancel()
+            ladder_task.cancel()
+            await asyncio.gather(ladder_task, return_exceptions=True)
+            # 남은 2단계 판정을 DB 가 닫히기 전에 마무리한다(호출자가 run 뒤에 DB 를
+            # 닫는다). 각 태스크의 자체 마감 + 여유 1초를 넘기면 취소한다.
+            await self.drain_phase2(timeout=self._phase2_deadline() + 1.0)
 
     async def _stream_loop(self, bridge: HABridge, max_events: int | None) -> None:
         n = 0
@@ -639,6 +1385,11 @@ class LiotService:
         if len(parts) < 2 or parts[0] != "GET":
             return "405 Method Not Allowed", "GET only"
         split = urlsplit(parts[1])
+        if split.path == "/guardian-ack":
+            gq = parse_qs(split.query)
+            return await self._handle_guardian_ack(
+                gq.get("s", [""])[0], gq.get("g", [""])[0], gq.get("sig", [""])[0]
+            )
         if split.path != "/feedback":
             return "404 Not Found", "not found"
         q = parse_qs(split.query)
@@ -668,7 +1419,11 @@ class LiotService:
         if current is None:
             return "404 Not Found", "no such proposal"
         if not self._nonce_is_live(pid, current.state, current.expires_at):
+            # 예외 하나: 만료된 상황 제안의 재알림 링크는 사다리 확인으로만 받는다.
+            acked = await self._ack_only_click(current, tier, sig, key, nonce)
             self._drop_nonce(pid)
+            if acked:
+                return "200 OK", "ok: acknowledged"
             return "403 Forbidden", "expired link"
 
         try:
@@ -679,6 +1434,9 @@ class LiotService:
             return "403 Forbidden", "invalid signature or action"
         if proposal is None:
             return "404 Not Found", "no such proposal"
+        # 거주자의 명시 응답(수락·거절·스누즈·괜찮아요 등)은 그 상황의 사다리를 멈춘다.
+        if proposal.situation_id is not None:
+            await self._ack_situation(proposal.situation_id, "resident")
 
         # 소비: 이 링크는 여기서 끝난다. 2차 확인이 필요하면 _on_approved 가
         # 새 nonce 를 발급해 별도 알림으로 내보낸다.

@@ -221,3 +221,58 @@ def test_scan_reaches_modules_outside_the_execution_layer(
     with pytest.raises(InvariantError, match="PlantedExecutor"):
         assert_executor_confined("probe_scope",
                                  sanctioned_module="probe_scope.layers.executor")
+
+
+# ── 원탭 예외(T4)의 검사기 — 예외가 상수 밖으로 새면 잡는다 ────────────────
+def test_execution_gate_catches_one_tap_outside_safety_executable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """원탭 상수가 실행 허용(SAFETY_EXECUTABLE)의 부분집합이 아니면 위반이다."""
+    from liot.layers.l4_execution import executor as ex
+
+    monkeypatch.setattr(ex, "ONE_TAP_SAFE_ACTIONS", frozenset({("oven", "turn_off")}))
+    with pytest.raises(InvariantError, match="부분집합"):
+        assert_execution_gated()
+
+
+def test_execution_gate_catches_single_confirm_outside_one_tap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """원탭 밖의 안전 행동이 단일 확인(CONFIRM)으로 결정되면 위반이다.
+
+    AUTO 만 보는 기존 검사로는 이 완화가 안 보인다(CONFIRM 은 AUTO 가 아니다).
+    """
+    from liot.layers.l4_execution import executor as ex
+
+    class _StubPolicy:
+        def __init__(self, *, enabled: bool = False, extra_executable: object = None):
+            self.enabled = enabled
+
+        def decide(self, action: object, tier: object) -> object:
+            return ex.ExecDecision.CONFIRM if self.enabled else ex.ExecDecision.NOTIFY_ONLY
+
+    monkeypatch.setattr(ex, "ExecutionPolicy", _StubPolicy)
+    with pytest.raises(InvariantError, match="원탭 밖"):
+        assert_execution_gated()
+
+
+def test_execution_gate_catches_router_exception_leaking_to_alert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """라우터의 원탭 예외가 상황 알림(alert)까지 번지면 위반이다(안전이 조용해짐)."""
+    from liot.layers.l4_execution import risk_router as rr
+
+    monkeypatch.setattr(rr, "is_one_tap_safe", lambda action: True)
+    with pytest.raises(InvariantError, match="원탭 예외"):
+        assert_execution_gated()
+
+
+def test_execution_gate_catches_router_dropping_the_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """라우터가 원탭 두 쌍에 light 를 못 내면(예외 소실) 그것도 검사기가 본다."""
+    from liot.layers.l4_execution import risk_router as rr
+
+    monkeypatch.setattr(rr, "is_one_tap_safe", lambda action: False)
+    with pytest.raises(InvariantError, match="원탭"):
+        assert_execution_gated()

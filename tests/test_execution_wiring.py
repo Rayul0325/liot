@@ -4,7 +4,8 @@
   - 비활성(기본): AUTO 대상이라도 실행 안 함(제안-만 유지).
   - AUTO: 비안전 ≤BREATH 는 dispatch 에서 즉시 실행.
   - CONFIRM(DUSK): dispatch 보류 → 승인 후 실행.
-  - DOUBLE_CONFIRM(EMBER/안전): 1차 보류 → 2차 승인에서 실행.
+  - DOUBLE_CONFIRM(EMBER): 1차 보류 → 2차 승인에서 실행.
+  - 원탭(T4): 안전한 방향 안전 조치(valve.close·lock.lock)는 EMBER 그대로 승인 1회로 실행.
   - undo: 자동 실행 후 서명된 되돌리기로 복원.
 """
 
@@ -115,17 +116,72 @@ async def test_dusk_defers_until_approval():
         await db.close()
 
 
-# ── DOUBLE_CONFIRM(안전 lock): 1차 보류 → 2차 실행 ─────────────────────
-async def test_safety_double_confirm():
+def _double_confirm_proposal(entity: str = "light.living_room") -> Proposal:
+    """이중확인(DOUBLE_CONFIRM) 장치를 시험할 운반체 — 비안전 EMBER 컴포트.
+
+    예전엔 안전 lock.lock 이 이 운반체였지만, T4 부터 lock.lock·valve.close 는
+    원탭(단일 확인)이다. 1회용 nonce·2차 링크·창·스윕 같은 이중확인 장치는 그대로
+    살아 있고(비안전 EMBER 가 그 경로를 탄다), 그 검증이 사라지지 않게 운반체만 바꾼다.
+    """
+    return _proposal("light", "turn_on", "light", RiskTier.EMBER, entity)
+
+
+# ── DOUBLE_CONFIRM(비안전 EMBER): 1차 보류 → 2차 실행 ──────────────────
+async def test_ember_comfort_double_confirm():
     svc, fx, db = await _service(enabled=True)
     try:
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         res = await svc.dispatch(prop)
-        assert res.executed is False  # 안전은 절대 자동 아님
+        assert res.executed is False  # EMBER 는 자동 아님
         first = await _approve(svc, prop)
         assert "1/2" in first and fx.executed == []  # 1차는 보류
         second = await _approve(svc, prop)
         assert "2/2" in second and len(fx.executed) == 1
+    finally:
+        await db.close()
+
+
+# ── 원탭(T4): 안전한 방향 안전 조치는 승인 1회로 실행 ──────────────────
+@pytest.mark.parametrize(
+    "cap,act,category,entity",
+    [
+        pytest.param("valve", "close", "gas", "switch.gas_valve", id="valve.close"),
+        pytest.param("lock", "lock", "lock", "lock.front_door", id="lock.lock"),
+    ],
+)
+async def test_one_tap_safe_action_executes_on_a_single_approval(cap, act, category, entity):
+    """밸브 잠그기·현관 잠그기는 EMBER 그대로, 탭 한 번으로 실행된다.
+
+    dispatch 에서 자동 실행되지는 않고(안전 자동 금지 유지), 2차 확인 대기도,
+    2차 알림 발송도 없다.
+    """
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal(cap, act, category, RiskTier.EMBER, entity)
+        res = await svc.dispatch(prop)
+        assert res.executed is False and fx.executed == []  # 안전은 절대 자동 아님
+        sent_before = len(svc.transport.sent)
+        body = await _approve(svc, prop)
+        assert "executed" in body and "1/2" not in body, body
+        assert len(fx.executed) == 1 and fx.executed[0].entity_id == entity
+        assert prop.proposal_id not in svc._awaiting_second  # 2차 대기 없음
+        assert len(svc.transport.sent) == sent_before  # 2차 확인 알림도 없음
+    finally:
+        await db.close()
+
+
+async def test_one_tap_link_is_still_single_use():
+    """원탭이어도 링크는 1회용 — 같은 수락 링크를 재생하면 403, 두 번 실행되지 않는다."""
+    svc, fx, db = await _service(enabled=True)
+    try:
+        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        await svc.dispatch(prop)
+        nonce = _delivered_nonce(svc)
+        status, body = await _click(svc, prop, "accept", nonce)
+        assert "200" in status and "executed" in body
+        replay_status, _ = await _click(svc, prop, "accept", nonce)
+        assert "403" in replay_status
+        assert len(fx.executed) == 1
     finally:
         await db.close()
 
@@ -169,7 +225,7 @@ async def test_replayed_accept_cannot_satisfy_double_confirm():
     """
     svc, fx, db = await _service(enabled=True)
     try:
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         await svc.dispatch(prop)
 
         # 공격자가 알림에서 수락 링크를 그대로 캡처했다고 가정한다.
@@ -197,7 +253,7 @@ async def test_second_confirmation_uses_a_freshly_issued_link():
     """2차 확인은 새 nonce 를 가진 별도 알림으로만 온다(1차 링크로는 불가)."""
     svc, fx, db = await _service(enabled=True)
     try:
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         await svc.dispatch(prop)
         first_nonce = svc._nonce[prop.proposal_id]
         sent_before = len(svc.transport.sent)
@@ -246,7 +302,7 @@ async def test_second_confirmation_link_survives_a_tick():
     """
     svc, fx, db = await _service(enabled=True)
     try:
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         await svc.dispatch(prop)
         status, first = await _click(svc, prop, "accept", _delivered_nonce(svc))
         assert "200" in status and "1/2" in first and fx.executed == []
@@ -265,7 +321,7 @@ async def test_sweep_still_revokes_second_link_once_proposal_is_superseded():
     """2차 대기라도 제안이 accepted 를 벗어나면(대체·만료) 링크는 회수된다."""
     svc, fx, db = await _service(enabled=True)
     try:
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         await svc.dispatch(prop)
         await _click(svc, prop, "accept", _delivered_nonce(svc))
         second_nonce = _delivered_nonce(svc)
@@ -293,7 +349,7 @@ async def test_second_confirmation_send_failure_is_reported_and_retryable():
     try:
         transport = svc.transport
         assert isinstance(transport, FakeNtfyTransport)
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         await svc.dispatch(prop)
         first_nonce = _delivered_nonce(svc)
 
@@ -329,7 +385,7 @@ async def test_undelivered_second_confirmation_never_lets_first_link_execute():
     try:
         transport = svc.transport
         assert isinstance(transport, FakeNtfyTransport)
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         await svc.dispatch(prop)
         first_nonce = _delivered_nonce(svc)
 
@@ -382,7 +438,7 @@ async def test_non_ascii_link_fields_are_403_for_live_and_unknown_pid_alike(fiel
     """
     svc, fx, db = await _service(enabled=True)
     try:
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         await svc.dispatch(prop)
         nonce = _delivered_nonce(svc)
         tier_int = int(prop.risk_tier)
@@ -417,7 +473,7 @@ async def test_old_signature_cannot_ride_a_freshly_issued_nonce():
     """
     svc, fx, db = await _service(enabled=True)
     try:
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         await svc.dispatch(prop)
         tier_int = int(prop.risk_tier)
         first_nonce = _delivered_nonce(svc)
@@ -451,7 +507,7 @@ async def test_second_confirmation_link_dies_after_the_window():
     """
     svc, fx, db = await _service(enabled=True)
     try:
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         await svc.dispatch(prop)
         first = _delivered_nonce(svc)
         assert "1/2" in (await _click(svc, prop, "accept", first))[1]
@@ -473,7 +529,7 @@ async def test_second_confirmation_link_still_works_inside_the_window():
     """창 안에서는(그리고 틱이 돌아도) 2차 링크가 그대로 실행된다."""
     svc, fx, db = await _service(enabled=True)
     try:
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         await svc.dispatch(prop)
         assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
         second = _delivered_nonce(svc)
@@ -491,7 +547,7 @@ async def test_second_confirmation_link_dies_when_the_proposal_expires():
     """제안의 expires_at 이 지나면 창이 남아 있어도 2차 링크는 죽는다."""
     svc, fx, db = await _service(enabled=True)
     try:
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         prop = prop.model_copy(update={"expires_at": "2026-06-02T12:05:00+00:00"})
         await svc.dispatch(prop)
         assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
@@ -509,7 +565,7 @@ async def test_sweep_drops_the_dead_second_confirmation_link(monkeypatch):
     """스윕도 같은 상한으로 죽은 2차 토큰을 버린다(클릭 없이도 정리된다)."""
     svc, fx, db = await _service(enabled=True)
     try:
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         await svc.dispatch(prop)
         assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
         pid = prop.proposal_id
@@ -536,7 +592,7 @@ async def test_dismiss_after_first_confirmation_leaves_no_marker():
     svc, fx, db = await _service(enabled=True)
     try:
         for i in range(3):
-            prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, f"lock.door_{i}")
+            prop = _double_confirm_proposal(f"light.room_{i}")
             await svc.dispatch(prop)
             assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
             status, _ = await _click(svc, prop, "dismiss", _delivered_nonce(svc))
@@ -552,7 +608,7 @@ async def test_sweep_prunes_a_marker_left_without_a_nonce():
     """토큰 없이 표식만 남은 pid 도 스윕이 정리한다(자기교정)."""
     svc, fx, db = await _service(enabled=True)
     try:
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         await svc.dispatch(prop)
         assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
         # 토큰만 사라지고 표식이 남은 상태를 인위적으로 만든다(옛 결함의 잔재 형태).
@@ -565,15 +621,18 @@ async def test_sweep_prunes_a_marker_left_without_a_nonce():
         await db.close()
 
 
-# ── 출하 카탈로그에는 '한 번 확인으로 실행되는' 쌍이 없다 ────────────────
-def test_shipped_catalog_has_no_single_confirm_executable_pair():
-    """CONFIRM(단일 확인 → 실행) 등급의 출하 조합이 0 임을 고정한다.
+# ── 출하 카탈로그에서 '한 번 확인으로 실행되는' 쌍은 원탭 안전 조치뿐이다 ──
+def test_shipped_catalog_single_confirm_pairs_are_only_the_one_tap_safe_actions():
+    """CONFIRM(단일 확인 → 실행) 등급의 출하 조합이 원탭 두 쌍뿐임을 고정한다.
 
     2026-09-13 리뷰: 이벤트(반응) 제안은 만료가 없어 그 링크가 영원히 유효하다.
     그 자체로 실행까지 가려면 '비안전 카테고리 + DUSK + 컴포트 화이트리스트' 조합이
     필요하고, 출하 카탈로그에는 그런 쌍이 없다(cover.garage 는 door=안전 카테고리라
     NOTIFY_ONLY). 카탈로그 편집으로 이 성질이 깨지면 여기서 빨개진다 — 그때는
     '영원히 유효한 링크'가 곧바로 단일 클릭 실행 경로가 된다.
+
+    T4 의 유일한 명시 예외: 안전한 방향 안전 조치(밸브 잠그기·현관 잠그기)는
+    ONE_TAP_SAFE_ACTIONS 로 단일 확인이다. 그 둘 말고 단일 확인 쌍이 생기면 빨개진다.
     """
     from liot.core.contracts import CandidateAction
     from liot.layers.l4_execution.device_catalog import load_device_catalog
@@ -589,7 +648,10 @@ def test_shipped_catalog_has_no_single_confirm_executable_pair():
         )
         if policy.decide(candidate, row["tier"]) is ExecDecision.CONFIRM:
             confirm_pairs.append((row["entity_id"], row["capability"], row["action"]))
-    assert confirm_pairs == [], f"단일 확인으로 실행되는 출하 조합이 생겼다: {confirm_pairs}"
+    assert sorted(confirm_pairs) == [
+        ("lock.front_door", "lock", "lock"),
+        ("switch.gas_valve", "valve", "close"),
+    ], f"원탭 밖의 단일 확인 실행 조합이 생겼다: {confirm_pairs}"
 
 
 # ── 서비스 기본값·되돌리기 결과(2026-09-16 야간 스윕 2라운드) ────────────
@@ -670,7 +732,7 @@ async def test_execution_failure_is_reported_as_failure():
 
     svc, fx, db = await _service(enabled=True, fail=True)  # 실행이 실패하는 실행기
     try:
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         await svc.dispatch(prop)
         assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
         _status, body = await _click(svc, prop, "accept", _delivered_nonce(svc))
@@ -724,7 +786,7 @@ async def test_second_confirmation_without_transport_still_advances():
         fx = FakeExecutor()
         svc = LiotService(app, db, clock=clock, transport=None, topic="liot-test",
                           secret=SECRET, executor=fx, policy=ExecutionPolicy(enabled=True))
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         await svc.dispatch(prop)
         nonce = svc._nonce[prop.proposal_id]
         _s, body = await _click(svc, prop, "accept", nonce)
@@ -823,7 +885,7 @@ async def test_second_link_survives_a_future_expiry_and_dies_exactly_at_it():
     """
     svc, fx, db = await _service(enabled=True)
     try:
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         prop = prop.model_copy(update={"expires_at": "2026-06-02T12:10:00+00:00"})
         await svc.dispatch(prop)
         assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
@@ -845,7 +907,7 @@ async def test_second_confirm_window_boundary_is_inclusive():
     """창 경계(정확히 15분)까지는 살아 있고, 그 다음 순간 죽는다."""
     svc, fx, db = await _service(enabled=True)
     try:
-        prop = _proposal("lock", "lock", "lock", RiskTier.EMBER, "lock.front_door")
+        prop = _double_confirm_proposal()
         await svc.dispatch(prop)
         assert "1/2" in (await _click(svc, prop, "accept", _delivered_nonce(svc)))[1]
         pid = prop.proposal_id

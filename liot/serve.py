@@ -50,11 +50,24 @@ class FeedbackServing(Protocol):
     ) -> asyncio.AbstractServer: ...
 
 __all__ = [
+    "DEFAULT_DB_PATH",
+    "resolve_db_path",
     "feedback_block_reason",
     "open_feedback_endpoint",
     "resolve_notify_secret",
     "main",
 ]
+
+
+# SQLite 기본 경로의 단일 원천. 데몬과 데모 서버(liot.demo_server)가 같은 DB 를
+# 보려면 기본값이 한 곳에만 있어야 한다 — 양쪽에 따로 적어 두면 한쪽만 바뀌어
+# 관제실에서 입력한 거주자·보호자·동의가 데몬에 안 보이는 일이 조용히 생긴다.
+DEFAULT_DB_PATH = "liot.db"
+
+
+def resolve_db_path() -> str:
+    """LIOT_DB_PATH 를 읽어 정규화한다. 미설정·빈 값·공백이면 DEFAULT_DB_PATH."""
+    return os.environ.get("LIOT_DB_PATH", "").strip() or DEFAULT_DB_PATH
 
 
 def resolve_notify_secret(raw: str | None) -> str:
@@ -124,7 +137,7 @@ async def open_feedback_endpoint(
 
 async def _amain() -> int:
     home_id = os.environ.get("LIOT_HOME_ID", "singleton").strip() or "singleton"
-    db_path = os.environ.get("LIOT_DB_PATH", "liot.db").strip() or "liot.db"
+    db_path = resolve_db_path()
     tick_seconds = float(os.environ.get("LIOT_TICK_SECONDS", "300") or "300")
     secret = resolve_notify_secret(os.environ.get("LIOT_NOTIFY_SECRET"))
     topic = os.environ.get("LIOT_NTFY_TOPIC", "liot").strip() or "liot"

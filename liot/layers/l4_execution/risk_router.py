@@ -12,8 +12,15 @@ Phase1 불변식: **실행 호출 절대 금지**. 이 모듈은 Judgment 를 �
     조건 B(위험도 차등 = risk_tier.required_confirmation)이며, 어떤 정책도
     티어 기준선보다 **약한** 확인을 낼 수 없다(개입 하한 — 위반 시
     InvariantError). 조건 A/B 는 여기(L4)서만 갈리고 L2 선택은 동일하다.
+  * **원탭 예외(T4, 유일)**: EMBER 이면서 ``ONE_TAP_SAFE_ACTIONS``(밸브 잠그기·
+    현관 잠그기)인 제안은 확인 강도를 ``light``(탭 1회)로 낸다. 위험도는 EMBER
+    그대로다(강등 없음 — 알림 우회 권한 유지). 조건 분기 *아래*에서 적용하므로
+    조건 A/B 모두 똑같이 light 다(안전 경로는 A/B 동일). 이 예외에서도 하한은
+    있다 — 정책이 light 보다 약한 확인을 내면 여전히 InvariantError.
   * 카탈로그 위험도가 Judgment 위험도보다 높으면 **승격만**(escalate_only).
     이는 안전 방향(강등 불가, 불변식 5)으로만 작동한다.
+  * 파급도(severity)·상황 id(situation_id)는 Judgment 값을 그대로 옮긴다
+    (라우터는 파급도를 계산하지도 바꾸지도 않는다). 파급도 없는 판단은 None.
 """
 
 from __future__ import annotations
@@ -23,8 +30,9 @@ from typing import TYPE_CHECKING
 
 from liot.core.contracts import Judgment, Proposal
 from liot.core.invariants import InvariantError, assert_monotonic
-from liot.core.risk import escalate_only
+from liot.core.risk import RiskTier, escalate_only
 
+from .executor import is_one_tap_safe
 from .intervention import CONFIRMATION_ORDER, InterventionPolicy, TieredIntervention
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -32,7 +40,10 @@ if TYPE_CHECKING:  # pragma: no cover
 
     from .device_catalog import DeviceCatalog
 
-__all__ = ["RiskRouter", "route"]
+__all__ = ["ONE_TAP_CONFIRMATION", "RiskRouter", "route"]
+
+# 원탭 예외 대상(ONE_TAP_SAFE_ACTIONS)의 확인 강도이자, 그 예외의 하한.
+ONE_TAP_CONFIRMATION = "light"
 
 
 class RiskRouter:
@@ -91,11 +102,18 @@ class RiskRouter:
         # 개입 하한: 정책이 티어 기준선보다 약한 확인을 내면 불변식 위반.
         required = self._intervention.confirmation_for(risk_tier)
         baseline = risk_tier.required_confirmation
+        # 원탭 예외(유일): EMBER 의 밸브 잠그기·현관 잠그기만 하한을 light 로 둔다.
+        # 조건(A/B) 정책 결과 *다음*에 적용 — 두 조건 모두 같은 light 가 된다.
+        one_tap = risk_tier == RiskTier.EMBER and is_one_tap_safe(judgment.action)
+        if one_tap:
+            baseline = ONE_TAP_CONFIRMATION
         if CONFIRMATION_ORDER.get(required, -1) < CONFIRMATION_ORDER[baseline]:
             raise InvariantError(
                 f"intervention policy weakened confirmation below tier baseline: "
                 f"{required!r} < {baseline!r} (tier={risk_tier.name})"
             )
+        if one_tap:
+            required = ONE_TAP_CONFIRMATION
 
         return Proposal(
             proposal_id=str(uuid.uuid4()),
@@ -109,6 +127,8 @@ class RiskRouter:
             expires_at=expires_at,
             state="pending",
             created_at=created_at,
+            severity=judgment.severity,
+            situation_id=judgment.situation_id,
         )
 
     def _now(self) -> str:

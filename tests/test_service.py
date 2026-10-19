@@ -99,9 +99,13 @@ async def test_safety_proposal_sent_immediately_sanitized(tmp_path) -> None:
         assert len(transport.sent) == 1
         topic, payload = transport.sent[0]
         assert topic == "liot-test"
+        # 상황 알림은 파급도 라벨(severity_label)만 덧붙는다(spec §8·§11, T7 부터
+        # 서비스 경로의 안전 제안이 파급도를 싣는다). 그 외 키는 예전 그대로.
         assert set(payload) <= {
-            "channel", "proposal_id", "risk_tier", "glyph", "label", "signed_deeplink", "topic"
+            "channel", "proposal_id", "risk_tier", "glyph", "label", "signed_deeplink", "topic",
+            "severity_label",
         }
+        assert payload["severity_label"] == "위험"
         for leaked in ("device", "room", "rationale", "entity_id", "action", "category"):
             assert leaked not in payload
         # DB 영속 확인.

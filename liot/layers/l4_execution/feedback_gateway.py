@@ -28,6 +28,7 @@ __all__ = [
     "compare_token",
     "verify_deeplink_sig",
     "verify_feedback_sig",
+    "verify_guardian_ack_sig",
 ]
 
 
@@ -96,6 +97,20 @@ def verify_feedback_sig(
     return compare_token(expected, sig)
 
 
+def verify_guardian_ack_sig(
+    secret: bytes, situation_id: str, guardian_id: str, sig: str
+) -> bool:
+    """보호자 확인 링크 서명 검증(notifier.sign_guardian_ack 규약, 상수 시간 비교).
+
+    보호자마다 서명이 다르므로, 한 보호자의 링크에서 g= 만 바꿔 다른 보호자로
+    확인할 수 없다. 비-ASCII 입력은 예외 대신 불일치(compare_token).
+    """
+    from .notifier import sign_guardian_ack  # 순환 import 회피(지연 import)
+
+    expected = sign_guardian_ack(secret, situation_id, guardian_id)
+    return compare_token(expected, sig)
+
+
 class FeedbackGateway:
     """서명 검증 + ProposalService.apply_feedback 연결."""
 
@@ -108,6 +123,9 @@ class FeedbackGateway:
         "reject": "dismissed",
         "snooze": "snoozed",
         "stop": "stop",
+        # '괜찮아요' — 그 상황의 사다리만 멈춘다. 제안 상태도 선호 학습 신호도 없다
+        # (ProposalService 매핑이 None = 상태 전이 없음).
+        "ok": "ok",
     }
 
     def __init__(self, secret: bytes | str, proposal_service: ProposalService) -> None:
