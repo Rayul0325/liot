@@ -42,9 +42,12 @@ __all__ = [
     "DecisionTransport",
     "HTTPDecisionTransport",
     "DecisionBackend",
+    "DECISION_SYSTEM",
     "EvidenceBuilder",
     "SEVERITY_QUESTION",
     "TIER_QUESTION",
+    "argmax_option",
+    "option_prompt",
     "read_option_probs",
     "build_decision_backend",
 ]
@@ -240,6 +243,26 @@ def _argmax(probs: dict[str, float]) -> str:
     return best
 
 
+def option_prompt(question: _Question, evidence: str) -> str:
+    """4지선다 사용자 턴(JSON): 증거·기준·글자 붙은 선택지. 다른 글자 판독기(luna 그림자)도 쓴다."""
+    return json.dumps(
+        {
+            "evidence": evidence,
+            "criterion": question.criterion,
+            "options": [
+                {"letter": letter, "description": f"{oid} — {desc}"}
+                for letter, (oid, desc) in zip(_LETTERS, question.options, strict=True)
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+
+# 다른 글자 판독기가 같은 고정 지시와 같은 argmax 규칙을 쓰도록 공개한다.
+DECISION_SYSTEM = _SYSTEM
+argmax_option = _argmax
+
+
 def _summary(probs: dict[str, dict[str, float]]) -> str:
     return "; ".join(
         f"{qid} " + "/".join(f"{oid} {p:.2f}" for oid, p in opts.items())
@@ -273,18 +296,7 @@ class DecisionBackend:
         return self._evidence_builder.build(candidate, ctx, gate1_floor)
 
     def _ask(self, question: _Question, evidence: str) -> dict[str, float]:
-        user = json.dumps(
-            {
-                "evidence": evidence,
-                "criterion": question.criterion,
-                "options": [
-                    {"letter": letter, "description": f"{oid} — {desc}"}
-                    for letter, (oid, desc) in zip(_LETTERS, question.options, strict=True)
-                ],
-            },
-            ensure_ascii=False,
-        )
-        content = _TURN.format(system=_SYSTEM, user=user)
+        content = _TURN.format(system=_SYSTEM, user=option_prompt(question, evidence))
         tok = self.transport.post(
             "/tokenize",
             {"content": content, "add_special": False, "parse_special": True},

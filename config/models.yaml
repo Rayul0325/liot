@@ -1,0 +1,21 @@
+# 싼 모델(이유 한 줄)·luna 그림자 설정 — 하루 시뮬레이터 cloud 모드 전용(데몬은 읽지 않는다).
+#
+# 모델 id 는 아직 미검증(UNVERIFIED)이다. 2026-10-20 웹 가격표에서 옮긴 후보일 뿐이고,
+# 0단계에서 실제 키로 모델 목록(OpenAI·Anthropic GET /v1/models, Gemini GET /v1beta/models)을
+# 조회해 확인한 뒤 고친다. 키는 여기 두지 않는다(~/.config/liot/secrets.env, 권한 600).
+cheap_llm:
+  provider: anthropic          # anthropic | gemini | openai
+  timeout_s: 6
+  max_output_tokens: 256
+  models:
+    anthropic: claude-haiku-5-5  # UNVERIFIED — 0단계 확인 전
+    gemini: gemini-3.8-flash     # UNVERIFIED — 0단계 확인 전
+    openai: gpt-6-luna           # UNVERIFIED — 0단계 확인 전
+
+luna_shadow:
+  # decision_api: 0단계에서 엔드포인트가 확인되기 전까지 늘 '미접근'을 돌려준다.
+  # logprobs: Chat Completions 의 보기 글자(A~D) top_logprobs 를 읽는다.
+  # unavailable: 부르지 않고 '미접근'.
+  mode: unavailable
+  model: gpt-6-luna              # UNVERIFIED — 0단계 확인 전
+  timeout_s: 8

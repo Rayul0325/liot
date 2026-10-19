@@ -5,7 +5,7 @@
 - `guardrail.py` — Gate1 `Guardrail` (alias `SafetyGate`): deterministic tier floor from category baseline, matching rules' `set_floor`, safety EMBER, block → EMBER, unknown category → EMBER. Extend-only `register_category_floor`.
 - `rules_loader.py` — loads and merges every YAML in `config/rules/`, rejects demotion keys and non-enum match keys, computes `ruleset_version` / `ruleset_hash`.
 - `llm_judge.py` — `LLMJudge` (Gate2 composition), `LLMResult`, `LLMUnavailable`, `FakeLLM`, `build_llm_backend`.
-- `decision_backend.py` — `DecisionBackend` for a llama.cpp server: two four-option questions, first-token letter probabilities, `read_option_probs`.
+- `decision_backend.py` — `DecisionBackend` for a llama.cpp server: two four-option questions, first-token letter probabilities, `read_option_probs`; `option_prompt`, `DECISION_SYSTEM` and `argmax_option` are shared with `liot/luna_shadow.py` so the shadow asks the same question.
 - `ollama_backend.py` — `OllamaBackend` (JSON generation) and the shared model payload builder.
 - `jev_backend.py` — `JevBackend` for the Jev (typesafe.ai systemone) remote judge, used only by the day simulator: one POST per judgment, `read_jev_probs`.
 - `prompt_registry.py` — bundle manifests (`bundle_id`).

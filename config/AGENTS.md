@@ -7,6 +7,7 @@ Data the daemon and the control room load at startup:
 - `device_catalog.yaml` — devices (`entity_id → capability, category`) and `(capability, action[, direction]) → tier`.
 - `rules/*.yaml` — Gate1 rule sets (`match` on enum facts, `set_floor`, optional `verdict: block`).
 - `severity/situations.yaml` — the severity lookup table (4 damage types × 3 time-to-harm columns), safety category → (damage, time, abnormal rule) mapping, and the reserved `inactivity` row (`enabled: false`).
+- `models.yaml` — cheap-model reason client and luna shadow settings for the day simulator only (provider, model ids, timeouts, luna mode). The model ids are unverified candidates until Phase 0 lists the real models; keys never go here.
 - `proactive/*.yaml` — comfort rules (`limits`, closed-comparator `state` predicates, optional `external` weather predicates over `pm25`·`cloud_cover`·`outdoor_temp_c` with lt/le/gt/ge, optional `benefit` 0..1, `propose`).
 
 Not this module's scope: code constants (safety category set, one-tap pairs, forbidden open directions live in Python and cannot be widened from YAML), environment variables, secrets.
