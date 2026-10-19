@@ -106,3 +106,12 @@ def test_header_links_reach_the_home3d_page_and_back() -> None:
     assert 'href="home3d.html"' in (web / "safety.html").read_text(encoding="utf-8")
     home3d = (web / "home3d.html").read_text(encoding="utf-8")
     assert 'href="app.html"' in home3d and 'href="safety.html"' in home3d
+
+
+def test_header_links_reach_the_day_page_and_back() -> None:
+    web = ROOT / "web"
+    for page in ("app.html", "safety.html", "home3d.html"):
+        assert 'href="day.html"' in (web / page).read_text(encoding="utf-8"), page
+    day = (web / "day.html").read_text(encoding="utf-8")
+    for page in ("app.html", "safety.html", "home3d.html"):
+        assert f'href="{page}"' in day, page

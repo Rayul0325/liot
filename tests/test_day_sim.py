@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 import pytest
@@ -122,7 +123,10 @@ def test_day_metrics_are_counted_from_records(seed7: tuple[DaySim, Events]) -> N
         assert m["proposals"] == len(day)
         assert m["pushes"] == len(pushes)
         assert m["digests"] == sum(p["decision"] == "DIGEST" for p in day)
-        assert m["accepted"] == sum(p["state"] == "accepted" for p in day)
+        assert m["accepted"] == sum(p["state"] == "accepted" for p in pushes)
+        assert m["tray_accepted"] == sum(
+            p["state"] == "accepted" and p["decision"] == "DIGEST" for p in day
+        )
         assert m["dismissed"] == sum(p["state"] == "dismissed" for p in day)
         assert m["expired"] == sum(p["state"] == "expired" for p in day)
         assert m["accept_rate"] == (round(m["accepted"] / len(pushes), 3) if pushes else None)
@@ -131,13 +135,56 @@ def test_day_metrics_are_counted_from_records(seed7: tuple[DaySim, Events]) -> N
     assert sim.metrics[0]["accept_rate"] == 0.5
 
 
-def test_digest_items_are_not_tapped_and_expire(seed7: tuple[DaySim, Events]) -> None:
+def test_digest_items_are_only_tapped_at_the_22h_tray_review(
+    seed7: tuple[DaySim, Events],
+) -> None:
     sim, events = seed7
     digests = [p for p in sim.proposals if p["decision"] == "DIGEST"]
-    assert digests and all(p["state"] == "expired" for p in digests)
     persona_ids = {d["id"] for st, d in events if st == "feedback" and d["source"] == "persona"}
-    assert not persona_ids & {p["id"] for p in digests}
+    assert not persona_ids & {p["id"] for p in digests}  # 알림 피드에서는 누르지 않는다
     assert {d["id"] for st, d in events if st == "digest"} == {p["id"] for p in digests}
+    reviews = [d for st, d in events if st == "tray.review"]
+    assert [(r["day"], r["clock_ko"]) for r in reviews] == [
+        (1, "1일차 22:00"), (2, "2일차 22:00"), (3, "3일차 22:00"),
+    ]
+    tray_taps = [d for st, d in events if st == "feedback" and d["source"] == "tray"]
+    assert tray_taps and all(t["hhmm"] == "22:00" and t["status"] == "200" for t in tray_taps)
+    by_scene: dict[str, list[str]] = {}
+    for p in digests:
+        by_scene.setdefault(p["scene"], []).append(p["state"])
+    # 취침 준비(21시, 90분 유효)는 22시 확인 때 살아 있어 수락된다. 흐린 낮(11시, 60분)은
+    # 그 전에 만료돼 그대로 만료로 남는다(실제 동작).
+    assert set(by_scene["bedtime"]) == {"accepted"}
+    assert by_scene["desk_light"] == ["expired"]
+    day3_review = reviews[2]
+    assert any(i["before_ko"] == "만료됨" and i["tapped"] is None for i in day3_review["items"])
+
+
+def test_bedtime_does_not_fade_by_day3(seed7: tuple[DaySim, Events]) -> None:
+    sim, _ = seed7
+    bedtimes = _comfort(sim, scene="bedtime")
+    assert [b["day"] for b in bedtimes] == [1, 2, 3]
+    scores = [b["score"] for b in bedtimes]
+    assert scores == sorted(scores) and scores[-1] > scores[0]  # 모아보기 수락이 선호를 올린다
+
+
+def test_events_carry_server_side_korean_labels(seed7: tuple[DaySim, Events]) -> None:
+    sim, events = seed7
+    for st, d in events:
+        assert re.fullmatch(r"[1-3]일차 \d\d:\d\d", d["clock_ko"]), d["clock_ko"]
+        if st in ("proposal", "feedback", "safety", "tray.review", "day.start", "day.end"):
+            assert d["line_ko"], (st, d)
+    vent = _comfort(sim, scene="ventilate")[0]
+    assert vent["title_ko"] == "창문을 5~10분 열어 환기해 보세요"
+    assert (vent["decision_ko"], vent["tier_ko"]) == ("바로 폰 알림", "숨결")
+    assert vent["noop_score"] == 0.35 and vent["score"] > vent["noop_score"]
+    assert any(c["selected"] and c["label_ko"] == vent["title_ko"] for c in vent["candidates"])
+    first = next(s for s in sim.safety_events if s["kind"] == "first_alert")
+    assert first["situation_ko"] and first["ntfy"]["title"] == "LIOT"
+    assert first["ntfy"]["body"].endswith("제안이 도착했어요. 열어서 확인해 주세요.")
+    assert first["guardian_forwarded"] is False  # 시뮬레이션 집에는 보호자가 없다
+    steps = [d for st, d in events if st == "step"]
+    assert steps[0]["weather_ko"].startswith("미세먼지 ")
 
 
 # ── 안전: 즉시, 모델을 기다리지 않는다 ───────────────────────────────────────

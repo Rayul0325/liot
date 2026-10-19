@@ -231,6 +231,8 @@ class ProactiveRule:
     hours: tuple[int, ...] = ()
     # 이유 한 줄 틀(한국어). 자리표시자는 REASON_PLACEHOLDERS 만.
     reason_ko: str = ""
+    # 사람이 읽는 행동 제목(한국어, 자리표시자 없음). 화면·시뮬레이션 사건용 — ntfy 에는 없다.
+    title_ko: str = ""
 
     def matches(self, facts: Mapping[str, Any], entities: Mapping[str, Any]) -> bool:
         """match 키 전부 일치(정규화 비교) AND 모든 상태 술어 AND 모든 외부 술어 성립.
@@ -370,6 +372,14 @@ def _parse_reason(raw: Any, rule_id: str) -> str:
     return raw.strip()
 
 
+def _parse_title(raw: Any, rule_id: str) -> str:
+    if raw is None:
+        return ""
+    if not isinstance(raw, str) or "{" in raw or "}" in raw:
+        raise ProactiveRuleError(f"rule {rule_id!r}: title_ko must be plain text")
+    return raw.strip()
+
+
 def _parse_benefit(raw: Any, rule_id: str) -> float | None:
     if raw is None:
         return None
@@ -472,6 +482,7 @@ def _parse_rule(
         benefit=_parse_benefit(raw.get("benefit"), rule_id),
         hours=_parse_hours(raw.get("hours"), rule_id),
         reason_ko=_parse_reason(raw.get("reason_ko"), rule_id),
+        title_ko=_parse_title(raw.get("title_ko"), rule_id),
     )
 
 
@@ -559,6 +570,7 @@ def _compute_hash(name: str, version: str, rules: tuple[ProactiveRule, ...]) -> 
                 **({"benefit": r.benefit} if r.benefit is not None else {}),
                 **({"hours": list(r.hours)} if r.hours else {}),
                 **({"reason_ko": r.reason_ko} if r.reason_ko else {}),
+                **({"title_ko": r.title_ko} if r.title_ko else {}),
             }
             for r in rules
         ],

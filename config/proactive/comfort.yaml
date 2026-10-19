@@ -14,6 +14,7 @@
 # 기획 4장면(2026-10-19): 아침 환기·미세먼지 나쁨·취침 준비·흐린 낮. 선언 순서가 우선순위다.
 #   external: 날씨 조건(pm25 ㎍/㎥ · cloud_cover 0~1 · outdoor_temp_c). 날씨를 모르면 불성립.
 #   hours:    집 지역 시(hour) 제한. benefit: 기대 효과(0~1) — 고르기 점수의 효과 항.
+#   title_ko:  사람이 읽는 행동 제목(화면용).
 #   reason_ko: 이유 한 줄 틀({pm25}·{cloud_pct}·{outdoor_temp_c}). 시뮬레이션 사건에만 싣고
 #              ntfy 페이로드에는 넣지 않는다.
 
@@ -41,6 +42,7 @@ rules:
       capability: advice
       action: ventilate
     benefit: 0.7
+    title_ko: 창문을 5~10분 열어 환기해 보세요
     reason_ko: "바깥 미세먼지가 {pm25}㎍/㎥로 좋아요. 창문을 10분 열어 환기하면 좋겠어요."
     ttl_minutes: 60
 
@@ -56,6 +58,7 @@ rules:
       action: set_speed
       params: { speed: high }
     benefit: 0.8
+    title_ko: 공기청정기를 강으로 바꿔 보세요
     reason_ko: "미세먼지가 {pm25}㎍/㎥로 나빠졌어요. 공기청정기를 강으로 바꾸면 좋겠어요."
     ttl_minutes: 60
 
@@ -74,8 +77,10 @@ rules:
       action: set_brightness
       params: { brightness: 30 }
     benefit: 0.6
+    title_ko: 거실 조명을 30%로 낮춰 둘까요
     reason_ko: "잘 시간이 다가와요. 거실 조명을 30%로 낮춰 두면 잠들기 편해요."
-    ttl_minutes: 45
+    # 잘 때까지 유효하다(22시 모아보기 확인 전에 만료되지 않게).
+    ttl_minutes: 90
 
   - id: cloudy-desk-light
     description: 낮 + 재실 + 구름 많음(cloud_cover ≥ 0.8) → 책상 조명 켜기.
@@ -89,6 +94,7 @@ rules:
       capability: light
       action: turn_on
     benefit: 0.6
+    title_ko: 책상 조명을 켜 볼까요
     reason_ko: "하늘이 {cloud_pct}% 흐려요. 책상 조명을 켜면 눈이 덜 피로해요."
     ttl_minutes: 60
 
@@ -102,6 +108,7 @@ rules:
       target: light.living_room
       capability: light
       action: turn_off
+    title_ko: 빈 거실의 조명을 끌까요
     ttl_minutes: 15
 
   - id: evening-chill-heat
@@ -119,4 +126,5 @@ rules:
       capability: climate
       action: set_temperature
       params: { temperature: 2 }
+    title_ko: 난방 온도를 2도 올릴까요
     ttl_minutes: 30

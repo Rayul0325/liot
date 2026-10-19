@@ -17,8 +17,9 @@
 uuid 대신 실행 안 순번(``p1``, ``p2``…)으로 내보낸다.
 
 사건(``emit(stage, data)``): ``day.start`` · ``step``(바뀐 것이 있을 때 + 매시 정각) ·
-``proposal`` · ``digest`` · ``feedback`` · ``safety`` · ``day.end``(그날 지표). 실행 관리자
-(live_runs)가 끝에 ``done`` 을 붙인다.
+``proposal`` · ``digest`` · ``feedback`` · ``tray.review``(22시 모아보기 확인) · ``safety`` ·
+``day.end``(그날 지표). 실행 관리자(live_runs)가 끝에 ``done`` 을 붙인다. 화면이 계산하지 않도록
+사건마다 한국어 문구(``line_ko``·``title_ko``·``state_ko`` 등)와 그날 지표(``metrics``)를 싣는다.
 
 거주자 특성(취약 여부 등)은 다루지 않는다 — 시뮬레이션 집에는 거주자 등록이 없다.
 """
@@ -41,16 +42,32 @@ from zoneinfo import ZoneInfo
 
 from liot.app import LiotApp
 from liot.core.clock import Clock
-from liot.core.contracts import CandidateAction, ContextSnapshot, ExternalContext, SensorReading
+from liot.core.contracts import (
+    PM25_BAD_MIN,
+    PM25_GOOD_MAX,
+    CandidateAction,
+    ContextSnapshot,
+    ExternalContext,
+    SensorReading,
+    is_noop,
+)
 from liot.core.risk import RiskTier
 from liot.core.severity import SeverityLevel
 from liot.db.database import init_db
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l2_context.external_provider import FakeExternalProvider
-from liot.layers.l2_context.proactive import ProactiveDecision, ProactiveGenerator
+from liot.layers.l2_context.feedback_store import InMemoryFeedbackStore, candidate_key
+from liot.layers.l2_context.proactive import (
+    ProactiveDecision,
+    ProactiveGenerator,
+    validate_proactive_candidate,
+)
+from liot.layers.l2_context.proactive_rules import ProactiveRule
 from liot.layers.l3_judgment.llm_judge import FakeLLM, LLMBackend, LLMResult
+from liot.layers.l4_execution import escalation
 from liot.layers.l4_execution.escalation import GUIDANCE_119_TEXT
 from liot.layers.l4_execution.notifier import sign_feedback
+from liot.layers.l4_execution.ntfy_transport import HTTPNtfyTransport
 from liot.live_runs import LiveRequestError, LiveRun, LiveRuns, RunContext
 from liot.registry import RuntimeRegistry
 from liot.service import DispatchResult, LiotService
@@ -101,7 +118,95 @@ PERSONAS: dict[str, dict[str, str]] = {
     },
 }
 
+# 22시: 거주자가 모아보기를 열어 본다(하루 한 번). 아직 만료되지 않은 것만 성향대로 누른다.
+TRAY_REVIEW_AT = "22:00"
+TRAY_PERSONAS: dict[str, dict[str, str]] = {
+    "default": {"bedtime": "accepted", "desk_light": "coin"},
+}
+
+# 화면이 계산하지 않도록 서버가 붙이는 한국어 문구.
+_DECISION_KO = {"IMMEDIATE": "바로 폰 알림", "DIGEST": "모아보기", "SUPPRESS": "보내지 않음"}
+_STATE_KO = {
+    "pending": "응답 기다림",
+    "accepted": "수락함",
+    "dismissed": "그만 받기로 함",
+    "expired": "만료됨",
+}
+_SIGNAL_KO = {
+    "accepted": "도움됐어요",
+    "dismissed": "그만해",
+    "ok": "괜찮아요",
+    "expired": "무시(만료)",
+}
+_SOURCE_KO = {"persona": "거주자", "viewer": "보는 사람", "timeout": "시간 지남", "tray": "모아보기"}
+_SILENCE_KO = {
+    "rejected": "지난번 [그만해]로 30일 쉬는 중",
+    "cooldown": "방금 제안해서 잠시 쉬는 중",
+    "evaluator_noop": "점수가 '아무것도 안 하기'보다 낮음",
+    "budget": "오늘 또는 이 시간대 제안 수를 다 씀",
+    "no_match": "조건이 맞지 않음",
+    "tier_ceiling": "확인이 많이 필요한 행동이라 먼저 제안하지 않음",
+    "safety_target": "안전 기기는 먼저 제안하지 않음",
+    "not_allowed": "먼저 제안할 수 없는 행동",
+    "capability_mismatch": "기기 종류가 맞지 않음",
+}
+_SAFETY_KIND_KO = {
+    "realert": "다시 알렸어요",
+    "guidance_119": "119 전화 안내를 보냈어요",
+    "resolved": "해소 알림을 보냈어요",
+    "forward": "보호자에게 전달했어요",
+    "notice": "안전 알림을 보냈어요",
+}
+PM25_VERY_BAD_MIN = 76.0  # 한국 예보 '매우 나쁨' 경계
+
+
+def pm25_band_ko(pm25: float) -> str:
+    """미세먼지(PM2.5) 한국 예보 등급 이름."""
+    if pm25 <= PM25_GOOD_MAX:
+        return "좋음"
+    if pm25 < PM25_BAD_MIN:
+        return "보통"
+    if pm25 < PM25_VERY_BAD_MIN:
+        return "나쁨"
+    return "매우 나쁨"
+
+
+def weather_line_ko(weather: dict[str, Any]) -> str:
+    """'미세먼지 12㎍/㎥ 좋음 · 구름 20% · 18°C' 형식의 날씨 한 줄."""
+    parts: list[str] = []
+    pm25 = weather.get("pm25")
+    if pm25 is not None:
+        parts.append(f"미세먼지 {float(pm25):.0f}㎍/㎥ {pm25_band_ko(float(pm25))}")
+    cloud = weather.get("cloud_cover")
+    if cloud is not None:
+        parts.append(f"구름 {float(cloud) * 100:.0f}%")
+    temp = weather.get("outdoor_temp_c")
+    if temp is not None:
+        parts.append(f"{float(temp):.0f}°C")
+    return " · ".join(parts)
+
+
+# 실제 송신 본문·제목을 만드는 데만 쓴다(보내지 않는다). 주소는 쓰이지 않는 루프백.
+_NTFY_VIEW = HTTPNtfyTransport("http://127.0.0.1:9")
+
+
+def ntfy_view(payload: dict[str, Any]) -> dict[str, str]:
+    """정제된 페이로드 → 폰에 실제로 뜨는 제목·본문·우선순위(실제 transport 코드 그대로)."""
+    headers = _NTFY_VIEW._headers(payload)
+    return {
+        "title": headers.get("Title", ""),
+        "body": _NTFY_VIEW._body(payload).decode("utf-8"),
+        "priority": headers.get("Priority", ""),
+    }
+
+
 _ORIGIN_RULE = re.compile(r"proactive:rule:([^@]+)@")
+
+
+def _rule_of(params: dict[str, Any]) -> str | None:
+    """후보 params 의 출처(__origin__)에서 능동 규칙 id. 규칙 출처가 아니면 None."""
+    m = _ORIGIN_RULE.search(str(params.get("__origin__", "")))
+    return m.group(1) if m else None
 _RUN_KEYS = frozenset({"days", "seed", "persona", "pace_ms"})
 _SIGNALS = ("accepted", "dismissed")
 
@@ -272,6 +377,8 @@ def build_script(seed: int, days: int) -> list[DayPlan]:
 class _SimTransport:
     """송신을 받아 적는다(외부 송신 없음). 같은 순서 기록(log)에 남긴다."""
 
+    topic = "day-sim"  # 거주자 토픽. 다른 토픽으로 간 송신은 보호자 전달이다.
+
     def __init__(self, log: list[tuple[str, Any]]) -> None:
         self.log = log
         self.phase = "idle"
@@ -343,13 +450,21 @@ def _new_metrics(day: int) -> dict[str, Any]:
         "pushes": 0,
         "digests": 0,
         "suppressed": 0,
-        "accepted": 0,
+        "accepted": 0,  # 폰 알림(IMMEDIATE)에서 [도움됐어요]
+        "tray_accepted": 0,  # 모아보기에서 [도움됐어요]
         "dismissed": 0,
         "expired": 0,
-        "accept_rate": None,
+        "accept_rate": None,  # = accepted / pushes (폰 알림이 없으면 None)
+        "accept_rate_ko": "—",
         "safety_alerts": 0,
         "scenes": {},
     }
+
+
+def _refresh_rate(m: dict[str, Any]) -> None:
+    pushes = m["pushes"]
+    m["accept_rate"] = None if pushes == 0 else round(m["accepted"] / pushes, 3)
+    m["accept_rate_ko"] = "—" if m["accept_rate"] is None else f"{m['accept_rate'] * 100:.0f}%"
 
 
 Emit = Callable[[str, dict[str, Any]], Any]
@@ -379,6 +494,12 @@ class DaySim:
         self._persona_due: list[tuple[str, str]] = []
         self._records: dict[str, dict[str, Any]] = {}
         self._open_safety: set[str] = set()  # 이상 값으로 상황이 열린 센서
+        self._open_alert: dict[str, str] = {}  # 열린 안전 상황의 센서 → 첫 알림 sim id
+        self._rules: dict[str, ProactiveRule] = {}
+        self._reg: RuntimeRegistry | None = None
+        self._clock_ko = ""
+        self._day = 0
+        self._last_silence: tuple[tuple[str, ...], str] | None = None
 
     # ── 보는 사람 응답(HTTP 스레드에서 부른다 — 큐에만 넣는다) ──────────────
 
@@ -429,6 +550,8 @@ class DaySim:
         weather = FakeExternalProvider(clock=clock)
         transport = _SimTransport(self.log)
         generator = _RecordingGenerator(catalog=catalog, categories=categories, clock=clock)
+        self._rules = {r.rule_id: r for r in generator.ruleset.rules}
+        self._reg = reg
         app = LiotApp(
             clock=clock,
             catalog=catalog,
@@ -439,9 +562,13 @@ class DaySim:
         )
         db = await init_db(str(self.tmp_dir / "day.db"))
         secret = secrets.token_bytes(32)
-        svc = LiotService(app, db, clock=clock, transport=transport, topic="day-sim", secret=secret)
+        svc = LiotService(app, db, clock=clock, transport=transport, topic=transport.topic,
+                          secret=secret)
 
         async def out(stage: str, data: dict[str, Any]) -> None:
+            # 모든 사건에 지금 시각(가상)을 붙인다 — 화면의 시계는 이 값만 쓴다.
+            data.setdefault("day", self._day)
+            data.setdefault("clock_ko", self._clock_ko)
             emit(stage, data)
             if self.pace_ms:
                 await asyncio.sleep(self.pace_ms / 1000.0)
@@ -453,6 +580,8 @@ class DaySim:
                     break
                 metrics = _new_metrics(plan.day)
                 self.metrics.append(metrics)
+                self._day = plan.day
+                self._clock_ko = f"{plan.day}일차 00:00"
                 await out(
                     "day.start",
                     {
@@ -460,6 +589,8 @@ class DaySim:
                         "date": plan.steps[0].at_local.date().isoformat(),
                         "kind": plan.kind,
                         "safety": plan.safety,
+                        "line_ko": f"{plan.day}일차가 시작돼요",
+                        "metrics": dict(metrics),
                     },
                 )
                 stopped = False
@@ -471,7 +602,8 @@ class DaySim:
                     await self._step(svc, app, generator, weather, transport, step, last, out,
                                      secret)
                 self._finish_day(metrics)
-                await out("day.end", {"day": plan.day, "partial": stopped, "metrics": dict(metrics)})
+                await out("day.end", {"day": plan.day, "partial": stopped, "metrics": dict(metrics),
+                                      "line_ko": f"{plan.day}일차가 끝났어요"})
                 if on_summary is not None:
                     on_summary(self.summary())
                 if stopped:
@@ -498,7 +630,10 @@ class DaySim:
     ) -> None:
         at = step.at_local
         hhmm = at.strftime("%H:%M")
+        self._clock_ko = f"{step.day}일차 {hhmm}"
         await self._apply_taps(svc, transport, step, out, secret)
+        if hhmm == TRAY_REVIEW_AT:
+            await self._tray_review(svc, step, out, secret)
 
         changed = {k: v for k, v in step.readings.items() if last.get(k) != v}
         weather_changed = last.get("__weather__") != step.weather
@@ -520,15 +655,20 @@ class DaySim:
                 )
             )
             if eid in (LEAK, GAS):
-                await self._safety_reading(svc, step, eid, bool(value), res, out)
+                await self._safety_reading(svc, transport, step, eid, bool(value), res, out)
 
         transport.phase = "tick"
         app.last_trace = None
         generator.last_decision = None
         result = await svc.run_tick()
         silence = self._silence(app, generator, result)
+        # 같은 규칙이 같은 까닭으로 단계마다 건너뛰면 처음 한 번만 남긴다(타임라인이 넘치지 않게).
+        key = None if silence is None else (tuple(silence["rules"]), silence["reason"])
+        if key is not None and key == self._last_silence:
+            silence = None
+        self._last_silence = key if result is None else None
         if result is not None:
-            await self._record_proposal(app, step, result, out)
+            await self._record_proposal(app, generator, step, result, out)
 
         transport.phase = "phase2"
         await svc.drain_phase2()
@@ -545,10 +685,12 @@ class DaySim:
                 "hhmm": hhmm,
                 "changed": dict(changed),
                 "weather": dict(step.weather),
+                "weather_ko": weather_line_ko(step.weather),
                 "bucket": svc.clock.time_bucket(),
             }
             if silence:
                 data["silence"] = silence
+                data["line_ko"] = f"{silence['title_ko']} — 건너뜀: {silence['reason_ko']}"
             await out("step", data)
 
     def _silence(
@@ -559,35 +701,85 @@ class DaySim:
         if result is not None or d is None or not d.matched_rule_ids:
             return None
         if d.candidate is None:
-            return {"rules": list(d.matched_rule_ids), "reason": d.suppressed_by}
-        trace = app.last_trace or {}
-        reason = trace.get("silence_reason") or "evaluator_noop"
-        return {"rules": list(d.matched_rule_ids), "reason": str(reason)}
+            reason = str(d.suppressed_by)
+        else:
+            trace = app.last_trace or {}
+            reason = str(trace.get("silence_reason") or "evaluator_noop")
+        first = self._rules.get(d.matched_rule_ids[0])
+        return {
+            "rules": list(d.matched_rule_ids),
+            "reason": reason,
+            "reason_ko": _SILENCE_KO.get(reason, reason),
+            "title_ko": (first.title_ko if first and first.title_ko else d.matched_rule_ids[0]),
+        }
+
+    def _title(self, rule_id: str | None, entity_id: str) -> str:
+        """사람이 읽는 행동 제목: 규칙의 title_ko, 없으면 기기 이름 + '제안'."""
+        rule = self._rules.get(rule_id or "")
+        if rule is not None and rule.title_ko:
+            return rule.title_ko
+        name = self._reg.device_name(entity_id) if self._reg is not None else entity_id
+        return f"{name} 제안"
+
+    def _skipped(
+        self, app: LiotApp, generator: _RecordingGenerator, matched: list[str], winner: str | None
+    ) -> list[dict[str, str]]:
+        """승자 앞에서 성립했지만 건너뛴 규칙과 까닭(발의와 같은 순서로 다시 본다 — 관찰용)."""
+        out: list[dict[str, str]] = []
+        store = app.feedback_store
+        rejected = store.rejected_keys if isinstance(store, InMemoryFeedbackStore) else frozenset()
+        for rid in matched:
+            if rid == winner:
+                break
+            rule = self._rules.get(rid)
+            if rule is None:
+                continue
+            cand = generator._build_candidate(rule)
+            reason = validate_proactive_candidate(cand, generator.catalog)
+            if reason is None:
+                reason = "rejected" if candidate_key(cand) in rejected else "cooldown"
+            out.append({"rule_id": rid, "title_ko": self._title(rid, rule.target_entity),
+                        "reason": reason, "reason_ko": _SILENCE_KO.get(reason, reason)})
+        return out
 
     async def _record_proposal(
         self,
         app: LiotApp,
+        generator: _RecordingGenerator,
         step: StepPlan,
         result: DispatchResult,
         out: Callable[[str, dict[str, Any]], Awaitable[None]],
     ) -> None:
         p = result.proposal
-        origin = str(p.action.params.get("__origin__", ""))
-        m = _ORIGIN_RULE.search(origin)
-        rule_id = m.group(1) if m else None
+        rule_id = _rule_of(p.action.params)
         scene = SCENES.get(rule_id or "")
         trace = app.last_trace or {}
         decision = trace.get("proactive")
         evaluation = trace.get("evaluation")
-        score = None
+        score: float | None = None
+        noop_score: float | None = None
+        candidates: list[dict[str, Any]] = []
         if evaluation is not None:
             score = evaluation.scored[evaluation.selected_index].final_score
+            for i, ac in enumerate(evaluation.scored):
+                c = ac.candidate
+                if is_noop(c):
+                    noop_score = ac.final_score
+                label = "아무것도 안 하기" if is_noop(c) else self._title(
+                    _rule_of(c.params), c.entity_id
+                )
+                candidates.append(
+                    {"label_ko": label, "score": ac.final_score,
+                     "selected": i == evaluation.selected_index}
+                )
+        matched = list(getattr(decision, "matched_rule_ids", ()) or ())
         sim_id = f"p{len(self._tracked) + 1}"
         tracked = _Tracked(sim_id, p.proposal_id, step.day, "comfort", scene, rule_id,
                            result.decision, p.risk_tier)
         self._tracked[sim_id] = tracked
         self._by_pid[p.proposal_id] = sim_id
         destination = {"IMMEDIATE": "phone", "DIGEST": "tray"}.get(result.decision, "blocked")
+        title = self._title(rule_id, p.action.entity_id)
         rec = {
             "id": sim_id,
             "day": step.day,
@@ -595,21 +787,29 @@ class DaySim:
             "hhmm": step.at_local.strftime("%H:%M"),
             "scene": scene,
             "rule_id": rule_id,
+            "title_ko": title,
             "capability": p.action.capability,
             "action": p.action.action,
             "entity_id": p.action.entity_id,
             "params": {k: v for k, v in p.action.params.items() if not k.startswith("__")},
             "tier": p.risk_tier.name.lower(),
+            "tier_ko": p.risk_tier.label_ko,
             "confirmation": p.required_confirmation,
             "decision": result.decision,
+            "decision_ko": _DECISION_KO.get(result.decision, result.decision),
             "destination": destination,
             "sent": result.sent,
             "score": score,
+            "noop_score": noop_score,
+            "candidates": candidates,
             "reason_ko": getattr(decision, "reason_ko", "") or "",
             # 성립한 규칙 전부(선언 순). 승자 앞의 규칙이 빠졌다면 거절·쿨다운으로 건너뛴 것이다.
-            "matched_rules": list(getattr(decision, "matched_rule_ids", ()) or ()),
+            "matched_rules": matched,
+            "skipped": self._skipped(app, generator, matched, rule_id),
             "expires_at": p.expires_at,
             "state": "pending",
+            "state_ko": _STATE_KO["pending"],
+            "line_ko": f"{title} — {_DECISION_KO.get(result.decision, result.decision)}",
         }
         self.proposals.append(rec)
         self._records[sim_id] = rec
@@ -626,13 +826,15 @@ class DaySim:
             metrics["digests"] += 1
         else:
             metrics["suppressed"] += 1
-        await out("proposal", dict(rec))
+        _refresh_rate(metrics)
+        await out("proposal", {**rec, "metrics": dict(metrics)})
         if result.decision == "DIGEST":
             await out("digest", {"id": sim_id, "day": step.day, "scene": scene,
-                                 "reason_ko": rec["reason_ko"]})
+                                 "title_ko": title, "reason_ko": rec["reason_ko"],
+                                 "hhmm": rec["hhmm"]})
 
-    def _persona_reaction(self, scene: str | None) -> str | None:
-        table = PERSONAS[self.persona]
+    def _persona_reaction(self, scene: str | None, table: dict[str, str] | None = None) -> str | None:
+        table = PERSONAS[self.persona] if table is None else table
         choice = table.get(scene or "", "ignore")
         if choice == "coin":
             choice = "accepted" if self._rng.random() < 0.5 else "ignore"
@@ -661,6 +863,37 @@ class DaySim:
         for sim_id, signal, source in viewer + persona:
             await self._tap(svc, step, sim_id, signal, source, out, secret)
 
+    async def _tray_review(
+        self,
+        svc: LiotService,
+        step: StepPlan,
+        out: Callable[[str, dict[str, Any]], Awaitable[None]],
+        secret: bytes,
+    ) -> None:
+        """22시: 거주자가 모아보기를 연다. 아직 살아 있는 항목만 성향대로 누른다(만료는 그대로)."""
+        table = TRAY_PERSONAS.get(self.persona, {})
+        items: list[dict[str, Any]] = []
+        for t in self._tracked.values():
+            if t.kind != "comfort" or t.decision != "DIGEST" or t.day != step.day:
+                continue
+            before = t.state
+            reaction = self._persona_reaction(t.scene, table) if before == "pending" else None
+            if reaction is not None:
+                await self._tap(svc, step, t.sim_id, reaction, "tray", out, secret)
+            items.append({
+                "id": t.sim_id,
+                "title_ko": self._records[t.sim_id]["title_ko"],
+                "before_ko": _STATE_KO[before],
+                "tapped": reaction,
+                "after_ko": _STATE_KO[t.state],
+            })
+        tapped = sum(1 for i in items if i["tapped"])
+        await out("tray.review", {
+            "items": items,
+            "line_ko": f"모아보기를 열어 봤어요 — {len(items)}개 중 {tapped}개를 눌렀어요",
+            "metrics": dict(self.metrics[step.day - 1]),
+        })
+
     async def _tap(
         self,
         svc: LiotService,
@@ -674,7 +907,8 @@ class DaySim:
         tracked = self._tracked.get(sim_id)
         if tracked is None:
             await out("feedback", {"id": sim_id, "signal": signal, "source": source,
-                                   "status": "404", "result": "없는 제안"})
+                                   "status": "404", "result": "없는 제안",
+                                   "line_ko": "없는 제안이라 반영하지 못했어요"})
             return
         if source == "persona" and tracked.state != "pending":
             return  # 보는 사람이 먼저 눌렀다 — 거주자는 다시 누르지 않는다
@@ -686,25 +920,43 @@ class DaySim:
             "HTTP/1.1"
         )
         code = status.split(" ", 1)[0]
-        if code == "200" and tracked.kind == "comfort":
+        day_m = self.metrics[tracked.day - 1]
+        if code == "200" and tracked.kind == "comfort" and tracked.state == "pending":
             new_state = "accepted" if signal == "accepted" else "dismissed"
-            if tracked.state == "pending":
-                tracked.state = new_state
-                self._records[sim_id]["state"] = new_state
-                day_m = self.metrics[tracked.day - 1]
-                day_m["accepted" if new_state == "accepted" else "dismissed"] += 1
+            tracked.state = new_state
+            self._records[sim_id]["state"] = new_state
+            self._records[sim_id]["state_ko"] = _STATE_KO[new_state]
+            if new_state == "dismissed":
+                day_m["dismissed"] += 1
+            elif tracked.decision == "IMMEDIATE":
+                day_m["accepted"] += 1
+            else:
+                day_m["tray_accepted"] += 1
+            _refresh_rate(day_m)
+        who = _SOURCE_KO.get(source, source)
+        what = self._records[sim_id]["title_ko"] if sim_id in self._records else "안전 경보"
+        actor = {"tray": "거주자가 모아보기에서", "viewer": "보는 사람이"}.get(source, f"{who}가")
+        line = (f"{actor} [{_SIGNAL_KO.get(signal, signal)}]를 눌렀어요 — {what}" if code == "200"
+                else f"{who}의 [{_SIGNAL_KO.get(signal, signal)}]가 반영되지 않았어요({code})")
         await out(
             "feedback",
             {
                 "id": sim_id,
                 "day": step.day,
                 "at": step.at_local.isoformat(),
+                "hhmm": step.at_local.strftime("%H:%M"),
                 "signal": signal,
+                "signal_ko": _SIGNAL_KO.get(signal, signal),
                 "source": source,
+                "source_ko": who,
                 "status": code,
                 "result": body,
                 "scene": tracked.scene,
                 "kind": tracked.kind,
+                "state": tracked.state,
+                "state_ko": _STATE_KO.get(tracked.state, tracked.state),
+                "line_ko": line,
+                "metrics": dict(day_m),
             },
         )
 
@@ -720,21 +972,31 @@ class DaySim:
         rows = await svc.proposals.states_for([t.pid for t in pending])
         for t in pending:
             state = rows.get(t.pid, ("", None))[0]
-            if state == "expired":
-                t.state = "expired"
-                self._records[t.sim_id]["state"] = "expired"
-                self.metrics[t.day - 1]["expired"] += 1
-                await out("feedback", {"id": t.sim_id, "day": step.day,
-                                       "at": step.at_local.isoformat(), "signal": "expired",
-                                       "source": "timeout", "status": "200",
-                                       "result": "무시(만료)", "scene": t.scene,
-                                       "kind": t.kind})
+            if state != "expired":
+                continue
+            t.state = "expired"
+            rec = self._records[t.sim_id]
+            rec["state"] = "expired"
+            rec["state_ko"] = _STATE_KO["expired"]
+            day_m = self.metrics[t.day - 1]
+            day_m["expired"] += 1
+            await out("feedback", {
+                "id": t.sim_id, "day": step.day, "at": step.at_local.isoformat(),
+                "hhmm": step.at_local.strftime("%H:%M"), "signal": "expired",
+                "signal_ko": _SIGNAL_KO["expired"], "source": "timeout",
+                "source_ko": _SOURCE_KO["timeout"], "status": "200", "result": "무시(만료)",
+                "scene": t.scene, "kind": t.kind, "state": "expired",
+                "state_ko": _STATE_KO["expired"],
+                "line_ko": f"아무도 누르지 않아 만료됐어요 — {rec['title_ko']}",
+                "metrics": dict(day_m),
+            })
 
     # ── 안전 ───────────────────────────────────────────────────────────────
 
     async def _safety_reading(
         self,
         svc: LiotService,
+        transport: _SimTransport,
         step: StepPlan,
         eid: str,
         abnormal: bool,
@@ -742,8 +1004,10 @@ class DaySim:
         out: Callable[[str, dict[str, Any]], Awaitable[None]],
     ) -> None:
         category = "leak" if eid == LEAK else "gas"
+        situation_ko = escalation.situation_label(category)
         base = {"day": step.day, "at": step.at_local.isoformat(),
-                "hhmm": step.at_local.strftime("%H:%M"), "category": category}
+                "hhmm": step.at_local.strftime("%H:%M"), "category": category,
+                "situation_ko": situation_ko}
         if abnormal:
             self._open_safety.add(eid)
         if abnormal and res is not None:
@@ -752,17 +1016,30 @@ class DaySim:
             self._tracked[sim_id] = _Tracked(sim_id, p.proposal_id, step.day, "safety", None,
                                              None, res.decision, p.risk_tier)
             self._by_pid[p.proposal_id] = sim_id
-            self.metrics[-1]["safety_alerts"] += 1
+            self._open_alert[eid] = sim_id
+            day_m = self.metrics[-1]
+            day_m["safety_alerts"] += 1
+            # 폰에 실제로 뜬 문구: 송신 기록의 정제 페이로드를 실제 transport 코드로 펼친다.
+            payload = next(
+                (pl for _ph, _tp, pl in transport.sent if pl.get("proposal_id") == p.proposal_id),
+                None,
+            )
             rec = {**base, "kind": "first_alert", "id": sim_id, "decision": res.decision,
                    "sent": res.sent, "tier": p.risk_tier.name.lower(),
-                   "severity": None if p.severity is None else p.severity.name.lower()}
+                   "severity": None if p.severity is None else p.severity.name.lower(),
+                   "severity_ko": None if p.severity is None else p.severity.label_ko,
+                   "ntfy": None if payload is None else ntfy_view(payload),
+                   "guardian_forwarded": False,
+                   "line_ko": f"{situation_ko} — 바로 경보를 보냈어요",
+                   "metrics": dict(day_m)}
             self.safety_events.append(rec)
             await out("safety", rec)
             # 거주자는 다음 단계에 [괜찮아요](ok)로 확인한다 — 사다리가 멈춘다.
             self._persona_due.append((sim_id, "ok"))
         elif not abnormal and eid in self._open_safety:
             self._open_safety.discard(eid)
-            rec = {**base, "kind": "normal"}
+            rec = {**base, "kind": "normal", "id": self._open_alert.pop(eid, None),
+                   "line_ko": f"{situation_ko} — 센서가 정상으로 돌아왔어요"}
             self.safety_events.append(rec)
             await out("safety", rec)
 
@@ -772,9 +1049,9 @@ class DaySim:
         step: StepPlan,
         out: Callable[[str, dict[str, Any]], Awaitable[None]],
     ) -> None:
-        """이번 단계에 나간 안전 송신(재알림·해소·119 안내)을 사건으로 남긴다."""
+        """이번 단계에 나간 안전 송신(재알림·보호자 전달·해소·119 안내)을 사건으로 남긴다."""
         sent, transport.sent = transport.sent, []
-        for phase, _topic, payload in sent:
+        for phase, topic, payload in sent:
             pid = payload.get("proposal_id")
             if pid in self._by_pid and self._tracked[self._by_pid[pid]].kind == "comfort":
                 continue
@@ -783,7 +1060,9 @@ class DaySim:
             label = str(payload.get("situation_label") or payload.get("label") or "")
             if phase == "reading" and pid in self._by_pid:
                 continue  # 첫 알림은 _safety_reading 이 이미 남겼다
-            if GUIDANCE_119_TEXT in label:
+            if topic != transport.topic:
+                kind = "forward"  # 거주자 토픽이 아닌 곳 = 보호자
+            elif GUIDANCE_119_TEXT in label:
                 kind = "guidance_119"
             elif phase == "reading":
                 kind = "resolved"  # 정상 복귀 값이 보낸 '해소됨' 알림
@@ -791,15 +1070,21 @@ class DaySim:
                 kind = "realert"
             else:
                 kind = "notice"
+            alert_id = self._by_pid.get(pid) if pid else None
+            if kind == "forward":
+                for rec0 in self.safety_events:
+                    if rec0.get("kind") == "first_alert" and rec0.get("id") in self._open_alert.values():
+                        rec0["guardian_forwarded"] = True
             rec = {"day": step.day, "at": step.at_local.isoformat(),
                    "hhmm": step.at_local.strftime("%H:%M"), "kind": kind, "label": label,
-                   "severity_label": payload.get("severity_label"), "phase": phase}
+                   "severity_label": payload.get("severity_label"), "phase": phase,
+                   "id": alert_id, "ntfy": ntfy_view(payload),
+                   "line_ko": _SAFETY_KIND_KO.get(kind, kind)}
             self.safety_events.append(rec)
             await out("safety", rec)
 
     def _finish_day(self, metrics: dict[str, Any]) -> None:
-        pushes = metrics["pushes"]
-        metrics["accept_rate"] = None if pushes == 0 else round(metrics["accepted"] / pushes, 3)
+        _refresh_rate(metrics)
 
 
 # ── 실행 관리(관제실 서버가 쓴다) ────────────────────────────────────────────

@@ -250,3 +250,41 @@ def test_post_without_json_content_type_is_403(server: tuple[int, DayRuns]) -> N
                  headers={"Host": f"127.0.0.1:{port}", "Content-Type": "text/plain"})
     assert conn.getresponse().status == 403
     conn.close()
+
+
+# ── 화면(web/day.html) ───────────────────────────────────────────────────────
+
+ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
+
+
+def test_day_page_and_assets_are_served(server: tuple[int, DayRuns]) -> None:
+    port, _ = server
+    for path, ctype, needle in (
+        ("/day.html", "text/html", "하루 시뮬레이션"),
+        ("/assets/day.js", "application/javascript", "/api/day/stream"),
+        ("/assets/day.css", "text/css", "--accent: #0071e3"),
+    ):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request("GET", path, headers={"Host": f"127.0.0.1:{port}"})
+        resp = conn.getresponse()
+        body = resp.read().decode("utf-8")
+        conn.close()
+        assert resp.status == 200, path
+        assert resp.getheader("Content-Type", "").startswith(ctype), path
+        assert needle in body, path
+
+
+def test_day_page_loads_nothing_from_other_origins_and_never_uses_inner_html() -> None:
+    import re
+
+    html = (ROOT / "web" / "day.html").read_text(encoding="utf-8")
+    js = (ROOT / "web" / "assets" / "day.js").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "assets" / "day.css").read_text(encoding="utf-8")
+    assert re.search(r'(src|href)="(https?:)?//', html) is None
+    assert "http://" not in js and "https://" not in js
+    assert "url(" not in css
+    assert "innerHTML" not in js and "outerHTML" not in js and "insertAdjacentHTML" not in js
+    # 화면은 /api/day/* 만 부른다.
+    assert set(re.findall(r'"(/api/[a-z/]+)', js)) <= {
+        "/api/day/run", "/api/day/stop", "/api/day/stream", "/api/day/runs/", "/api/day/feedback",
+    }
