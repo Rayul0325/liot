@@ -13,8 +13,10 @@ LiotApp(두뇌, 네트워크 없음·결정만)을 둘러싸고 부수효과를 
     만든다. 닫힐 때는 새 `alert` 없이 거주자에게 '해소됨'(NOTICE)을 보내고, 그
     상황의 대기 제안(원탭 링크 포함)을 만료시킨다.
   - **표 우선 두 단계 발송(spec §6.2)**: 상황 알림은 Gate1+파급도 하한으로 *먼저*
-    보내고, 결정 모델 판정은 그 뒤 별도 스레드에서 제한시간 안에 돈다. 모델이
-    올렸을 때만 같은 situation_id 의 후속 제안을 보낸다. 판단 행은 항상 저장한다.
+    보내고, 결정 모델 판정은 그 뒤 별도 스레드에서 제한시간 안에 돈다. 2단계는
+    추적되는 백그라운드 태스크라 handle_reading 은 1단계 발송 직후 돌아온다 —
+    다음 센서 신호(다른 안전 상황)가 앞 상황의 모델 판정 뒤에 줄 서지 않는다.
+    모델이 올렸을 때만 같은 situation_id 의 후속 제안을 보낸다. 판단 행은 항상 저장한다.
   - **판단 저장**: 판단마다 judgments 에 한 행(SafetyRepo.save_judgment).
 
 불변식 보존:
@@ -219,6 +221,8 @@ class LiotService:
         # 2단계 판정 전체 마감(초). None 이면 판정 시점의 백엔드로 기본값을 계산한다.
         self._phase2_deadline_s = phase2_deadline_s
         self._started = False  # 시작 시 1회 작업(표 로드 실패 감사) 완료 여부
+        # 진행 중인 2단계 판정 태스크. 끝나면 스스로 빠진다(_on_phase2_done).
+        self._phase2_tasks: set[asyncio.Task[DispatchResult | None]] = set()
 
     # ------------------------------------------------------------------
     # 시작
@@ -540,9 +544,42 @@ class LiotService:
             raise
         await self.safety.save_judgment(staged.judgment)
         await self._on_situation_opened(sid, staged.proposal)
-        # 2단계: 결정 모델(별도 스레드·제한시간). 올렸으면 후속 제안.
-        await self._run_phase2(staged)
+        # 2단계: 결정 모델(별도 스레드·제한시간)을 백그라운드로 돌린다. 기다리지 않는다 —
+        # 기다리면 스트림의 다음 신호(예: 가스 직후 연기)가 이 상황의 모델 판정이
+        # 끝날 때까지 묶여, 두 번째 안전 알림이 늦게 나간다(spec §6.2 '즉시').
+        self._spawn_phase2(staged)
         return first
+
+    def _spawn_phase2(self, staged: StagedAlert) -> None:
+        """2단계 판정을 추적되는 백그라운드 태스크로 띄운다."""
+        task = asyncio.create_task(self._run_phase2(staged))
+        self._phase2_tasks.add(task)
+        task.add_done_callback(self._on_phase2_done)
+
+    def _on_phase2_done(self, task: asyncio.Task[DispatchResult | None]) -> None:
+        """끝난 2단계 태스크를 추적에서 빼고, 예외가 있으면 로그로 남긴다(삼키지 않는다)."""
+        self._phase2_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error("phase-2 judgment task failed: %s", type(exc).__name__, exc_info=exc)
+
+    async def drain_phase2(self, timeout: float | None = None) -> None:
+        """진행 중인 2단계 태스크가 모두 끝날 때까지 기다린다.
+
+        timeout(초)을 주면 그 안에 끝나지 않은 태스크는 취소한다(종료 경로용).
+        각 태스크는 자체 마감(_phase2_deadline)이 있어 timeout 없이도 유한하게 끝난다.
+        테스트는 잠자기 대신 이걸 기다린다.
+        """
+        while self._phase2_tasks:
+            pending = set(self._phase2_tasks)
+            _, not_done = await asyncio.wait(pending, timeout=timeout)
+            for t in not_done:
+                t.cancel()
+            if not_done:
+                await asyncio.gather(*not_done, return_exceptions=True)
+            self._phase2_tasks.difference_update(pending)
 
     def _phase2_deadline(self) -> float:
         if self._phase2_deadline_s is not None:
@@ -571,6 +608,14 @@ class LiotService:
         await self.safety.save_judgment(judgment)
         followup = self.app.route_followup(judgment)
         if not self._raised(staged.proposal, followup):
+            return None
+        # 2단계가 백그라운드로 도는 동안 상황이 닫혔을 수 있다(정상 복귀). 닫힌 상황의
+        # 후속 알림은 낡은 경보다 — 보내지 않는다(판단 행은 위에서 이미 남겼다).
+        cand = req.candidate
+        current = await self.safety.get_open_situation(
+            self.home_id, cand.category, cand.entity_id
+        )
+        if current is None or current.situation_id != req.situation_id:
             return None
         return await self.dispatch(followup)
 
@@ -870,6 +915,9 @@ class LiotService:
         finally:
             for t in tasks:
                 t.cancel()
+            # 남은 2단계 판정을 DB 가 닫히기 전에 마무리한다(호출자가 run 뒤에 DB 를
+            # 닫는다). 각 태스크의 자체 마감 + 여유 1초를 넘기면 취소한다.
+            await self.drain_phase2(timeout=self._phase2_deadline() + 1.0)
 
     async def _stream_loop(self, bridge: HABridge, max_events: int | None) -> None:
         n = 0

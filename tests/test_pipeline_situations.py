@@ -206,17 +206,20 @@ async def test_gas_alert_is_dispatched_before_the_model_answers(tmp_path) -> Non
     backend = _BlockingBackend()
     svc, db, transport = await _make(tmp_path, backend=backend)
     try:
-        task = asyncio.create_task(svc.handle_reading(_reading(GAS, "on")))
-        await _wait_until(lambda: len(transport.sent) == 1)
+        # handle_reading 은 1단계 발송 직후 돌아온다 — 모델 판정을 기다리지 않는다.
+        res = await asyncio.wait_for(svc.handle_reading(_reading(GAS, "on")), timeout=5)
+        assert len(transport.sent) == 1
         # 모델은 아직 막혀 있다 — 그래도 첫 알림은 이미 나갔다.
         assert await asyncio.to_thread(backend.started.wait, 5)
-        assert not task.done()
+        assert len(svc._phase2_tasks) == 1
+        assert len(await _judgments(db)) == 1  # 1단계 행만(2단계는 진행 중)
         _, payload = transport.sent[0]
         assert payload["severity_label"] == SeverityLevel.CRITICAL.label_ko
         assert payload["risk_tier"] == int(RiskTier.EMBER)
 
         backend.release.set()
-        res = await asyncio.wait_for(task, timeout=5)
+        await asyncio.wait_for(svc.drain_phase2(), timeout=5)
+        assert svc._phase2_tasks == set()
         assert res is not None and res.decision == "IMMEDIATE" and res.sent is True
         assert res.proposal.severity == SeverityLevel.CRITICAL
         assert res.proposal.situation_id is not None
@@ -247,6 +250,7 @@ async def test_gas_alert_is_dispatched_before_the_model_answers(tmp_path) -> Non
         assert svc.opened == [(res.proposal.situation_id, res.proposal.proposal_id)]
     finally:
         backend.release.set()
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -260,6 +264,7 @@ async def test_model_raise_sends_a_followup_on_the_same_situation(tmp_path) -> N
         res = await svc.handle_reading(_reading(DOOR, "on"))
         assert res is not None
         assert res.proposal.severity == SeverityLevel.WARNING  # 표 하한(문 열림)
+        await svc.drain_phase2()
         sid = res.proposal.situation_id
 
         props = await _proposals(db)
@@ -282,6 +287,7 @@ async def test_model_raise_sends_a_followup_on_the_same_situation(tmp_path) -> N
         # 열림 훅은 첫 발송 한 번뿐(후속 제안은 새 에피소드가 아니다).
         assert len(svc.opened) == 1
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -296,6 +302,7 @@ async def test_model_tier_raise_alone_also_sends_a_followup(tmp_path) -> None:
         assert svc._raised(staged_like, res.proposal) is True
         assert svc._raised(res.proposal, res.proposal) is False
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -310,6 +317,7 @@ async def test_model_lower_answer_is_recorded_but_sends_nothing(tmp_path) -> Non
         assert res is not None and res.sent is True
         assert len(transport.sent) == 1
         assert len(await _proposals(db)) == 1
+        await svc.drain_phase2()
         rows = await _judgments(db)
         assert len(rows) == 2
         assert rows[1]["gate2_verdict"] == "injection_suspect"
@@ -317,6 +325,7 @@ async def test_model_lower_answer_is_recorded_but_sends_nothing(tmp_path) -> Non
         assert rows[1]["situation_id"] == rows[0]["situation_id"]
         assert rows[1]["snapshot_hash"] == rows[0]["snapshot_hash"]
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -328,6 +337,7 @@ async def test_phase2_deadline_stores_degraded_row_and_no_followup(tmp_path) -> 
     svc, db, transport = await _make(tmp_path, backend=backend, deadline=0.05)
     try:
         res = await asyncio.wait_for(svc.handle_reading(_reading(DOOR, "on")), timeout=5)
+        await svc.drain_phase2()
         assert res is not None and res.sent is True
         assert len(transport.sent) == 1
         assert len(await _proposals(db)) == 1
@@ -343,6 +353,7 @@ async def test_phase2_deadline_stores_degraded_row_and_no_followup(tmp_path) -> 
         assert late["judgment_id"] != rows[0]["judgment_id"]
     finally:
         backend.release.set()
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -376,6 +387,7 @@ async def test_repeated_abnormal_while_open_makes_no_new_alert(tmp_path) -> None
         # 반복 신호도 상태 캐시는 갱신한다(맥락은 살아 있다).
         assert svc.app.state_cache.norm_values()[GAS] is True
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -427,6 +439,7 @@ async def test_normal_reading_closes_notifies_and_expires(tmp_path) -> None:
         again = await svc.handle_reading(_reading(GAS, "on"))
         assert again is not None and again.proposal.situation_id != sid
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -440,6 +453,7 @@ async def test_resolved_notice_respects_charter_off(tmp_path) -> None:
         assert len(transport.sent) == 1  # 첫 알림만
         assert (await _situations(db))[0]["closed_at"] is not None
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -453,6 +467,7 @@ async def test_resolved_notice_send_failure_does_not_break_close(tmp_path) -> No
         assert (await _situations(db))[0]["closed_at"] is not None
         assert len(svc.closed) == 1
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -473,6 +488,7 @@ async def test_resolved_notice_in_sanitize_only_mode(tmp_path) -> None:
         await svc._on_situation_opened("x", first.proposal)
         await svc._on_situation_closed("x")
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -486,6 +502,7 @@ async def test_normal_reading_without_episode_does_nothing(tmp_path) -> None:
         assert await _judgments(db) == []
         assert svc.closed == []
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -502,6 +519,7 @@ async def test_lives_alone_door_open_is_critical(tmp_path) -> None:
         res = await svc.handle_reading(_reading(DOOR, "on"))
         assert res is not None
         assert res.proposal.severity == SeverityLevel.CRITICAL
+        await svc.drain_phase2()
         rows = await _judgments(db)
         assert json.loads(rows[0]["severity_sources"]) == ["table", "resident"]
         assert rows[0]["severity_floor"] == int(SeverityLevel.CRITICAL)
@@ -514,6 +532,7 @@ async def test_lives_alone_door_open_is_critical(tmp_path) -> None:
                       "cognitive_decline", "할머니", "vulnerable"):
             assert trait not in blob
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -524,6 +543,7 @@ async def test_door_open_without_vulnerable_resident_is_warning(tmp_path) -> Non
         assert res is not None and res.proposal.severity == SeverityLevel.WARNING
         assert res.decision == "IMMEDIATE"  # 오늘처럼 즉시(EMBER) — 조용해지지 않는다
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -538,6 +558,7 @@ async def test_unnormalizable_value_counts_as_abnormal(tmp_path) -> None:
         assert res is not None and res.proposal.action.action == "alert"
         assert res.proposal.severity == SeverityLevel.CRITICAL
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -583,6 +604,7 @@ async def test_comfort_path_unchanged_and_judgment_stored(tmp_path) -> None:
         assert await svc.run_tick() is None
         assert len(await _judgments(db)) == 1
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -597,6 +619,7 @@ async def test_suppressed_proactive_judgment_is_still_stored(tmp_path) -> None:
         rows = await _judgments(db)
         assert len(rows) == 1 and rows[0]["risk_tier"] == int(RiskTier.EMBER)
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -624,6 +647,7 @@ async def test_table_load_failure_is_audited_once(tmp_path, caplog) -> None:
         assert "FileNotFoundError" in json.loads(rows[0][1])["error"]
         assert any("severity table" in r.getMessage() for r in caplog.records)
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -640,6 +664,7 @@ async def test_healthy_table_writes_no_failure_audit(tmp_path) -> None:
         await cur.close()
         assert row is not None and row[0] == 0
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -661,6 +686,7 @@ async def test_phase1_failure_closes_the_just_opened_situation(tmp_path, monkeyp
         res = await svc.handle_reading(_reading(GAS, "on"))
         assert res is not None and res.sent is True  # 다음 이상 신호는 알린다
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -674,6 +700,7 @@ async def test_phase1_without_proposal_closes_the_situation(tmp_path, monkeypatc
         assert await svc.handle_reading(_reading(GAS, "on")) is None
         assert (await _situations(db))[0]["closed_at"] is not None
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -716,6 +743,7 @@ async def test_expire_situation_only_touches_pending_of_that_situation(tmp_path)
         assert acc is not None and acc.state == "accepted"
         assert await svc.proposals.expire_situation(sid) == []
     finally:
+        await svc.drain_phase2()
         await db.close()
 
 
@@ -734,10 +762,115 @@ async def test_phase2_backend_error_stores_degraded_row(tmp_path) -> None:
     try:
         res = await svc.handle_reading(_reading(GAS, "on"))
         assert res is not None and res.sent is True
+        await svc.drain_phase2()
         rows = await _judgments(db)
         assert len(rows) == 2
         assert rows[1]["degraded"] == 1 and rows[1]["model_id"] == "exploding-test-model"
         assert rows[1]["gate2_verdict"] == "degraded_fail_safe"
         assert len(transport.sent) == 1
+    finally:
+        await svc.drain_phase2()
+        await db.close()
+
+
+# ==========================================================================
+# 14) 2단계는 백그라운드: 앞 상황의 모델 판정이 다음 안전 알림을 막지 않는다
+# ==========================================================================
+async def test_second_safety_alert_is_not_held_behind_first_model_call(tmp_path) -> None:
+    """스트림으로 가스 → 문 열림. 모델이 막혀 있어도 두 알림이 모두 먼저 나간다."""
+    backend = _BlockingBackend()
+    svc, db, transport = await _make(tmp_path, backend=backend)
+
+    class _Bridge:
+        async def stream(self):
+            yield _reading(GAS, "on")
+            yield _reading(DOOR, "on")
+
+    try:
+        await asyncio.wait_for(svc._stream_loop(_Bridge(), 2), timeout=5)
+        assert not backend.release.is_set()
+        assert len(transport.sent) == 2  # 모델이 풀리기 전에 둘 다 발송
+        labels = [payload["severity_label"] for _, payload in transport.sent]
+        assert labels == [SeverityLevel.CRITICAL.label_ko, SeverityLevel.WARNING.label_ko]
+        assert len(svc._phase2_tasks) == 2
+        backend.release.set()
+        await asyncio.wait_for(svc.drain_phase2(), timeout=5)
+        rows = await _judgments(db)
+        assert len(rows) == 4  # 두 상황 × (1단계 + 2단계)
+        assert len({r["situation_id"] for r in rows}) == 2
+    finally:
+        backend.release.set()
+        await svc.drain_phase2()
+        await db.close()
+
+
+async def test_followup_is_not_sent_after_the_situation_closed(tmp_path) -> None:
+    """2단계가 도는 사이 정상 복귀로 닫힌 상황엔 후속 알림을 보내지 않는다(행은 남김)."""
+    backend = _BlockingBackend(severity=SeverityLevel.CRITICAL)  # 답하면 올린다
+    svc, db, transport = await _make(tmp_path, backend=backend)
+    try:
+        first = await svc.handle_reading(_reading(DOOR, "on"))
+        assert first is not None
+        assert await svc.handle_reading(_reading(DOOR, "off")) is None  # 닫힘 + 해소 알림
+        backend.release.set()
+        await asyncio.wait_for(svc.drain_phase2(), timeout=5)
+        assert len(transport.sent) == 2  # 알림 + 해소, 후속 없음
+        assert len(await _proposals(db)) == 1
+        rows = await _judgments(db)
+        assert len(rows) == 2
+        assert json.loads(rows[1]["severity_sources"]) == ["table", "model"]
+    finally:
+        backend.release.set()
+        await svc.drain_phase2()
+        await db.close()
+
+
+async def test_run_drains_phase2_before_returning(tmp_path) -> None:
+    """run() 은 끝나기 전에 남은 2단계를 마무리한다(호출자가 그 뒤 DB 를 닫는다)."""
+    backend = _FixedBackend()
+    svc, db, _ = await _make(tmp_path, backend=backend)
+
+    class _Bridge:
+        async def stream(self):
+            yield _reading(GAS, "on")
+
+    try:
+        await asyncio.wait_for(
+            svc.run(bridge=_Bridge(), tick_seconds=0.0, max_ticks=1, max_events=1),
+            timeout=10,
+        )
+        assert svc._phase2_tasks == set()
+        assert len(await _judgments(db)) == 2
+    finally:
+        await db.close()
+
+
+async def test_drain_timeout_cancels_stuck_phase2(tmp_path) -> None:
+    backend = _BlockingBackend()
+    svc, db, _ = await _make(tmp_path, backend=backend, deadline=30.0)
+    try:
+        assert await svc.handle_reading(_reading(GAS, "on")) is not None
+        await asyncio.wait_for(svc.drain_phase2(timeout=0.05), timeout=5)
+        assert svc._phase2_tasks == set()
+        assert len(await _judgments(db)) == 1  # 취소된 2단계는 행이 없다(종료 경로)
+    finally:
+        backend.release.set()
+        await db.close()
+
+
+async def test_phase2_task_exception_is_logged(tmp_path, monkeypatch, caplog) -> None:
+    """2단계 태스크의 예외는 삼키지 않고 로그로 남긴다. 1단계 알림은 이미 나갔다."""
+    svc, db, transport = await _make(tmp_path)
+    try:
+        async def _boom(*a: Any, **kw: Any) -> Any:
+            raise RuntimeError("phase-2 exploded")
+
+        monkeypatch.setattr(svc, "_run_phase2", _boom)
+        with caplog.at_level("ERROR"):
+            res = await svc.handle_reading(_reading(GAS, "on"))
+            await svc.drain_phase2()
+        assert res is not None and res.sent is True and len(transport.sent) == 1
+        assert svc._phase2_tasks == set()
+        assert any("phase-2 judgment task failed" in r.getMessage() for r in caplog.records)
     finally:
         await db.close()
