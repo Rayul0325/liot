@@ -55,9 +55,9 @@ def test_non_allowlisted_comfort_is_notify_only():
 # ── 정책: 안전 임계는 절대 자동 금지, fail-safe 방향만 ─────────────────
 def test_safety_never_auto_even_at_low_tier():
     pol = ExecutionPolicy(enabled=True)
-    # 안전 카테고리는 BREATH 라도 자동 금지 → 이중확인
-    assert pol.decide(_act("lock", "lock", "lock"), RiskTier.BREATH) == ExecDecision.DOUBLE_CONFIRM
-    assert pol.decide(_act("valve", "close", "water_main"), RiskTier.AMBIENT) == ExecDecision.DOUBLE_CONFIRM
+    # 안전 카테고리는 BREATH 라도 자동 금지. 잠그기·밸브 잠그기는 원탭(T4) → 단일 확인
+    assert pol.decide(_act("lock", "lock", "lock"), RiskTier.BREATH) == ExecDecision.CONFIRM
+    assert pol.decide(_act("valve", "close", "water_main"), RiskTier.AMBIENT) == ExecDecision.CONFIRM
 
 
 def test_safety_open_direction_excluded():
