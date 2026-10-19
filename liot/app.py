@@ -14,7 +14,8 @@ L1 정규화 → L2 스냅샷 → L3 Gate1+Gate2 → L4 Proposal 까지 end-to-e
     핸들러는 동일 trace 의 단계 산출물을 stash 에 보관해 동기적으로 이어 붙인다.
 
 상황 알림(안전 카테고리, 서비스 경로)은 두 단계다(spec §6.2):
-  - classify_safety(reading) 로 이상/정상을 판정한다(SeverityTable.is_abnormal).
+  - classify_safety(reading) 로 이상/정상/판정 보류를 판정한다(SeverityTable.is_abnormal,
+    is_unmonitorable). 판정 보류(unavailable·unknown)는 상황을 열지도 닫지도 않는다.
   - process_situation_reading 은 Gate1 하한 + 파급도 하한(severity_floor)만으로
     1단계 제안을 만든다 — 모델을 부르지 않는다. 지연 판정 요청(DeferredJudgeRequest)
     을 함께 돌려주고, 서비스가 제안을 먼저 보낸 뒤 별도 스레드에서
@@ -52,6 +53,7 @@ from liot.core.severity import (
     SeverityResult,
     SeveritySource,
     SeverityTable,
+    is_unmonitorable,
     load_severity_table,
 )
 from liot.layers.l1_sensing.normalizer import normalize
@@ -106,14 +108,18 @@ DEADLINE_GATE2_VERDICT = "degraded_fail_safe"
 
 @dataclass(frozen=True)
 class SafetySignal:
-    """안전 카테고리 읽기 하나의 이상/정상 판정(spec §3.4.1).
+    """안전 카테고리 읽기 하나의 이상/정상/판정 보류(spec §3.4.1).
 
     reading 은 정규화를 마친 읽기다. 정규화할 수 없는 값은 abnormal=True(fail-closed).
+    unmonitorable=True 는 HA 가 기기를 읽지 못한 값(unavailable·unknown)이다 — 이때
+    abnormal 은 False 지만 '정상'이 아니다. 소비자는 unmonitorable 을 **먼저** 본다
+    (그러지 않으면 정상으로 흘러 열린 상황을 닫는다).
     """
 
     reading: SensorReading
     category: str
     abnormal: bool
+    unmonitorable: bool
 
 
 @dataclass(frozen=True)
@@ -617,9 +623,10 @@ class LiotApp:
         return reading
 
     def classify_safety(self, reading: SensorReading) -> SafetySignal | None:
-        """안전 카테고리 읽기의 이상/정상을 판정한다. 비안전이면 None.
+        """안전 카테고리 읽기의 이상/정상/판정 보류를 판정한다. 비안전이면 None.
 
-        판정은 SeverityTable.is_abnormal 한 곳에서만 한다(정규화 불가 값 = 이상).
+        이상 판정은 SeverityTable.is_abnormal 한 곳에서만 한다(정규화 불가 값 = 이상).
+        판정 보류(unavailable·unknown)는 is_unmonitorable 로 따로 표시한다.
         """
         reading = self._normalized(reading)
         category = self._category_of(reading.entity_id)
@@ -629,6 +636,7 @@ class LiotApp:
             reading=reading,
             category=category,
             abnormal=self.severity_table.is_abnormal(category, reading.norm_value),
+            unmonitorable=is_unmonitorable(reading.norm_value),
         )
 
     def observe_reading(self, reading: SensorReading, *, reason: str) -> None:

@@ -41,7 +41,9 @@ __all__ = [
     "GUIDANCE_119_TEXT",
     "LADDER_RESOLUTION_S",
     "LADDER_RETRY",
+    "SENSOR_KIND_LABEL_KO",
     "SITUATION_LABEL_KO",
+    "UNMONITORABLE_TEXT",
     "WARNING_REALERT_INTERVAL",
     "WARNING_REALERT_MAX",
     "MessageKind",
@@ -61,6 +63,7 @@ __all__ = [
     "realert_cap",
     "realert_interval",
     "realerts_due",
+    "sensor_kind_label",
     "situation_label",
     "to_iso",
 ]
@@ -92,10 +95,27 @@ SITUATION_LABEL_KO: Final[dict[str, str]] = {
 }
 DEFAULT_SITUATION_LABEL: Final[str] = "안전 상황"
 RESOLVED_TEXT: Final[str] = "해소됨"
+
+# 상황 카테고리 → 감시 불가 알림에 싣는 한국어 '센서 종류' 라벨. 상황 종류 라벨
+# (SITUATION_LABEL_KO, 예: '가스 누출')과 따로 둔다 — 감시 불가는 위험이 생긴 게 아니라
+# 센서를 읽지 못하는 것이라 '가스 누출'이라고 쓰면 거짓 경보가 된다. 기기 이름은 쓰지 않는다.
+SENSOR_KIND_LABEL_KO: Final[dict[str, str]] = {
+    "gas": "가스",
+    "smoke": "연기",
+    "oven": "오븐",
+    "high_temp": "온도",
+    "leak": "누수",
+    "water_main": "수도",
+    "door": "문",
+    "lock": "잠금장치",
+    "inactivity": "움직임",
+}
+DEFAULT_SENSOR_KIND_LABEL: Final[str] = "안전"
+UNMONITORABLE_TEXT: Final[str] = "감시 불가(연결 끊김)"
 # 119 는 안내다 — 사람이 직접 전화하도록 번호 문구만 싣는다(자동 신고 없음).
 GUIDANCE_119_TEXT: Final[str] = "119에 직접 전화해 주세요(자동 신고 아님)"
 
-MessageKind = Literal["forward", "resolved", "guidance_119"]
+MessageKind = Literal["forward", "resolved", "guidance_119", "unmonitorable"]
 
 
 # ── 라벨 ────────────────────────────────────────────────────────────────────
@@ -104,8 +124,19 @@ def situation_label(category: str) -> str:
     return SITUATION_LABEL_KO.get(category, DEFAULT_SITUATION_LABEL)
 
 
+def sensor_kind_label(category: str) -> str:
+    """카테고리의 한국어 센서 종류 라벨. 모르는 카테고리는 '안전'."""
+    return SENSOR_KIND_LABEL_KO.get(category, DEFAULT_SENSOR_KIND_LABEL)
+
+
 def message_label(category: str, kind: MessageKind) -> str:
-    """요약 알림 한 건의 상황 라벨(종류 + 메시지 성격). 기기·방·근거는 없다."""
+    """요약 알림 한 건의 상황 라벨(종류 + 메시지 성격). 기기·방·근거는 없다.
+
+    감시 불가(unmonitorable)는 상황 종류가 아니라 센서 종류로 쓴다
+    (예: '가스 센서 · 감시 불가(연결 끊김)').
+    """
+    if kind == "unmonitorable":
+        return f"{sensor_kind_label(category)} 센서 · {UNMONITORABLE_TEXT}"
     base = situation_label(category)
     if kind == "resolved":
         return f"{base} · {RESOLVED_TEXT}"
