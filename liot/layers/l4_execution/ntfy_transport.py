@@ -22,6 +22,8 @@ import json
 from typing import Any, Protocol, runtime_checkable
 from urllib.parse import parse_qs, urlsplit
 
+from liot.core.severity import SeverityLevel
+
 from .notifier import sign_feedback
 
 __all__ = [
@@ -39,6 +41,20 @@ class NtfyError(Exception):
 
 # 위험도 정수 → ntfy 우선순위(1=min ~ 5=max). 심각할수록 높게.
 _TIER_PRIORITY = {0: "2", 1: "3", 2: "4", 3: "5"}
+
+# 파급도 한국어 라벨 → SeverityLevel. 페이로드는 라벨 문자열만 싣기 때문에
+# transport 는 라벨을 거꾸로 풀어 파급도의 푸시 세기를 얻는다.
+_SEVERITY_BY_LABEL: dict[str, SeverityLevel] = {lvl.label_ko: lvl for lvl in SeverityLevel}
+
+
+def _priority(sanitized: dict[str, Any], tier: int) -> str:
+    """ntfy 우선순위. 파급도 라벨이 있으면 파급도에서(위험5·경고4·주의3·기록2),
+    없거나 모르는 라벨이면 예전처럼 위험도 tier 에서 정한다."""
+    label = sanitized.get("severity_label")
+    level = _SEVERITY_BY_LABEL.get(label) if isinstance(label, str) else None
+    if level is not None:
+        return level.ntfy_priority
+    return _TIER_PRIORITY.get(tier, "3")
 
 
 @runtime_checkable
@@ -102,7 +118,7 @@ class HTTPNtfyTransport:
         # 헤더는 ASCII 만(한글 라벨/글리프는 본문에). Tags 는 tier 영문명.
         headers: dict[str, str] = {
             "Title": "LIOT",
-            "Priority": _TIER_PRIORITY.get(tier, "3"),
+            "Priority": _priority(sanitized, tier),
             "Tags": {0: "white_circle", 1: "white_check_mark", 2: "question", 3: "shield"}.get(
                 tier, "bell"
             ),

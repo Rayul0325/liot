@@ -57,6 +57,9 @@ NTFY_ALLOWED_KEYS: frozenset[str] = frozenset(
         "label",
         "signed_deeplink",
         "topic",
+        # 파급도 한국어 라벨(예: "위험"). 라벨 문자열뿐이라 식별 정보가 없다.
+        # transport 가 이걸로 푸시 세기를 정한다.
+        "severity_label",
     }
 )
 
