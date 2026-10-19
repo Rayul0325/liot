@@ -14,6 +14,11 @@
 보다 약한 확인을 낼 수 없다. RiskRouter 가 라우팅 시점에 강제하고(위반 =
 InvariantError), ``assert_execution_gated`` 가 두 조건을 정적으로 재검한다.
 안전 임계 경로는 조건 A/B 에서 완전히 동일하다 — 실험이 안전을 바꾸지 않는다.
+
+원탭 예외(T4, 유일): EMBER 의 밸브 잠그기·현관 잠그기(``ONE_TAP_SAFE_ACTIONS``)는
+확인 강도가 ``light`` 다. 이 정책들은 위험도만 보고(행동을 모른다) 그 예외를 알지
+못한다 — 예외는 RiskRouter 가 조건 분기 *아래*에서 적용하므로 조건 A/B 모두 똑같이
+light 가 된다. 여기 정책들은 계속 티어 기준선 아래로 내려갈 수 없다.
 """
 
 from __future__ import annotations

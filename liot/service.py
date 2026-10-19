@@ -307,8 +307,15 @@ class LiotService:
     async def _on_approved(self, proposal: Proposal, *, used_nonce: str) -> str:
         """승인(accepted) 피드백 후 정책에 따라 실행한다.
 
-        CONFIRM(DUSK) → 즉시 실행. DOUBLE_CONFIRM(EMBER/안전) → 1차는 보류하고
-        한 번 더 확인 요청, 2차에서 실행. AUTO 는 이미 dispatch 에서 실행됨.
+        CONFIRM(DUSK, 그리고 원탭 안전 조치) → 즉시 실행. DOUBLE_CONFIRM(EMBER/안전)
+        → 1차는 보류하고 한 번 더 확인 요청, 2차에서 실행. AUTO 는 이미 dispatch 에서
+        실행됨.
+
+        원탭 예외(T4): ONE_TAP_SAFE_ACTIONS(밸브 잠그기·현관 잠그기)는 실행 정책이
+        CONFIRM 으로 판정하므로 2차 확인 대기(_awaiting_second)·2차 알림
+        (_request_second_confirmation)을 건너뛰고 첫 승인에서 실행된다. 링크의 1회용
+        nonce 는 그대로라 같은 링크를 재생해도 두 번 실행되지 않는다. 그 밖의 안전
+        조치는 여전히 이중확인이다(이 분기는 실행 정책만 따르고 스스로 완화하지 않는다).
 
         used_nonce: 방금 소비된 링크의 nonce. 2차 알림이 나가지 못했을 때 그
         링크를 되살리는 데만 쓴다.
