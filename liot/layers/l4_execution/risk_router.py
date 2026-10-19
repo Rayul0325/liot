@@ -19,6 +19,8 @@ Phase1 불변식: **실행 호출 절대 금지**. 이 모듈은 Judgment 를 �
     있다 — 정책이 light 보다 약한 확인을 내면 여전히 InvariantError.
   * 카탈로그 위험도가 Judgment 위험도보다 높으면 **승격만**(escalate_only).
     이는 안전 방향(강등 불가, 불변식 5)으로만 작동한다.
+  * 파급도(severity)·상황 id(situation_id)는 Judgment 값을 그대로 옮긴다
+    (라우터는 파급도를 계산하지도 바꾸지도 않는다). 파급도 없는 판단은 None.
 """
 
 from __future__ import annotations
@@ -125,6 +127,8 @@ class RiskRouter:
             expires_at=expires_at,
             state="pending",
             created_at=created_at,
+            severity=judgment.severity,
+            situation_id=judgment.situation_id,
         )
 
     def _now(self) -> str:
