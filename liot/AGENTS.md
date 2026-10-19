@@ -9,6 +9,7 @@ The files directly in `liot/`:
 - `serve.py` — `liot-serve` entry point; builds everything from environment variables. Owns `DEFAULT_DB_PATH` / `resolve_db_path`.
 - `demo_server.py` — control-room HTTP server: the pipeline lab (`/api/simulate`, `/api/registry/*`, `/api/feedback`, `/api/directive`, `/api/catalog`) and safety settings (`/api/safety/*`, shared daemon DB), and the day simulation (`/api/day/*`, temp DB per run).
 - `registry.py` — `RuntimeRegistry`, in-memory runtime registration used only by the lab.
+- `secrets_env.py` — reads `~/.config/liot/secrets.env` (`KEY=value` lines only) for the simulator's real-model keys; refuses files wider than 600 or owned by someone else; exposes presence by name, never values. The daemon does not read it.
 - `live_runs.py` — generic run manager: one background worker at a time (409 otherwise), stored events with `seq`, SSE replay (`from`, `Last-Event-ID`), keepalive, stop flag, last 3 runs.
 - `live_graph.py` — stage-by-stage runner for one situation through the real functions (prod order and bench order); used by the bench runner (`build_one`, `TRAIT_WORDS`).
 - `day_sim.py` — simulated days on a real `LiotService` over a temp SQLite file (KST clock, fake transport, FakeLLM, FakeExternalProvider); persona and viewer taps go through `_route_feedback` with real signed links; `DayRuns` backs `/api/day/*`.

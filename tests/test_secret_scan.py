@@ -106,3 +106,44 @@ def test_doc_style_yaml_line_is_flagged_on_purpose(tmp_path: Path) -> None:
     safe = "LIOT_NTFY" + "_TOKEN: <your-token>\n"
     proc = _scan(_repo(tmp_path / "b", {"README.md": safe}))
     assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+# ── 2026-10-20: 하루 시뮬레이터 실제 모델 키(OpenAI·Gemini·Jev·Anthropic) ─────────
+# 키처럼 생긴 문자열은 이어 붙여 만든다(이 파일이 저장소 스캔에 걸리지 않게).
+A24 = "A" * 12 + "b" * 12
+A35 = "Ab1_" * 8 + "xyz"
+VAL = "abcd" + "efgh" + "1234"
+
+
+@pytest.mark.parametrize(
+    ("label", "text"),
+    [
+        ("openai project key", "key = " + "sk-" + "proj-" + A24 + "\n"),
+        ("openai service key", "k: " + "sk-" + "svcacct-" + A24 + "\n"),
+        ("gemini key", "GOOGLE = " + "AI" + "za" + A35 + "\n"),
+        ("jev env", "JEV_" + "API_KEY=" + VAL + "\n"),
+        ("openai env", "OPENAI_" + "API_KEY: " + VAL + "\n"),
+        ("anthropic env", "export ANTHROPIC_" + "API_KEY=" + VAL + "\n"),
+        ("gemini env", "GEMINI_" + 'API_KEY="' + VAL + '"\n'),
+        ("old sk key still caught", "x = " + "sk-" + "a" * 40 + "\n"),
+    ],
+)
+def test_new_model_key_shapes_fail(tmp_path: Path, label: str, text: str) -> None:
+    proc = _scan(_repo(tmp_path, {"leak.txt": text}))
+    assert proc.returncode == 1, label
+    assert "leak.txt" in proc.stdout
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "JEV_" + "API_KEY=<여기에 키>\n",
+        "OPENAI_" + "API_KEY=***\n",
+        "ANTHROPIC_" + "API_KEY=\n",
+        "GEMINI_" + "API_KEY 는 secrets.env 에 둡니다\n",
+        "sk-" + "proj- 로 시작하는 키는 커밋하지 않는다\n",
+    ],
+)
+def test_new_model_key_placeholders_pass(tmp_path: Path, text: str) -> None:
+    proc = _scan(_repo(tmp_path, {"docs.md": text}))
+    assert proc.returncode == 0, proc.stdout + proc.stderr

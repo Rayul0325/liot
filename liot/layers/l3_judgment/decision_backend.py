@@ -42,6 +42,9 @@ __all__ = [
     "DecisionTransport",
     "HTTPDecisionTransport",
     "DecisionBackend",
+    "EvidenceBuilder",
+    "SEVERITY_QUESTION",
+    "TIER_QUESTION",
     "read_option_probs",
     "build_decision_backend",
 ]
@@ -104,6 +107,43 @@ _SEVERITY_QUESTION = _Question(
         ("critical", "생명 위협 또는 즉시 큰 피해"),
     ),
 )
+
+
+# 다른 판정 백엔드(Jev 등)도 같은 질문·선택지를 쓴다 — 문구를 복제하지 않게 공개한다.
+TIER_QUESTION = _TIER_QUESTION
+SEVERITY_QUESTION = _SEVERITY_QUESTION
+
+
+class EvidenceBuilder:
+    """모델에 보낼 증거 문자열을 만든다 — 결정 백엔드와 다른 원격 판정 백엔드가 같이 쓴다.
+
+    payload 조립은 OllamaBackend 의 규칙(식별자 차단·params 투영)을 그대로 빌리고(전송 없음),
+    ``emit_external(Destination.LLM)`` 을 한 번 지난 뒤 생성형 지시(system)를 뺀 JSON 이다.
+    egress 가 거부하면 ``LLMUnavailable``(→ degraded, 보내지 않는다).
+    """
+
+    def __init__(self, model: str = "evidence", *, alias: AliasMap | None = None) -> None:
+        self.alias = alias
+        self._payload_builder = OllamaBackend(model, _NoSendTransport(), alias=alias)
+
+    def build(
+        self, candidate: CandidateAction, ctx: ContextSnapshot | None, gate1_floor: RiskTier
+    ) -> str:
+        payload = self._payload_builder._build_payload(candidate, ctx, gate1_floor)
+        # ── SE-D3: 단일 egress 통과(가명화 + PII 그물). 못 보내면 degraded. ──
+        try:
+            sanitized = emit_external(
+                Destination.LLM,
+                payload,
+                trace_id=(ctx.trace_id if ctx else "no-ctx"),
+                alias=self.alias,
+            )
+        except EgressViolation as exc:
+            raise LLMUnavailable(f"egress blocked outbound decision payload: {exc}") from exc
+        # 생성형 지시(system)는 빼고 데이터만 evidence 로 싣는다(측정과 같은 형태).
+        return json.dumps(
+            {k: v for k, v in sanitized.items() if k != "system"}, ensure_ascii=False
+        )
 
 
 @runtime_checkable
@@ -224,27 +264,13 @@ class DecisionBackend:
         self.timeout_s = timeout_s
         self.model_id = f"decision:{model}"
         # 모델 입력은 기존 Gate2 payload 와 같아야 한다 — 조립 규칙(식별자 차단·params
-        # 투영)을 복제하지 않고 OllamaBackend 의 것을 그대로 쓴다. 전송은 하지 않는다.
-        self._payload_builder = OllamaBackend(model, _NoSendTransport(), alias=alias)
+        # 투영)을 복제하지 않고 OllamaBackend 의 것을 그대로 쓴다(EvidenceBuilder). 전송 없음.
+        self._evidence_builder = EvidenceBuilder(model, alias=alias)
 
     def _evidence(
         self, candidate: CandidateAction, ctx: ContextSnapshot | None, gate1_floor: RiskTier
     ) -> str:
-        payload = self._payload_builder._build_payload(candidate, ctx, gate1_floor)
-        # ── SE-D3: 단일 egress 통과(가명화 + PII 그물). 못 보내면 degraded. ──
-        try:
-            sanitized = emit_external(
-                Destination.LLM,
-                payload,
-                trace_id=(ctx.trace_id if ctx else "no-ctx"),
-                alias=self.alias,
-            )
-        except EgressViolation as exc:
-            raise LLMUnavailable(f"egress blocked outbound decision payload: {exc}") from exc
-        # 생성형 지시(system)는 빼고 데이터만 evidence 로 싣는다(측정과 같은 형태).
-        return json.dumps(
-            {k: v for k, v in sanitized.items() if k != "system"}, ensure_ascii=False
-        )
+        return self._evidence_builder.build(candidate, ctx, gate1_floor)
 
     def _ask(self, question: _Question, evidence: str) -> dict[str, float]:
         user = json.dumps(

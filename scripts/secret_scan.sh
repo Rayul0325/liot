@@ -42,12 +42,16 @@ scan() {  # scan <설명> <정규식>
 #   - `:` 형태를 yaml/env 파일로 한정하기: .md 에 붙여 넣은 진짜 토큰을 놓친다.
 # 오탐은 게이트가 빨개져 사람이 보고 고치면 끝이고, 미탐은 시크릿이 그대로 나간다.
 # 그래서 넓은 쪽을 유지한다. 문서에 예시를 적을 땐 ***·<...> 를 쓰면 걸리지 않는다.
+#
+# 하루 시뮬레이터의 실제 모델 키 4개(2026-10-20)도 같은 규칙으로 본다. Jev 키는 공개된 모양이
+# 없어 이 이름 규칙이 유일한 그물이다.
 scan "LIOT 시크릿 env 에 평문 값이 커밋됐습니다" \
-    '(LIOT_NOTIFY_SECRET|LIOT_HA_TOKEN|LIOT_NTFY_TOKEN)[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9_/+.-]{8,}'
+    '(LIOT_NOTIFY_SECRET|LIOT_HA_TOKEN|LIOT_NTFY_TOKEN|JEV_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|GEMINI_API_KEY)[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9_/+.-]{8,}'
 
-# 흔한 제공자 키 형태.
+# 흔한 제공자 키 형태. sk-proj-·sk-svcacct- 는 하이픈이 들어 sk-[A-Za-z0-9]{32,} 에 안 걸려
+# 따로 둔다. AIza 는 Google(Gemini) API 키 머리말이다.
 scan "제공자 API 키로 보이는 문자열이 커밋됐습니다" \
-    '(sk-ant-[A-Za-z0-9_-]{8}|sk-[A-Za-z0-9]{32,}|ghp_[A-Za-z0-9]{20}|AKIA[0-9A-Z]{16})'
+    '(sk-ant-[A-Za-z0-9_-]{8}|sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,}|ghp_[A-Za-z0-9]{20}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35})'
 
 # 개인키 블록.
 scan "개인키 블록이 커밋됐습니다" \
