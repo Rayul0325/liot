@@ -62,6 +62,17 @@
         <p class="h3-summary" id="scenarioSummary" aria-live="polite"></p>
       </section>
 
+      <aside class="h3-phone" id="residentPhone" data-who="resident" aria-label="거주자 폰">
+        <div class="h3-phone-frame">
+          <div class="h3-phone-bar">
+            <span class="h3-phone-who">거주자 폰</span>
+            <span class="h3-phone-clock tabnum" data-role="clock">0초</span>
+          </div>
+          <div class="h3-feed" data-role="feed" aria-live="polite"></div>
+          <p class="h3-phone-empty" data-role="empty">아직 알림이 없어요</p>
+        </div>
+      </aside>
+
       <section class="h3-home" aria-label="3D 가상 집">
         <div class="h3-stage" id="homeStage" tabindex="0" aria-describedby="homeHint">
           <div class="h3-overlay" id="homeOverlay" aria-hidden="false"></div>
@@ -76,12 +87,43 @@
         </ul>
       </section>
 
+      <aside class="h3-phone" id="guardianPhone" data-who="guardian" aria-label="보호자 폰">
+        <div class="h3-phone-frame">
+          <div class="h3-phone-bar">
+            <span class="h3-phone-who">보호자 폰</span>
+            <span class="h3-phone-clock tabnum" data-role="clock">0초</span>
+          </div>
+          <div class="h3-feed" data-role="feed" aria-live="polite"></div>
+          <p class="h3-phone-empty" data-role="empty">아직 알림이 없어요</p>
+        </div>
+      </aside>
+
       <section class="h3-timeline" aria-label="타임라인">
         <div class="h3-tl-controls">
           <button class="h3-btn h3-play" type="button" id="playBtn" aria-pressed="false">
             재생
           </button>
+          <button class="h3-btn" type="button" id="restartBtn">처음부터</button>
+          <div class="h3-seg" role="radiogroup" aria-label="재생 속도" id="speedSeg">
+            <span class="h3-seg-label">속도</span>
+          </div>
           <span class="h3-clock tabnum" id="clock">0초</span>
+        </div>
+        <div class="h3-tl-track" id="tlTrack">
+          <div class="h3-tl-rail" aria-hidden="true">
+            <div class="h3-tl-fill" id="tlFill"></div>
+          </div>
+          <div class="h3-tl-marks" id="tlMarks" aria-hidden="true"></div>
+          <input
+            class="h3-tl-range"
+            id="tlRange"
+            type="range"
+            min="0"
+            max="420"
+            step="1"
+            value="0"
+            aria-label="재생 위치(초)"
+          />
         </div>
       </section>
     </main>

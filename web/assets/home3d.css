@@ -10,6 +10,9 @@
   /* 감시 불가(센서를 읽지 못함)·정상 */
   --sev-unk: #a993ff;
   --h3-ok: #3fd0a0;
+  /* 타임라인 사건 점: 거주자 폰 · 보호자 폰 */
+  --h3-resident: #35c6ff;
+  --h3-guardian: #f59ad0;
 
   /* 3D 집 */
   --h3-line: #24405a;
@@ -30,7 +33,9 @@
   grid-template-areas:
     "controls"
     "home"
-    "timeline";
+    "timeline"
+    "resident"
+    "guardian";
   gap: var(--s4);
   padding: var(--s4) var(--s6) var(--s6);
   width: 100%;
@@ -57,6 +62,32 @@
 .h3-timeline {
   grid-area: timeline;
   min-width: 0;
+}
+#residentPhone {
+  grid-area: resident;
+}
+#guardianPhone {
+  grid-area: guardian;
+}
+
+@media (min-width: 641px) {
+  .h3-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "controls controls"
+      "home home"
+      "timeline timeline"
+      "resident guardian";
+  }
+}
+@media (min-width: 1100px) {
+  .h3-layout {
+    grid-template-columns: 290px minmax(0, 1fr) 290px;
+    grid-template-areas:
+      "controls controls controls"
+      "resident home guardian"
+      "timeline timeline timeline";
+  }
 }
 
 /* ── 시나리오 고르기 ─────────────────────────────────────────────── */
@@ -445,6 +476,329 @@
   color: var(--ink-dim);
 }
 
+.h3-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4) var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+}
+.h3-tl-track {
+  position: relative;
+  height: 74px;
+  margin: 0 8px;
+}
+.h3-tl-rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 32px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.h3-tl-fill {
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 35%, transparent), var(--accent));
+}
+.h3-tl-marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.h3-tl-mark {
+  position: absolute;
+  top: 24px;
+  width: 2px;
+  height: 22px;
+  translate: -1px 0;
+  background: var(--ink-dim);
+  border-radius: 1px;
+}
+.h3-tl-mark-label {
+  position: absolute;
+  top: 26px;
+  left: 50%;
+  translate: -50% 0;
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+/* 이웃 눈금 이름이 겹치지 않게 하나 걸러 위로 올린다. */
+.h3-tl-mark:nth-of-type(even) .h3-tl-mark-label {
+  top: auto;
+  bottom: 26px;
+}
+.h3-tl-mark.is-start .h3-tl-mark-label {
+  left: 0;
+  translate: 0 0;
+}
+.h3-tl-mark.is-end .h3-tl-mark-label {
+  left: auto;
+  right: 0;
+  translate: 0 0;
+}
+.h3-tl-mark.is-ack {
+  background: var(--h3-ok);
+  width: 3px;
+  height: 26px;
+  top: 22px;
+}
+.h3-tl-tick {
+  position: absolute;
+  top: 31px;
+  width: 8px;
+  height: 8px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: var(--h3-resident);
+  box-shadow: 0 0 0 2px var(--bg-panel);
+}
+.h3-tl-tick.is-guardian {
+  top: 39px;
+  background: var(--h3-guardian);
+}
+.h3-tl-range {
+  position: absolute;
+  left: -8px;
+  top: 25px;
+  width: calc(100% + 16px);
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+.h3-tl-range::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 20px;
+}
+.h3-tl-range::-moz-range-track {
+  background: transparent;
+}
+.h3-tl-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: 3px solid var(--accent);
+}
+.h3-tl-range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: 3px solid var(--accent);
+}
+.h3-tl-range:focus-visible {
+  outline: none;
+}
+.h3-tl-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--focus);
+}
+
+/* ── 폰 두 대 ─────────────────────────────────────────────────────── */
+.h3-phone {
+  position: relative;
+  min-width: 0;
+  min-height: 480px;
+}
+.h3-phone-frame {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3) var(--s3) var(--s4);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: linear-gradient(180deg, #0d131e, #080c13);
+  box-shadow: inset 0 0 0 4px #05080d, 0 12px 32px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+.h3-phone-frame::before {
+  content: "";
+  align-self: center;
+  width: 64px;
+  height: 5px;
+  border-radius: 999px;
+  background: #1a2433;
+  flex: none;
+}
+.h3-phone-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0 var(--s2);
+  font-size: 12px;
+  color: var(--ink-faint);
+  flex: none;
+}
+.h3-phone-who {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+#guardianPhone .h3-phone-who {
+  color: var(--h3-guardian);
+}
+#residentPhone .h3-phone-who {
+  color: var(--h3-resident);
+}
+.h3-feed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+  padding: 2px;
+  scrollbar-width: thin;
+}
+.h3-feed:empty {
+  flex: 0;
+}
+.h3-phone-empty {
+  margin: auto;
+  max-width: 220px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--ink-faint);
+  line-height: 1.5;
+}
+.h3-phone-empty[hidden] {
+  display: none;
+}
+
+.h3-card {
+  --card: var(--accent);
+  gap: 6px;
+  border-color: color-mix(in srgb, var(--card) 45%, var(--line));
+  animation: none;
+}
+.h3-card[data-priority="5"] {
+  --card: var(--sev-3);
+}
+.h3-card[data-priority="4"] {
+  --card: var(--sev-2);
+}
+.h3-card[data-priority="3"] {
+  --card: var(--sev-1);
+}
+.h3-card[data-priority="2"] {
+  --card: var(--sev-0);
+}
+.h3-card .notif-app {
+  color: var(--ink-dim);
+}
+.h3-card-time {
+  color: var(--ink-faint);
+}
+.h3-card-kind {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--card);
+  letter-spacing: 0.01em;
+}
+.h3-card-body {
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.h3-card-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.h3-prio {
+  font-size: 11px;
+  color: var(--ink-faint);
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.h3-card-sev {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--card);
+}
+.h3-actions {
+  margin-top: 2px;
+}
+.h3-actions .notif-btn {
+  font-size: 12.5px;
+  padding: 7px 4px;
+}
+.h3-btn-call {
+  color: var(--sev-3);
+  border-color: color-mix(in srgb, var(--sev-3) 55%, var(--line));
+}
+.h3-btn-call:hover:not(:disabled) {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--sev-3) 30%, var(--bg-inset));
+  border-color: var(--sev-3);
+}
+.h3-realert,
+.h3-ack-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--s2);
+  font-size: 12px;
+  color: var(--ink-dim);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  border-left: 3px solid var(--sev-0);
+}
+.h3-realert[data-priority="5"] {
+  border-left-color: var(--sev-3);
+}
+.h3-realert[data-priority="4"] {
+  border-left-color: var(--sev-2);
+}
+.h3-realert-time {
+  color: var(--ink-faint);
+}
+.h3-ack-note {
+  color: var(--ink);
+  border-left-color: var(--h3-ok);
+  background: color-mix(in srgb, var(--h3-ok) 10%, var(--bg-inset));
+}
+.h3-toast {
+  position: absolute;
+  left: var(--s3);
+  right: var(--s3);
+  bottom: var(--s3);
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink);
+  background: #1b2433;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.is-new {
+  animation: h3-in 0.35s ease-out;
+}
+@keyframes h3-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
 /* ── 움직임 줄이기 ─────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .h3-dot.sev-3 .h3-dot-core {
@@ -454,6 +808,9 @@
   .h3-switch-track,
   .h3-switch-track::after {
     transition: none;
+  }
+  .is-new {
+    animation: none;
   }
 }
 

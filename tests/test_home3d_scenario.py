@@ -220,6 +220,9 @@ def test_http_scenario_is_200_and_touches_no_db(server) -> None:
         ({"entity_id": GAS, "value": "on", "vulnerable_resident": "yes"}, "vulnerable_resident"),
         ({"entity_id": GAS, "value": "on", "ack_at_s": -1}, "ack_at_s"),
         ({"entity_id": GAS, "value": "on", "ack_at_s": "soon"}, "ack_at_s"),
+        ({"entity_id": GAS, "value": "on", "opened_at": "yesterday"}, "opened_at"),
+        ({"entity_id": GAS, "value": "on", "opened_at": "2026-06-02T12:00:00"}, "opened_at"),
+        ({"entity_id": GAS, "value": "on", "opened_at": 5}, "opened_at"),
     ],
 )
 def test_http_bad_requests_are_400(server, payload: dict[str, Any], field: str) -> None:
@@ -228,3 +231,25 @@ def test_http_bad_requests_are_400(server, payload: dict[str, Any], field: str) 
     assert code == 400
     assert out["ok"] is False and out["error"]
     assert out.get("field") == field
+
+
+def test_http_ack_rerequest_keeps_the_original_opened_at(server) -> None:
+    # 확인 재요청에 처음 응답의 opened_at 을 되돌려 주면, 이미 보인 문구의 시각이 그대로다.
+    base, _db = server
+    code, first = _post(base, {"entity_id": GAS, "value": "on", "consented_guardians": 1})
+    assert code == 200 and first["opened_at"]
+    code, again = _post(
+        base,
+        {
+            "entity_id": GAS,
+            "value": "on",
+            "consented_guardians": 1,
+            "ack_at_s": 100,
+            "opened_at": first["opened_at"],
+        },
+    )
+    assert code == 200 and again["opened_at"] == first["opened_at"]
+    fwd_first = [e["body"] for e in first["events"] if e["kind"] == "forward"]
+    fwd_again = [e["body"] for e in again["events"] if e["kind"] == "forward"]
+    assert fwd_again == fwd_first and first["opened_at"] in fwd_first[0]
+    assert max(e["t_s"] for e in again["events"]) <= 100

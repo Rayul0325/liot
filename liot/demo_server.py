@@ -866,12 +866,24 @@ def scenario_args(body: dict[str, Any]) -> dict[str, Any]:
         or ack < 0
     ):
         raise ScenarioError("ack_at_s 는 0 이상의 초여야 합니다.", "ack_at_s")
+    # 확인 재요청은 처음 응답의 opened_at 을 되돌려 보낸다 — 이미 보인 알림 문구의 시각이
+    # 다시 계산되며 바뀌지 않게. 없으면 지금 시각.
+    opened_at = body.get("opened_at")
+    if opened_at is not None:
+        try:
+            parsed = escalation.parse_iso(opened_at) if isinstance(opened_at, str) else None
+        except ValueError:
+            parsed = None
+        if parsed is None or parsed.tzinfo is None:
+            raise ScenarioError("opened_at 은 시간대가 있는 ISO 시각이어야 합니다.", "opened_at")
+        opened_at = escalation.to_iso(parsed)
     return {
         "entity_id": entity_id.strip(),
         "value": body.get("value"),
         "vulnerable_resident": vulnerable,
         "consented_guardians": guardians,
         "ack_at_s": None if ack is None else float(ack),
+        "opened_at": opened_at,
     }
 
 
@@ -965,7 +977,7 @@ async def scenario_timeline(
 ) -> dict[str, Any]:
     """한 센서 값이 만드는 알림 타임라인(초 단위, 첫 알림 = 0초).
 
-    반환: ``{ok, state, category, severity, markers, horizon_s, acked_at_s, events}``.
+    반환: ``{ok, opened_at, state, category, severity, markers, horizon_s, acked_at_s, events}``.
     ``state`` 는 abnormal | unmonitorable | normal. ``events`` 는 시각 순서이고 각 줄은
     ``{t_s, who, guardian, kind, title, body, priority, severity_ko, actions[]}`` 다.
     ``ack_at_s`` 가 있으면 그 시각 뒤의 사건은 없다(확인 = 사다리 멈춤).
@@ -990,6 +1002,7 @@ async def scenario_timeline(
     )
     out: dict[str, Any] = {
         "ok": True,
+        "opened_at": at,
         "entity_id": entity_id,
         "category": category,
         "situation_ko": situation_label(category),

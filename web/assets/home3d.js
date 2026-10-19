@@ -16,7 +16,7 @@ const API_SCENARIO = "/api/home3d/scenario";
  * @typedef {{t_s:number, who:"resident"|"guardian", guardian:number|null, kind:string, title:string, body:string, priority:string, severity_ko:string|null, actions:EventAction[]}} ScenarioEvent
  * @typedef {{floor:number, floor_ko:string, final:number, name:string, ko:string, sources:string[], sources_ko:string[]}} ScenarioSeverity
  * @typedef {{t_s:number, label:string}} ScenarioMarker
- * @typedef {{ok:boolean, error?:string, state:"abnormal"|"unmonitorable"|"normal", entity_id:string, category:string, situation_ko:string, severity:ScenarioSeverity|null, markers:ScenarioMarker[], horizon_s:number, acked_at_s:number|null, events:ScenarioEvent[]}} ScenarioResponse
+ * @typedef {{ok:boolean, error?:string, state:"abnormal"|"unmonitorable"|"normal", opened_at:string, consented_guardians:number, entity_id:string, category:string, situation_ko:string, severity:ScenarioSeverity|null, markers:ScenarioMarker[], horizon_s:number, acked_at_s:number|null, events:ScenarioEvent[]}} ScenarioResponse
  * @typedef {{key:string, name:string, x0:number, z0:number, x1:number, z1:number}} Room
  */
 
@@ -89,6 +89,11 @@ const state = {
   speed: 10,
   lastFrame: 0,
   requestSeq: 0,
+  /** 폰에 이미 보인 사건 수(events 앞부분) */ shown: 0,
+  /** @type {{resident:number, guardian:number}} */ realerts: { resident: 0, guardian: 0 },
+  ackShown: false,
+  /** @type {{idx:number, role:string}|null} */ chosen: null,
+  /** @type {{who:"resident"|"guardian", label:string}|null} */ ackInfo: null,
 };
 
 /** @type {{render:()=>void, setRoomTint:(key:string|null, color:string|null)=>void}|null} */
@@ -417,8 +422,9 @@ async function initThree(host, overlay) {
     height = Math.max(1, host.clientHeight);
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
-    // 좁은 화면에서는 조금 물러나 집 전체가 들어오게.
-    orbit.r = width < 520 ? 18 : 14.5;
+    // 화면 비율이 좁을수록 조금 물러나 집 전체가 들어오게.
+    const aspect = width / height;
+    orbit.r = aspect < 1.1 ? 19 : aspect < 1.6 ? 16.5 : 14.5;
     camera.updateProjectionMatrix();
     render();
   };
@@ -581,6 +587,7 @@ function renderSummary() {
 
 /**
  * 시나리오를 서버에 묻는다. ackAt 이 있으면 그 시각의 확인을 반영한 타임라인을 받는다.
+ * 확인 재요청에는 처음 응답의 opened_at 을 그대로 실어, 이미 보인 알림 문구의 시각이 바뀌지 않게 한다.
  * @param {number|null} ackAt 확인 시각(초)
  * @returns {Promise<void>}
  */
@@ -594,7 +601,13 @@ async function loadScenario(ackAt) {
     vulnerable_resident: state.vulnerable,
     consented_guardians: state.guardians,
   };
-  if (ackAt != null) body.ack_at_s = ackAt;
+  if (ackAt != null) {
+    body.ack_at_s = ackAt;
+    if (state.data) body.opened_at = state.data.opened_at;
+  } else {
+    state.chosen = null;
+    state.ackInfo = null;
+  }
   let data;
   try {
     data = await postJson(API_SCENARIO, body);
@@ -605,6 +618,7 @@ async function loadScenario(ackAt) {
   if (!data || !data.ok) {
     state.data = null;
     state.playing = false;
+    syncPlayButton();
     setStatus("error", (data && data.error) || "시나리오를 불러오지 못했습니다.");
     paintDots();
     renderSummary();
@@ -617,20 +631,246 @@ async function loadScenario(ackAt) {
   renderSummary();
   onDataChanged();
   if (ackAt == null) play();
-  else setStatus(state.playing ? "running" : "ready", "확인됨 — 사다리가 멈췄어요");
+  else setStatus(state.playing ? "running" : "ready", "확인됨 — 이후 알림이 멈췄어요");
 }
 
 /** 응답이 바뀌었을 때(새 시나리오·확인) 화면 다시 그리기. */
 function onDataChanged() {
+  resetPhones();
+  buildTimeline();
   applyTime();
 }
 
 /** 현재 재생 시각을 화면에 반영한다. */
 function applyTime() {
+  const horizon = state.data ? state.data.horizon_s : 0;
   const clock = document.getElementById("clock");
-  if (clock) {
-    const horizon = state.data ? state.data.horizon_s : 0;
-    clock.textContent = `${formatTime(state.t)} / ${formatTime(horizon)}`;
+  if (clock) clock.textContent = `${formatTime(state.t)} / ${formatTime(horizon)}`;
+  const fill = document.getElementById("tlFill");
+  if (fill) fill.style.width = horizon > 0 ? `${(state.t / horizon) * 100}%` : "0%";
+  const range = /** @type {HTMLInputElement|null} */ (document.getElementById("tlRange"));
+  if (range && document.activeElement !== range) range.value = String(Math.floor(state.t));
+  if (range) range.setAttribute("aria-valuetext", formatTime(state.t));
+  renderPhones();
+}
+
+// ── 폰 두 대 ────────────────────────────────────────────────────────────
+/** 사건 종류 → 카드 머리 표기. */
+const KIND_KO = {
+  alert: "상황 알림",
+  realert: "재알림",
+  forward: "보호자 전달",
+  guidance_119: "119 안내",
+  unmonitorable: "감시 불가 알림",
+};
+
+/**
+ * @param {"resident"|"guardian"} who
+ * @returns {{root:HTMLElement, feed:HTMLElement, empty:HTMLElement, clock:HTMLElement}|null}
+ */
+function phone(who) {
+  const root = document.getElementById(who === "resident" ? "residentPhone" : "guardianPhone");
+  if (!root) return null;
+  const feed = /** @type {HTMLElement|null} */ (root.querySelector('[data-role="feed"]'));
+  const empty = /** @type {HTMLElement|null} */ (root.querySelector('[data-role="empty"]'));
+  const clock = /** @type {HTMLElement|null} */ (root.querySelector('[data-role="clock"]'));
+  if (!feed || !empty || !clock) return null;
+  return { root, feed, empty, clock };
+}
+
+/** 두 폰을 비운다(다음 renderPhones 가 현재 시각까지 다시 채운다). */
+function resetPhones() {
+  for (const who of /** @type {const} */ (["resident", "guardian"])) {
+    const p = phone(who);
+    if (p) p.feed.replaceChildren();
+  }
+  state.shown = 0;
+  state.realerts = { resident: 0, guardian: 0 };
+  state.ackShown = false;
+}
+
+/** 현재 시각까지의 사건을 폰에 보이게 한다(사건은 서버가 시각 순으로 준다). */
+function renderPhones() {
+  const data = state.data;
+  let visible = 0;
+  if (data) {
+    while (visible < data.events.length && data.events[visible].t_s <= state.t) visible += 1;
+  }
+  if (visible < state.shown) resetPhones();
+  for (let i = state.shown; i < visible; i += 1) {
+    if (data) addEvent(data.events[i], i);
+  }
+  state.shown = visible;
+  if (data && data.acked_at_s != null && state.t >= data.acked_at_s && !state.ackShown) {
+    state.ackShown = true;
+    addAckNotes(data.acked_at_s);
+  }
+  for (const who of /** @type {const} */ (["resident", "guardian"])) {
+    const p = phone(who);
+    if (!p) continue;
+    p.clock.textContent = formatTime(state.t);
+    const hasItems = p.feed.childElementCount > 0;
+    p.empty.hidden = hasItems;
+    if (who === "guardian" && data && data.consented_guardians === 0) {
+      p.empty.textContent = "동의한 보호자가 없어요. 보호자에게는 아무것도 가지 않아요.";
+    } else {
+      p.empty.textContent = "아직 알림이 없어요";
+    }
+  }
+}
+
+/**
+ * 사건 하나를 해당 폰 맨 위에 올린다.
+ * @param {ScenarioEvent} ev
+ * @param {number} idx 응답 events 안의 순번
+ * @returns {void}
+ */
+function addEvent(ev, idx) {
+  const p = phone(ev.who);
+  if (!p) return;
+  const fresh = state.playing && !reducedMotion();
+  if (ev.kind === "realert") {
+    state.realerts[ev.who] += 1;
+    const line = el("div", "h3-realert");
+    line.dataset.priority = ev.priority;
+    line.append(el("span", "h3-realert-time tabnum", formatTime(ev.t_s)));
+    line.append(el("span", "h3-realert-text", `같은 알림을 다시 보냈어요 · ${state.realerts[ev.who]}번째`));
+    line.title = `우선순위 ${ev.priority}`;
+    if (fresh) line.classList.add("is-new");
+    p.feed.prepend(line);
+    return;
+  }
+  const card = el("article", "notif h3-card");
+  card.dataset.kind = ev.kind;
+  card.dataset.priority = ev.priority;
+  card.dataset.index = String(idx);
+  if (fresh) card.classList.add("is-new");
+  const head = el("div", "notif-head");
+  head.append(el("span", "notif-app", ev.title));
+  head.append(el("span", "h3-card-time tabnum", formatTime(ev.t_s)));
+  card.append(head);
+  const kind = /** @type {Record<string, string>} */ (KIND_KO)[ev.kind] || ev.kind;
+  card.append(el("p", "h3-card-kind", ev.guardian ? `${kind} · 보호자 ${ev.guardian}` : kind));
+  card.append(el("p", "h3-card-body", ev.body));
+  const meta = el("div", "h3-card-meta");
+  meta.append(el("span", "h3-prio", `우선순위 ${ev.priority}`));
+  if (ev.severity_ko) meta.append(el("span", "h3-card-sev", ev.severity_ko));
+  card.append(meta);
+  if (ev.actions.length) {
+    const actions = el("div", "notif-actions h3-actions");
+    actions.style.gridTemplateColumns = `repeat(${ev.actions.length}, minmax(0, 1fr))`;
+    const acked = Boolean(state.data && state.data.acked_at_s != null);
+    for (const action of ev.actions) {
+      const b = /** @type {HTMLButtonElement} */ (el("button", "notif-btn", action.label_ko));
+      b.type = "button";
+      b.dataset.role = action.role;
+      if (action.kind === "view") {
+        b.classList.add("h3-btn-call");
+        b.addEventListener("click", () => showToast(ev.who, action));
+      } else {
+        if (state.chosen && state.chosen.idx === idx && state.chosen.role === action.role) {
+          b.classList.add("is-chosen");
+        }
+        b.disabled = acked;
+        b.addEventListener("click", () => acknowledge(idx, ev, action));
+      }
+      actions.append(b);
+    }
+    card.append(actions);
+  }
+  p.feed.prepend(card);
+}
+
+/**
+ * 거주자 응답·보호자 확인 → 그 시각으로 다시 요청(서버가 이후 사건을 뺀 타임라인을 준다).
+ * @param {number} idx
+ * @param {ScenarioEvent} ev
+ * @param {EventAction} action
+ * @returns {void}
+ */
+function acknowledge(idx, ev, action) {
+  if (!state.data || state.data.acked_at_s != null || !action.stops_ladder) return;
+  const at = Math.floor(Math.max(ev.t_s, state.t));
+  state.chosen = { idx, role: action.role };
+  state.ackInfo = { who: ev.who, label: action.label_ko };
+  loadScenario(at);
+}
+
+/**
+ * 확인 뒤 두 폰에 '멈췄어요' 안내 한 줄.
+ * @param {number} at 확인 시각(초)
+ * @returns {void}
+ */
+function addAckNotes(at) {
+  const info = state.ackInfo;
+  const whoKo = info && info.who === "guardian" ? "보호자" : "거주자";
+  const label = info ? info.label : "확인";
+  for (const who of /** @type {const} */ (["resident", "guardian"])) {
+    const p = phone(who);
+    if (!p) continue;
+    const note = el("div", "h3-ack-note");
+    note.append(el("span", "h3-realert-time tabnum", formatTime(at)));
+    note.append(el("span", "", `${whoKo}가 [${label}] 버튼을 눌렀어요. 이후 재알림·보호자 전달·119 안내는 멈춰요.`));
+    p.feed.prepend(note);
+  }
+}
+
+/**
+ * '119 전화'는 표시만 한다(데모는 발신하지 않는다).
+ * @param {"resident"|"guardian"} who
+ * @param {EventAction} action
+ * @returns {void}
+ */
+function showToast(who, action) {
+  const p = phone(who);
+  if (!p) return;
+  const old = p.root.querySelector(".h3-toast");
+  if (old) old.remove();
+  const toast = el(
+    "p",
+    "h3-toast",
+    `데모라서 전화를 걸지 않아요. 실제 알림에서는 전화 앱이 열리고(${action.target || ""}) 누르는 건 사람이 해요.`
+  );
+  toast.setAttribute("role", "status");
+  p.root.querySelector(".h3-phone-frame")?.append(toast);
+  window.setTimeout(() => toast.remove(), 3600);
+}
+
+// ── 타임라인 ────────────────────────────────────────────────────────────
+/** 눈금(서버 markers)·사건 점·확인 표시를 다시 그린다. */
+function buildTimeline() {
+  const marks = document.getElementById("tlMarks");
+  const range = /** @type {HTMLInputElement|null} */ (document.getElementById("tlRange"));
+  if (!marks) return;
+  marks.replaceChildren();
+  const data = state.data;
+  const horizon = data ? data.horizon_s : 0;
+  if (range) {
+    range.max = String(Math.max(1, horizon));
+    range.disabled = !data;
+  }
+  if (!data || horizon <= 0) return;
+  /** @param {number} t */
+  const pct = (t) => `${(Math.min(t, horizon) / horizon) * 100}%`;
+  for (const ev of data.events) {
+    if (ev.kind === "realert") continue;
+    const tick = el("span", `h3-tl-tick is-${ev.who}`);
+    tick.style.left = pct(ev.t_s);
+    marks.append(tick);
+  }
+  for (const m of data.markers) {
+    const mark = el("span", "h3-tl-mark");
+    const ratio = m.t_s / horizon;
+    if (ratio > 0.85) mark.classList.add("is-end");
+    else if (ratio < 0.06) mark.classList.add("is-start");
+    mark.style.left = pct(m.t_s);
+    mark.append(el("span", "h3-tl-mark-label", `${m.label} ${formatTime(m.t_s)}`));
+    marks.append(mark);
+  }
+  if (data.acked_at_s != null) {
+    const ack = el("span", "h3-tl-mark is-ack");
+    ack.style.left = pct(data.acked_at_s);
+    marks.append(ack);
   }
 }
 
@@ -675,24 +915,44 @@ function tick(now) {
 }
 
 // ── 조작부 ──────────────────────────────────────────────────────────────
+/**
+ * 라디오처럼 동작하는 버튼 묶음.
+ * @param {HTMLElement} group
+ * @param {string} cls 버튼 class
+ * @param {Array<[string, () => boolean, () => void]>} items [표기, 선택됐나, 누르면]
+ * @returns {void}
+ */
+function radioButtons(group, cls, items) {
+  for (const [label, isOn, onPick] of items) {
+    const b = el("button", cls, label);
+    b.setAttribute("type", "button");
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-checked", isOn() ? "true" : "false");
+    b.addEventListener("click", () => {
+      onPick();
+      for (const other of group.querySelectorAll(`.${cls.split(" ")[0]}`)) {
+        other.setAttribute("aria-checked", other === b ? "true" : "false");
+      }
+    });
+    group.append(b);
+  }
+}
+
 function buildControls() {
   const picker = document.getElementById("scenarioPicker");
   if (picker) {
-    for (const sc of SCENARIOS) {
-      const b = el("button", "h3-chip", sc.label);
-      b.type = "button";
-      b.setAttribute("role", "radio");
-      b.dataset.key = sc.key;
-      b.setAttribute("aria-checked", sc === state.scenario ? "true" : "false");
-      b.addEventListener("click", () => {
-        state.scenario = sc;
-        for (const other of picker.querySelectorAll(".h3-chip")) {
-          other.setAttribute("aria-checked", other === b ? "true" : "false");
-        }
-        loadScenario(null);
-      });
-      picker.append(b);
-    }
+    radioButtons(
+      picker,
+      "h3-chip",
+      SCENARIOS.map((sc) => [
+        sc.label,
+        () => sc === state.scenario,
+        () => {
+          state.scenario = sc;
+          loadScenario(null);
+        },
+      ])
+    );
   }
   const vul = /** @type {HTMLInputElement|null} */ (document.getElementById("vulnerableToggle"));
   if (vul) {
@@ -704,23 +964,44 @@ function buildControls() {
   }
   const seg = document.getElementById("guardianSeg");
   if (seg) {
-    for (const n of [0, 1, 2]) {
-      const b = el("button", "h3-seg-btn", `${n}명`);
-      b.type = "button";
-      b.setAttribute("role", "radio");
-      b.setAttribute("aria-checked", n === state.guardians ? "true" : "false");
-      b.addEventListener("click", () => {
-        state.guardians = n;
-        for (const other of seg.querySelectorAll(".h3-seg-btn")) {
-          other.setAttribute("aria-checked", other === b ? "true" : "false");
-        }
-        loadScenario(null);
-      });
-      seg.append(b);
-    }
+    radioButtons(
+      seg,
+      "h3-seg-btn",
+      [0, 1, 2].map((n) => [
+        `${n}명`,
+        () => n === state.guardians,
+        () => {
+          state.guardians = n;
+          loadScenario(null);
+        },
+      ])
+    );
+  }
+  const speed = document.getElementById("speedSeg");
+  if (speed) {
+    radioButtons(
+      speed,
+      "h3-seg-btn",
+      [10, 60].map((n) => [
+        `×${n}`,
+        () => n === state.speed,
+        () => {
+          state.speed = n;
+        },
+      ])
+    );
   }
   const playBtn = document.getElementById("playBtn");
   if (playBtn) playBtn.addEventListener("click", () => (state.playing ? pause() : play()));
+  const restart = document.getElementById("restartBtn");
+  if (restart) restart.addEventListener("click", () => loadScenario(null));
+  const range = /** @type {HTMLInputElement|null} */ (document.getElementById("tlRange"));
+  if (range) {
+    range.addEventListener("input", () => {
+      state.t = Number(range.value) || 0;
+      applyTime();
+    });
+  }
 }
 
 // ── 시작 ────────────────────────────────────────────────────────────────
