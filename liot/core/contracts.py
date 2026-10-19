@@ -8,6 +8,10 @@
     계산된다(재현 가능성). 빈 문자열로 들어오면 model_validator 가 채운다.
   - NotificationPayload 에는 device/room/rationale 필드가 존재하지 않는다
     (외부 송신 최소화, egress_gate 와 짝을 이룬다).
+  - GuardianNotificationPayload(보호자 알림)에도 device/entity_id/room/rationale·
+    거주자 특성 필드가 존재하지 않는다. 상황 종류·집 별칭·시각·파급도 라벨만 싣는다.
+  - 파급도(SeverityLevel)는 RiskTier 와 별개의 축이며, 직렬화도 RiskTier 와 같이
+    IntEnum 그대로 다룬다(model_dump(mode="json") 에서 정수).
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .risk import RiskTier
+from .severity import SeverityLevel, SeveritySource
 
 __all__ = [
     "Layer",
@@ -30,6 +35,7 @@ __all__ = [
     "Proposal",
     "FeedbackEvent",
     "NotificationPayload",
+    "GuardianNotificationPayload",
     "EventMessage",
     "compute_snapshot_hash",
     # 다중 후보 파이프라인(새 기획: 생성→평가→선택)
@@ -142,6 +148,16 @@ class Judgment(BaseModel):
     bundle_id: str
     model_id: str
     degraded: bool = False
+    # ── 상황 파급도(RiskTier 와 별개의 축). 파급도가 없는 판단(쾌적 등)은
+    # severity·severity_floor 가 None 이고 severity_sources 는 빈 목록이다.
+    severity: SeverityLevel | None = None
+    # 표+거주자 값으로 정해진 하한. 어떤 모델·지시도 이 아래로 내리지 못한다.
+    severity_floor: SeverityLevel | None = None
+    # 파급도가 어디서 왔는지(SEVERITY_SOURCE_ORDER 순서로 기록).
+    severity_sources: list[SeveritySource] = Field(default_factory=list)
+    situation_id: str | None = None
+    # 질문 id("tier", "severity") → {선택지 id: 확률}. 모델 확률 원본 보존용.
+    model_probs: dict[str, dict[str, float]] | None = None
 
 
 class Proposal(BaseModel):
@@ -163,6 +179,9 @@ class Proposal(BaseModel):
     expires_at: str | None = None
     state: str = "pending"
     created_at: str
+    # 상황 파급도와 상황 식별자(판단에서 그대로 이어받는다).
+    severity: SeverityLevel | None = None
+    situation_id: str | None = None
 
 
 class FeedbackEvent(BaseModel):
@@ -194,6 +213,26 @@ class NotificationPayload(BaseModel):
     label: str
     signed_deeplink: str
     topic: str
+    # 파급도의 한국어 라벨(예: "위험"). 라벨 문자열 외의 정보는 싣지 않는다.
+    severity_label: str | None = None
+
+
+class GuardianNotificationPayload(BaseModel):
+    """보호자에게 나가는 알림 페이로드.
+
+    상황 종류(situation_label)·집 별칭·시각·서명된 확인 링크·파급도 라벨만 싣는다.
+    device/entity_id/room/rationale 과 거주자 특성 필드는 의도적으로 두지 않는다
+    (외부 송신 최소화, extra="forbid" 로 구조적으로 차단).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    channel: str
+    situation_label: str  # 상황 종류(예: "가스 누출")
+    home_alias: str
+    at: str  # ISO 시각
+    signed_ack_link: str
+    severity_label: str
 
 
 class EventMessage(BaseModel):
