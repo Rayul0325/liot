@@ -22,12 +22,12 @@ const API_SCENARIO = "/api/home3d/scenario";
 
 /** 시나리오 = 요청 입력(센서와 값)일 뿐이다. 결과(파급도·사건)는 서버가 정한다. */
 const SCENARIOS = [
-  { key: "gas", label: "주방 가스 누출", entity_id: "binary_sensor.kitchen_gas", value: "on" },
+  { key: "gas", label: "가스 누출", entity_id: "binary_sensor.kitchen_gas", value: "on" },
   { key: "smoke", label: "복도 연기", entity_id: "binary_sensor.hall_smoke", value: "on" },
-  { key: "lock", label: "도어락 잠금장치 이상", entity_id: "lock.front_door", value: "on" },
+  { key: "lock", label: "도어락 이상", entity_id: "lock.front_door", value: "on" },
   {
     key: "gas_unavailable",
-    label: "가스 센서 감시 불가",
+    label: "감시 불가",
     entity_id: "binary_sensor.kitchen_gas",
     value: "unavailable",
   },
@@ -174,6 +174,49 @@ function formatTime(s) {
   return r === 0 ? `${m}분` : `${m}분 ${r}초`;
 }
 
+/**
+ * 초 → "1:30"(타임라인 눈금·시계용).
+ * @param {number} s 초
+ * @returns {string}
+ */
+function formatClock(s) {
+  const total = Math.max(0, Math.floor(s));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+const TIME_FMT = new Intl.DateTimeFormat("ko-KR", { hour: "numeric", minute: "2-digit" });
+const ISO_RE = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/;
+
+/**
+ * 시각 → 이 기기 현지 시각 "오후 8:41". 읽을 수 없으면 null.
+ * @param {string|number|Date} when ISO 문자열·밀리초·Date
+ * @returns {string|null}
+ */
+function friendlyTime(when) {
+  const d = new Date(when);
+  return Number.isNaN(d.getTime()) ? null : TIME_FMT.format(d);
+}
+
+/**
+ * 카드 머리에 보일 시각. 본문에 ISO 시각이 있으면 그 시각(발생)을, 없으면 상황 시작 + t_s(도착)를 보인다.
+ * 본문 글자는 손대지 않는다(서버 문구 그대로).
+ * @param {ScenarioEvent} ev
+ * @returns {string}
+ */
+function cardTime(ev) {
+  const m = ISO_RE.exec(ev.body);
+  if (m) {
+    const t = friendlyTime(m[0]);
+    if (t) return `발생 ${t}`;
+  }
+  const base = state.data ? Date.parse(state.data.opened_at) : NaN;
+  if (!Number.isNaN(base)) {
+    const t = friendlyTime(base + ev.t_s * 1000);
+    if (t) return t;
+  }
+  return formatTime(ev.t_s);
+}
+
 /** @returns {boolean} 움직임 줄이기 설정인가 */
 function reducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -276,7 +319,9 @@ async function initThree(host, overlay) {
     return null;
   }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.setClearColor(0x000000, 0);
+  renderer.setClearColor(0x000000, 0); // 무대 배경(CSS --h3-stage)이 그대로 보인다
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const canvas = renderer.domElement;
   canvas.className = "h3-canvas";
   host.prepend(canvas);
@@ -286,51 +331,73 @@ async function initThree(host, overlay) {
   const target = new THREE.Vector3(PLAN_W / 2, 0, PLAN_D / 2);
   const orbit = { theta: -0.55, phi: 0.9, r: 14.5 };
 
-  const lineCol = new THREE.Color(token("--h3-line") || "#2b4a66");
-  const accent = new THREE.Color(token("--accent") || "#35c6ff");
+  const edgeCol = new THREE.Color(token("--h3-edge") || "#c7c7cc");
 
-  // 바닥: 부드러운 격자.
-  const grid = new THREE.GridHelper(40, 40, lineCol, lineCol);
-  grid.position.set(PLAN_W / 2, -0.01, PLAN_D / 2);
-  grid.material.transparent = true;
-  grid.material.opacity = 0.28;
-  scene.add(grid);
+  // 빛: 하늘·바닥 반사광 + 비스듬한 해 하나(부드러운 그림자).
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xe8e8ed, 2.4));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+  sun.position.set(PLAN_W / 2 - 6, 14, PLAN_D / 2 + 8);
+  sun.target.position.copy(target);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.left = -9;
+  sun.shadow.camera.right = 9;
+  sun.shadow.camera.top = 9;
+  sun.shadow.camera.bottom = -9;
+  sun.shadow.camera.near = 1;
+  sun.shadow.camera.far = 40;
+  sun.shadow.radius = 4;
+  sun.shadow.bias = -0.0008;
+  scene.add(sun);
+  scene.add(sun.target);
 
-  // 방 바닥 + 테두리.
+  // 바닥: 그림자만 받는 투명판(무대 배경 위에 옅은 그림자).
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(60, 60),
+    new THREE.ShadowMaterial({ color: 0x000000, opacity: 0.07 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(PLAN_W / 2, -0.12, PLAN_D / 2);
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // 모형 받침(흰 판).
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(PLAN_W + 0.5, 0.12, PLAN_D + 0.5),
+    new THREE.MeshLambertMaterial({ color: new THREE.Color(token("--h3-base") || "#ffffff") })
+  );
+  base.position.set(PLAN_W / 2, -0.06, PLAN_D / 2);
+  base.castShadow = true;
+  base.receiveShadow = true;
+  scene.add(base);
+
+  // 방 바닥 + 가는 테두리.
   /** @type {Map<string, any>} */
   const floors = new Map();
-  const baseFloor = new THREE.Color(token("--h3-floor") || "#101a28");
+  const baseFloor = new THREE.Color(token("--h3-floor") || "#fafafa");
+  const floorEdge = new THREE.LineBasicMaterial({ color: edgeCol, transparent: true, opacity: 0.45 });
   for (const room of ROOMS) {
     const w = room.x1 - room.x0;
     const d = room.z1 - room.z0;
     const geo = new THREE.PlaneGeometry(w - 0.06, d - 0.06);
-    const mat = new THREE.MeshBasicMaterial({
-      color: baseFloor.clone(),
-      transparent: true,
-      opacity: 0.85,
-    });
+    const mat = new THREE.MeshLambertMaterial({ color: baseFloor.clone() });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(room.x0 + w / 2, 0, room.z0 + d / 2);
+    mesh.position.set(room.x0 + w / 2, 0.002, room.z0 + d / 2);
+    mesh.receiveShadow = true;
     scene.add(mesh);
     floors.set(room.key, mesh);
-    const edges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(geo),
-      new THREE.LineBasicMaterial({ color: accent, transparent: true, opacity: 0.22 })
-    );
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), floorEdge);
     edges.rotation.x = -Math.PI / 2;
-    edges.position.set(room.x0 + w / 2, 0.005, room.z0 + d / 2);
+    edges.position.set(room.x0 + w / 2, 0.006, room.z0 + d / 2);
     scene.add(edges);
   }
 
-  // 벽: 반투명 판 + 모서리 선(그래프 같은 느낌).
-  const wallMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(token("--h3-wall") || "#16263a"),
-    transparent: true,
-    opacity: 0.55,
-    depthWrite: false,
+  // 벽: 흰 모형 판 + 옅은 모서리 선.
+  const wallMat = new THREE.MeshLambertMaterial({
+    color: new THREE.Color(token("--h3-wall") || "#f2f2f4"),
   });
-  const wallEdge = new THREE.LineBasicMaterial({ color: accent, transparent: true, opacity: 0.5 });
+  const wallEdge = new THREE.LineBasicMaterial({ color: edgeCol, transparent: true, opacity: 0.7 });
   /**
    * @param {number} x0
    * @param {number} z0
@@ -340,10 +407,12 @@ async function initThree(host, overlay) {
   const addWall = (x0, z0, x1, z1) => {
     const len = Math.hypot(x1 - x0, z1 - z0);
     if (len < 0.05) return;
-    const geo = new THREE.BoxGeometry(len, WALL_H, 0.08);
+    const geo = new THREE.BoxGeometry(len, WALL_H, 0.1);
     const mesh = new THREE.Mesh(geo, wallMat);
     mesh.position.set((x0 + x1) / 2, WALL_H / 2, (z0 + z1) / 2);
     mesh.rotation.y = -Math.atan2(z1 - z0, x1 - x0);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     scene.add(mesh);
     const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), wallEdge);
     edges.position.copy(mesh.position);
@@ -364,7 +433,7 @@ async function initThree(host, overlay) {
   }
 
   // 센서 기둥(바닥 → 점 높이의 가는 선).
-  const stemMat = new THREE.LineBasicMaterial({ color: accent, transparent: true, opacity: 0.35 });
+  const stemMat = new THREE.LineBasicMaterial({ color: edgeCol, transparent: true, opacity: 0.8 });
   for (const [, [x, z]] of dotPos) {
     const g = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(x, 0, z),
@@ -469,7 +538,7 @@ async function initThree(host, overlay) {
   const setRoomTint = (/** @type {string|null} */ key, /** @type {string|null} */ color) => {
     for (const [k, mesh] of floors) {
       if (k === key && color) {
-        mesh.material.color.copy(baseFloor).lerp(new THREE.Color(color), 0.35);
+        mesh.material.color.copy(baseFloor).lerp(new THREE.Color(color), 0.12);
       } else {
         mesh.material.color.copy(baseFloor);
       }
@@ -580,7 +649,7 @@ function renderSummary() {
   } else if (data.state === "unmonitorable") {
     box.append(el("span", "h3-sum-key", "상황"));
     box.append(el("span", "h3-sev-chip is-unmonitorable", "감시 불가"));
-    box.append(el("span", "h3-sum-src", "센서를 읽지 못함 — 위험 상황은 열리지 않아요"));
+    box.append(el("span", "h3-sum-src", "센서를 읽지 못해 위험 상황은 열리지 않아요"));
   } else {
     box.append(el("span", "h3-sum-key", "상황"));
     box.append(el("span", "h3-sev-chip is-normal", "정상"));
@@ -647,7 +716,7 @@ function onDataChanged() {
 function applyTime() {
   const horizon = state.data ? state.data.horizon_s : 0;
   const clock = document.getElementById("clock");
-  if (clock) clock.textContent = `${formatTime(state.t)} / ${formatTime(horizon)}`;
+  if (clock) clock.textContent = `${formatClock(state.t)} / ${formatClock(horizon)}`;
   const fill = document.getElementById("tlFill");
   if (fill) fill.style.width = horizon > 0 ? `${(state.t / horizon) * 100}%` : "0%";
   const range = /** @type {HTMLInputElement|null} */ (document.getElementById("tlRange"));
@@ -737,8 +806,8 @@ function addEvent(ev, idx) {
     const line = el("div", "h3-realert");
     line.dataset.priority = ev.priority;
     line.append(el("span", "h3-realert-time tabnum", formatTime(ev.t_s)));
-    line.append(el("span", "h3-realert-text", `같은 알림을 다시 보냈어요 · ${state.realerts[ev.who]}번째`));
-    line.title = `우선순위 ${ev.priority}`;
+    line.append(el("span", "h3-realert-text", "· 다시 알림"));
+    line.title = `${state.realerts[ev.who]}번째 다시 알림 · 우선순위 ${ev.priority}`;
     if (fresh) line.classList.add("is-new");
     p.feed.prepend(line);
     bumpBadge(ev.who);
@@ -751,12 +820,13 @@ function addEvent(ev, idx) {
   if (fresh) card.classList.add("is-new");
   const head = el("div", "notif-head");
   head.append(el("span", "notif-app", ev.title));
-  head.append(el("span", "h3-card-time tabnum", formatTime(ev.t_s)));
+  head.append(el("span", "h3-card-time tabnum", cardTime(ev)));
   card.append(head);
   const kind = /** @type {Record<string, string>} */ (KIND_KO)[ev.kind] || ev.kind;
   card.append(el("p", "h3-card-kind", ev.guardian ? `${kind} · 보호자 ${ev.guardian}` : kind));
   card.append(el("p", "h3-card-body", ev.body));
   const meta = el("div", "h3-card-meta");
+  meta.append(el("span", "h3-card-at tabnum", formatTime(ev.t_s)));
   meta.append(el("span", "h3-prio", `우선순위 ${ev.priority}`));
   if (ev.severity_ko) meta.append(el("span", "h3-card-sev", ev.severity_ko));
   card.append(meta);
@@ -864,7 +934,7 @@ function addAckNotes(at) {
     if (!p) continue;
     const note = el("div", "h3-ack-note");
     note.append(el("span", "h3-realert-time tabnum", formatTime(at)));
-    note.append(el("span", "", `${whoKo}가 [${label}] 버튼을 눌렀어요. 이후 재알림·보호자 전달·119 안내는 멈춰요.`));
+    note.append(el("span", "", `· ${whoKo} 응답 ‘${label}’ · 이후 알림을 멈췄어요`));
     p.feed.prepend(note);
   }
 }
@@ -883,7 +953,7 @@ function showToast(who, action) {
   const toast = el(
     "p",
     "h3-toast",
-    `데모라서 전화를 걸지 않아요. 실제 알림에서는 전화 앱이 열리고(${action.target || ""}) 누르는 건 사람이 해요.`
+    `데모라 전화를 걸지 않아요. 실제로는 전화 앱이 열리고(${action.target || ""}), 거는 건 사람이 해요.`
   );
   toast.setAttribute("role", "status");
   p.root.querySelector(".h3-phone-frame")?.append(toast);
@@ -918,7 +988,7 @@ function buildTimeline() {
     if (ratio > 0.85) mark.classList.add("is-end");
     else if (ratio < 0.06) mark.classList.add("is-start");
     mark.style.left = pct(m.t_s);
-    mark.append(el("span", "h3-tl-mark-label", `${m.label} ${formatTime(m.t_s)}`));
+    mark.append(el("span", "h3-tl-mark-label", m.t_s > 0 ? `${m.label} ${formatClock(m.t_s)}` : m.label));
     marks.append(mark);
   }
   if (data.acked_at_s != null) {

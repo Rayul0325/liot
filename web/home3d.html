@@ -8,55 +8,44 @@
       name="description"
       content="센서 하나의 값이 거주자·보호자 폰에 어떤 알림으로, 언제 닿는지 3D 가상 집에서 재생한다. 모든 문구와 시각은 서버의 실제 코드가 계산한다."
     />
-    <meta name="theme-color" content="#0a0e15" />
-    <link rel="stylesheet" href="assets/app.css" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="color-scheme" content="light" />
     <link rel="stylesheet" href="assets/home3d.css" />
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0e15'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='%2335c6ff' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='2' fill='%2335c6ff'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231d1d1f'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='-apple-system,sans-serif' font-size='17' font-weight='600' fill='%23fff'%3EL%3C/text%3E%3C/svg%3E"
     />
   </head>
   <body class="h3-body">
     <header class="hdr">
-      <div class="hdr-brand">
-        <span class="hdr-mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32" width="26" height="26">
-            <path
-              d="M6 15 16 7l10 8v10H6z"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linejoin="round"
-            />
-            <circle cx="16" cy="19" r="2.4" fill="currentColor" />
-          </svg>
-        </span>
-        <span class="hdr-titles">
-          <span class="hdr-title">LIOT 가상 집</span>
-          <span class="hdr-sub">센서 하나가 거주자·보호자 폰에 닿기까지</span>
-        </span>
-      </div>
-      <div class="hdr-right">
+      <span class="hdr-wordmark">LIOT</span>
+      <nav class="hdr-right" aria-label="화면 이동">
         <a class="hdr-link" href="app.html">관제실</a>
-        <a class="hdr-link" href="safety.html">우리 집 · 보호자 설정</a>
+        <a class="hdr-link" href="safety.html">집·보호자 설정</a>
         <div class="hdr-status" id="status" data-state="loading">
           <span class="hdr-dot" aria-hidden="true"></span>
           <span class="hdr-status-text" id="statusText">불러오는 중…</span>
         </div>
-      </div>
+      </nav>
     </header>
 
     <main class="h3-layout" id="layout" data-phone="resident">
+      <div class="h3-head">
+        <h1 class="h3-title">가상 집</h1>
+        <p class="h3-sub">센서 하나가 거주자와 보호자의 폰에 닿기까지</p>
+      </div>
+
       <section class="h3-controls" aria-label="시나리오 고르기">
         <div class="h3-picker" role="radiogroup" aria-label="시나리오" id="scenarioPicker"></div>
         <div class="h3-toggles">
           <label class="h3-switch">
             <input type="checkbox" id="vulnerableToggle" />
-            <span class="h3-switch-track" aria-hidden="true"></span>
             <span class="h3-switch-text">취약 거주자</span>
+            <span class="h3-switch-track" aria-hidden="true"></span>
           </label>
-          <div class="h3-seg" role="radiogroup" aria-label="동의한 보호자 수" id="guardianSeg">
-            <span class="h3-seg-label">동의한 보호자</span>
+          <div class="h3-field">
+            <span class="h3-seg-label" aria-hidden="true">동의한 보호자</span>
+            <div class="h3-seg" role="radiogroup" aria-label="동의한 보호자 수" id="guardianSeg"></div>
           </div>
         </div>
         <p class="h3-summary" id="scenarioSummary" aria-live="polite"></p>
@@ -89,12 +78,14 @@
 
       <aside class="h3-phone" id="residentPhone" data-who="resident" aria-label="거주자 폰">
         <div class="h3-phone-frame">
-          <div class="h3-phone-bar">
-            <span class="h3-phone-who">거주자 폰</span>
-            <span class="h3-phone-clock tabnum" data-role="clock">0초</span>
+          <div class="h3-screen">
+            <div class="h3-phone-bar">
+              <span class="h3-phone-who">거주자 폰</span>
+              <span class="h3-phone-clock tabnum" data-role="clock">0초</span>
+            </div>
+            <div class="h3-feed" data-role="feed" aria-live="polite"></div>
+            <p class="h3-phone-empty" data-role="empty">아직 알림이 없어요</p>
           </div>
-          <div class="h3-feed" data-role="feed" aria-live="polite"></div>
-          <p class="h3-phone-empty" data-role="empty">아직 알림이 없어요</p>
         </div>
       </aside>
 
@@ -102,24 +93,28 @@
         <div class="h3-stage" id="homeStage" tabindex="0" aria-describedby="homeHint">
           <div class="h3-overlay" id="homeOverlay" aria-hidden="false"></div>
         </div>
-        <p class="h3-hint" id="homeHint">끌어서 돌려 보세요 · 방향키로도 돌릴 수 있어요</p>
-        <ul class="h3-legend" aria-label="점 색 안내">
-          <li><span class="h3-swatch sev-3" aria-hidden="true"></span>위험</li>
-          <li><span class="h3-swatch sev-2" aria-hidden="true"></span>경고</li>
-          <li><span class="h3-swatch sev-1" aria-hidden="true"></span>주의</li>
-          <li><span class="h3-swatch is-unmonitorable" aria-hidden="true"></span>감시 불가</li>
-          <li><span class="h3-swatch is-normal" aria-hidden="true"></span>정상</li>
-        </ul>
+        <div class="h3-home-foot">
+          <ul class="h3-legend" aria-label="점 색 안내">
+            <li><span class="h3-swatch sev-3" aria-hidden="true"></span>위험</li>
+            <li><span class="h3-swatch sev-2" aria-hidden="true"></span>경고</li>
+            <li><span class="h3-swatch sev-1" aria-hidden="true"></span>주의</li>
+            <li><span class="h3-swatch is-unmonitorable" aria-hidden="true"></span>감시 불가</li>
+            <li><span class="h3-swatch is-normal" aria-hidden="true"></span>정상</li>
+          </ul>
+          <p class="h3-hint" id="homeHint">끌거나 방향키로 돌려 보세요</p>
+        </div>
       </section>
 
       <aside class="h3-phone" id="guardianPhone" data-who="guardian" aria-label="보호자 폰">
         <div class="h3-phone-frame">
-          <div class="h3-phone-bar">
-            <span class="h3-phone-who">보호자 폰</span>
-            <span class="h3-phone-clock tabnum" data-role="clock">0초</span>
+          <div class="h3-screen">
+            <div class="h3-phone-bar">
+              <span class="h3-phone-who">보호자 폰</span>
+              <span class="h3-phone-clock tabnum" data-role="clock">0초</span>
+            </div>
+            <div class="h3-feed" data-role="feed" aria-live="polite"></div>
+            <p class="h3-phone-empty" data-role="empty">아직 알림이 없어요</p>
           </div>
-          <div class="h3-feed" data-role="feed" aria-live="polite"></div>
-          <p class="h3-phone-empty" data-role="empty">아직 알림이 없어요</p>
         </div>
       </aside>
 
@@ -128,9 +123,10 @@
           <button class="h3-btn h3-play" type="button" id="playBtn" aria-pressed="false">
             재생
           </button>
-          <button class="h3-btn" type="button" id="restartBtn">처음부터</button>
-          <div class="h3-seg" role="radiogroup" aria-label="재생 속도" id="speedSeg">
-            <span class="h3-seg-label">속도</span>
+          <button class="h3-btn h3-btn-quiet" type="button" id="restartBtn">처음부터</button>
+          <div class="h3-field">
+            <span class="h3-seg-label" aria-hidden="true">속도</span>
+            <div class="h3-seg" role="radiogroup" aria-label="재생 속도" id="speedSeg"></div>
           </div>
           <span class="h3-clock tabnum" id="clock">0초</span>
         </div>
