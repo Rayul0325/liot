@@ -20,6 +20,7 @@ from liot.core.contracts import CandidateAction, FeedbackEvent, Judgment, Propos
 from liot.core.invariants import InvariantError
 from liot.core.risk import RiskTier
 from liot.core.scoped_repo import DEFAULT_HOME_ID, ScopedRepo
+from liot.core.severity import SeverityLevel
 
 if TYPE_CHECKING:  # pragma: no cover
     import aiosqlite
@@ -129,6 +130,9 @@ class ProposalService:
                 "expires_at": proposal.expires_at,
                 "state": proposal.state,
                 "created_at": proposal.created_at,
+                # 파급도·상황 id(마이그레이션 3). 없으면 NULL.
+                "severity": None if proposal.severity is None else int(proposal.severity),
+                "situation_id": proposal.situation_id,
             },
         )
         await self._audit(
@@ -439,6 +443,7 @@ class ProposalService:
         else:  # pragma: no cover - row_factory 가 Row 가 아닐 때 방어
             raise InvariantError("expected aiosqlite.Row mapping for proposals")
         action = CandidateAction.model_validate_json(d["action_json"])
+        raw_severity = d.get("severity")
         return Proposal(
             proposal_id=d["proposal_id"],
             judgment_id=d["judgment_id"],
@@ -451,6 +456,8 @@ class ProposalService:
             expires_at=d["expires_at"],
             state=d["state"],
             created_at=d["created_at"],
+            severity=None if raw_severity is None else SeverityLevel.from_str(int(raw_severity)),
+            situation_id=d.get("situation_id"),
         )
 
 
