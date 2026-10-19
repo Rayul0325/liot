@@ -5,7 +5,8 @@
   - 공기청정기가 폰에 도달한 수(IMMEDIATE)가 1일차보다 3일차에 적다 — 3일차에도 나쁜 공기가
     오므로 감소는 1일차 [그만해](실제 피드백 경로 → 30일 차단) 때문이다.
   - 4장면이 사흘 안에 각각 한 번 이상 폰 또는 모아보기에 도착한다.
-  - 안전 사건은 그 값이 들어온 단계에 즉시 경보이고, 첫 알림 송신이 모델 호출보다 먼저다.
+  - 안전 사건은 그 값이 들어온 단계에 즉시 경보이고, 첫 알림 송신이 그 단계의 어떤 모델·외부
+    호출보다 먼저다(cloud 모드의 같은 시험은 tests/test_day_sim_cloud.py).
   - 보는 사람이 환기 제안에 [그만해]를 누르면 다음 환기 제안이 나오지 않는다.
   - 임시 DB 디렉터리는 실행이 끝나면 지워진다.
 """
@@ -212,6 +213,12 @@ def test_safety_alert_is_immediate_at_the_reading_step_before_the_model(
         )
         assert sent_at < model_at  # 첫 알림이 나간 뒤에야 2단계 모델이 돈다
         previous = model_at
+        # 넓힌 순서: 첫 알림이 그 단계의 어떤 모델·외부 호출보다도 먼저다(단계 표식 사이).
+        start = max(i for i, e in enumerate(sim.log[:sent_at]) if e[0] == "step")
+        end = next((i for i, e in enumerate(sim.log) if i > sent_at and e[0] == "step"),
+                   len(sim.log))
+        calls = [i for i in range(start, end) if sim.log[i][0] in ("model", "ext")]
+        assert calls and sent_at < min(calls)
 
 
 def test_safety_episode_closes_and_is_acknowledged(seed7: tuple[DaySim, Events]) -> None:

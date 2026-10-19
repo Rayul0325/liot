@@ -19,3 +19,37 @@ luna_shadow:
   mode: unavailable
   model: gpt-6-luna              # UNVERIFIED — 0단계 확인 전
   timeout_s: 8
+
+# 하루 시뮬레이터 cloud 모드의 상한. 넘으면 그 실행의 남은 단계는 가짜 모델로 바뀐다.
+day_cloud:
+  # 실행당 외부 호출 수(모델·기억 모두). 임시값 — 0단계에서 가짜 실행의 호출 지점 수를 센 뒤
+  # 그 3배로 다시 정한다.
+  call_cap_per_run: 120
+  cost_cap_per_run_usd: 0.5
+  cost_cap_per_day_usd: 2.0
+  usage_path: ~/.config/liot/usage.json   # 날짜별 추정 비용 합계(실제 날짜 기준)
+
+# 추정 가격(USD / 1M 토큰). 출처는 2026-10-20 가격표
+# (~/.claude/harness-ops/liot-live-graph-2026-10-19/model-access.md, 웹 조사 — 비신뢰 자료).
+# estimate: true 는 2차 출처라 '추정'으로 표시한다. 표에 없는 모델은 가격 '미상'(0)이다.
+prices:
+  claude-haiku-5-5:
+    # https://platform.claude.com/docs/en/about-claude/pricing (공식, 100K 이하)
+    input: 0.10
+    output: 0.50
+    estimate: false
+  gemini-3.8-flash:
+    # https://ai.google.dev/gemini-api/docs/pricing (공식, 2026-12-31 까지 — 2027-01-01 두 배)
+    input: 0.75
+    output: 3.75
+    estimate: false
+  gpt-6-luna:
+    # https://developers.openai.com/api/docs/pricing (공식, standard)
+    input: 0.10
+    output: 0.50
+    estimate: false
+  jev-latest:
+    # https://typesafe.ai ("$42/billion input") — 입력은 일부 공식, 출력 0 은 2차 출처
+    input: 0.042
+    output: 0.0
+    estimate: true

@@ -33,14 +33,17 @@ import re
 import secrets
 import shutil
 import tempfile
+import threading
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 from zoneinfo import ZoneInfo
 
 from liot.app import LiotApp
+from liot.cheap_llm import ModelConfigError, ReasonResult
 from liot.core.clock import Clock
 from liot.core.contracts import (
     PM25_BAD_MIN,
@@ -53,6 +56,7 @@ from liot.core.contracts import (
 )
 from liot.core.risk import RiskTier
 from liot.core.severity import SeverityLevel
+from liot.day_cloud import CloudKit, build_cloud_kit
 from liot.db.database import init_db
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l2_context.external_provider import FakeExternalProvider
@@ -63,19 +67,24 @@ from liot.layers.l2_context.proactive import (
     validate_proactive_candidate,
 )
 from liot.layers.l2_context.proactive_rules import ProactiveRule
-from liot.layers.l3_judgment.llm_judge import FakeLLM, LLMBackend, LLMResult
+from liot.layers.l3_judgment.decision_backend import EvidenceBuilder
+from liot.layers.l3_judgment.llm_judge import FakeLLM, LLMBackend, LLMResult, LLMUnavailable
 from liot.layers.l4_execution import escalation
 from liot.layers.l4_execution.escalation import GUIDANCE_119_TEXT
 from liot.layers.l4_execution.notifier import sign_feedback
 from liot.layers.l4_execution.ntfy_transport import HTTPNtfyTransport
 from liot.live_runs import LiveRequestError, LiveRun, LiveRuns, RunContext
+from liot.luna_shadow import ShadowResult
+from liot.memory_client import HouseMemory, MemoryCard, MemoryRefused, ResidentMemory
 from liot.registry import RuntimeRegistry
+from liot.secrets_env import DEFAULT_SECRETS_PATH, KNOWN_KEYS, Secrets, load_secrets
 from liot.service import DispatchResult, LiotService
 
 __all__ = [
     "HOME_TZ",
     "MAX_DAYS",
     "MAX_PACE_MS",
+    "MODELS",
     "PERSONAS",
     "SCENES",
     "DayRequest",
@@ -159,6 +168,22 @@ _SAFETY_KIND_KO = {
 }
 PM25_VERY_BAD_MIN = 76.0  # 한국 예보 '매우 나쁨' 경계
 
+# 실행 모드: fake = 가짜 판정기·규칙 문장·성향 표(결정적, 기본) · cloud = 실제 모델·기억.
+MODELS = ("fake", "cloud")
+# cloud 모드 2단계 판정 마감(초). Jev 한 번(제한 8초) + 여유. 감싸는 판정기에 timeout_s 가 없어
+# 명시하지 않으면 기본 6초가 된다(service.default_phase2_deadline).
+CLOUD_PHASE2_DEADLINE_S = 12.0
+# 가상 거주자의 취향(cloud 모드에서 resident-default 에 한 번 심는다). 보호 대상 특성은 없다.
+RESIDENT_PREFERENCES = (
+    "아침 창문 환기를 좋아한다",
+    "공기청정기 소음을 싫어한다",
+    "자기 전 거실 조명을 낮추는 것을 좋아한다",
+    "흐린 낮 책상 조명 제안은 그때그때 다르다",
+)
+# 가상 거주자가 고르는 보기(한국어 보기 → 반응). 무시 = 누르지 않음.
+_RESIDENT_OPTIONS = {"도움됐어요": "accepted", "그만해": "dismissed", "무시": "ignore"}
+_DECIDED_KO = {"model": "모델이 고름", "persona_table": "성향 표"}
+
 
 def pm25_band_ko(pm25: float) -> str:
     """미세먼지(PM2.5) 한국 예보 등급 이름."""
@@ -207,7 +232,7 @@ def _rule_of(params: dict[str, Any]) -> str | None:
     """후보 params 의 출처(__origin__)에서 능동 규칙 id. 규칙 출처가 아니면 None."""
     m = _ORIGIN_RULE.search(str(params.get("__origin__", "")))
     return m.group(1) if m else None
-_RUN_KEYS = frozenset({"days", "seed", "persona", "pace_ms"})
+_RUN_KEYS = frozenset({"days", "seed", "persona", "pace_ms", "models"})
 _SIGNALS = ("accepted", "dismissed")
 
 
@@ -220,6 +245,7 @@ class DayRequest:
     seed: int
     persona: str
     pace_ms: int
+    models: str = "fake"
 
 
 def _int(body: dict[str, Any], key: str, default: int, lo: int, hi: int) -> int:
@@ -232,7 +258,10 @@ def _int(body: dict[str, Any], key: str, default: int, lo: int, hi: int) -> int:
 
 
 def parse_day_request(body: dict[str, Any]) -> DayRequest:
-    """``{days:1-7, seed:int, persona:"default", pace_ms?:0-500}``. 모르는 항목·값은 400."""
+    """``{days:1-7, seed:int, persona:"default", pace_ms?:0-500, models?:fake|cloud}``.
+
+    모르는 항목·값은 400.
+    """
     unknown = sorted(set(body) - _RUN_KEYS)
     if unknown:
         raise LiveRequestError(f"모르는 항목입니다: {', '.join(unknown)}", field=unknown[0])
@@ -244,11 +273,15 @@ def parse_day_request(body: dict[str, Any]) -> DayRequest:
     seed = body.get("seed", 7)
     if isinstance(seed, bool) or not isinstance(seed, int):
         raise LiveRequestError("seed 는 정수여야 합니다.", field="seed")
+    models = body.get("models", "fake")
+    if models not in MODELS:
+        raise LiveRequestError("models 는 fake·cloud 중 하나여야 합니다.", field="models")
     return DayRequest(
         days=_int(body, "days", 3, 1, MAX_DAYS),
         seed=seed,
         persona=str(persona),
         pace_ms=_int(body, "pace_ms", 0, 0, MAX_PACE_MS),
+        models=str(models),
     )
 
 
@@ -390,12 +423,42 @@ class _SimTransport:
 
 
 class _RecordingJudge:
-    """FakeLLM 을 감싸 모델 호출 순서를 남긴다(안전 2단계는 severity_floor 가 있다)."""
+    """판정기를 감싸 모델 호출 순서를 남긴다(안전 2단계는 severity_floor 가 있다).
 
-    def __init__(self, inner: LLMBackend, log: list[tuple[str, Any]]) -> None:
+    fake 모드: FakeLLM 그대로. cloud 모드: 호출마다 계량기가 허락하면 실제 판정기(Jev)를,
+    상한에 닿았으면 FakeLLM 을 고른다 — ``model_id`` 도 그때 고른 쪽 이름이다(LLMJudge 가 호출
+    직전에 읽어 degraded 기록에도 남는다). 실제 판정기 호출은 잠금으로 한 번에 하나씩 돈다
+    (2단계 스레드와 능동 판정이 겹쳐도 사용량 기록이 섞이지 않게). 성공한 판정은 같은 증거와
+    확률을 luna 그림자 대기열에 넣는다(그림자는 판정 밖, 단계 끝에 돈다).
+    """
+
+    def __init__(
+        self,
+        inner: LLMBackend,
+        log: list[tuple[str, Any]],
+        *,
+        cloud: LLMBackend | None = None,
+        kit: CloudKit | None = None,
+        shadow: list[tuple[str, dict[str, dict[str, float]], str]] | None = None,
+    ) -> None:
         self.inner = inner
-        self.model_id = inner.model_id
         self.log = log
+        self.cloud = cloud
+        self.kit = kit
+        self.shadow = shadow
+        self._lock = threading.Lock()
+        self._evidence = EvidenceBuilder() if cloud is not None else None
+
+    def _use_cloud(self) -> bool:
+        return self.cloud is not None and self.kit is not None and self.kit.meter.tripped is None
+
+    @property
+    def model_id(self) -> str:
+        return self.cloud.model_id if self._use_cloud() and self.cloud else self.inner.model_id
+
+    @model_id.setter
+    def model_id(self, value: str) -> None:  # LLMBackend 프로토콜(설정 가능한 속성)용
+        self.inner.model_id = value
 
     def judge_raw(
         self,
@@ -405,9 +468,46 @@ class _RecordingJudge:
         severity_floor: SeverityLevel | None = None,
     ) -> LLMResult:
         self.log.append(("model", (candidate.entity_id, severity_floor is not None)))
+        if self.cloud is not None and self.kit is not None and self.kit.meter.allow():
+            return self._cloud_judge(self.cloud, self.kit, candidate, ctx, gate1_floor,
+                                     severity_floor)
         if severity_floor is None:
             return self.inner.judge_raw(candidate, ctx, gate1_floor)
         return self.inner.judge_raw(candidate, ctx, gate1_floor, severity_floor=severity_floor)
+
+    def _cloud_judge(
+        self,
+        cloud: LLMBackend,
+        kit: CloudKit,
+        candidate: CandidateAction,
+        ctx: ContextSnapshot | None,
+        gate1_floor: RiskTier,
+        severity_floor: SeverityLevel | None,
+    ) -> LLMResult:
+        self.log.append(("ext", "judge"))
+        with self._lock:
+            t0 = time.perf_counter()
+            try:
+                if severity_floor is None:
+                    result = cloud.judge_raw(candidate, ctx, gate1_floor)
+                else:
+                    result = cloud.judge_raw(candidate, ctx, gate1_floor,
+                                             severity_floor=severity_floor)
+            finally:
+                usage = getattr(cloud, "last_usage", None) or {}
+                kit.meter.record(
+                    "judge", getattr(cloud, "model", None),
+                    seconds=round(time.perf_counter() - t0, 4),
+                    input_tokens=usage.get("input_tokens"),
+                    output_tokens=usage.get("output_tokens"),
+                )
+        if self.shadow is not None and self._evidence is not None and result.probs:
+            try:
+                evidence = self._evidence.build(candidate, ctx, gate1_floor)
+            except LLMUnavailable:
+                return result
+            self.shadow.append((evidence, dict(result.probs), result.model_id))
+        return result
 
 
 class _RecordingGenerator(ProactiveGenerator):
@@ -468,6 +568,7 @@ def _refresh_rate(m: dict[str, Any]) -> None:
 
 
 Emit = Callable[[str, dict[str, Any]], Any]
+_T = TypeVar("_T")
 
 
 @dataclass
@@ -483,10 +584,25 @@ class DaySim:
     metrics: list[dict[str, Any]] = field(default_factory=list)
     proposals: list[dict[str, Any]] = field(default_factory=list)
     safety_events: list[dict[str, Any]] = field(default_factory=list)
+    # cloud 모드 전용. fake 모드에서는 쓰지 않는다(사건·요약이 예전과 바이트까지 같다).
+    models: str = "fake"
+    cloud: CloudKit | None = None
+    house_id: str = "local"  # 집 기억 범위 house-<house_id>. 관리자가 실행 id 를 넣는다.
+    memory_events: list[dict[str, Any]] = field(default_factory=list)
+    luna_results: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.persona not in PERSONAS:
             raise ValueError(f"unknown persona {self.persona!r}")
+        if self.models not in MODELS:
+            raise ValueError(f"unknown models {self.models!r}")
+        if self.models == "cloud" and self.cloud is None:
+            raise ValueError("cloud 모드에는 CloudKit 이 필요합니다.")
+        self._shadow_due: list[tuple[str, dict[str, dict[str, float]], str]] = []
+        self._house: HouseMemory | None = None
+        self._resident: ResidentMemory | None = None
+        self._decided_by: dict[str, str] = {}
+        self._trip_announced = False
         self._viewer: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
         self._rng = random.Random(f"{self.seed}:persona")
         self._tracked: dict[str, _Tracked] = {}
@@ -526,13 +642,35 @@ class DaySim:
             shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def summary(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "seed": self.seed,
             "days": self.days,
             "persona": self.persona,
             "metrics": [dict(m) for m in self.metrics],
             "proposals": [dict(p) for p in self.proposals],
             "safety": [dict(s) for s in self.safety_events],
+        }
+        if self._kit is not None:
+            out["models"] = self._models_view(self._kit)
+            out["memory"] = [dict(m) for m in self.memory_events]
+            out["luna"] = [dict(r) for r in self.luna_results]
+        return out
+
+    @property
+    def _kit(self) -> CloudKit | None:
+        return self.cloud if self.models == "cloud" else None
+
+    def _models_view(self, kit: CloudKit) -> dict[str, Any]:
+        compared = [r for r in self.luna_results if r["status"] == "ok"]
+        agree = [r for r in compared if r["agree"].get("tier") is not None]
+        return {
+            "mode": "cloud",
+            "status": [dict(st) for st in kit.status],
+            "usage": kit.meter.summary(),
+            "fallback_ko": kit.meter.trip_reason_ko(),
+            "luna_compared": len(compared),
+            "luna_tier_agree_rate": (None if not agree else
+                                     round(sum(bool(r["agree"]["tier"]) for r in agree) / len(agree), 3)),
         }
 
     async def _run(
@@ -556,14 +694,20 @@ class DaySim:
             clock=clock,
             catalog=catalog,
             categories=categories,
-            llm_backend=_RecordingJudge(FakeLLM(), self.log),
+            llm_backend=_RecordingJudge(
+                FakeLLM(), self.log,
+                cloud=None if self._kit is None else self._kit.judge,
+                kit=self._kit,
+                shadow=self._shadow_due if self._kit is not None and self._kit.luna else None,
+            ),
             external_provider=weather,
             proactive=generator,
         )
         db = await init_db(str(self.tmp_dir / "day.db"))
         secret = secrets.token_bytes(32)
         svc = LiotService(app, db, clock=clock, transport=transport, topic=transport.topic,
-                          secret=secret)
+                          secret=secret,
+                          phase2_deadline_s=None if self._kit is None else CLOUD_PHASE2_DEADLINE_S)
 
         async def out(stage: str, data: dict[str, Any]) -> None:
             # 모든 사건에 지금 시각(가상)을 붙인다 — 화면의 시계는 이 값만 쓴다.
@@ -593,6 +737,8 @@ class DaySim:
                         "metrics": dict(metrics),
                     },
                 )
+                if self._kit is not None and plan is plans[0]:
+                    await self._cloud_start(self._kit, out)
                 stopped = False
                 for step in plan.steps:
                     if should_stop():
@@ -602,8 +748,11 @@ class DaySim:
                     await self._step(svc, app, generator, weather, transport, step, last, out,
                                      secret)
                 self._finish_day(metrics)
-                await out("day.end", {"day": plan.day, "partial": stopped, "metrics": dict(metrics),
-                                      "line_ko": f"{plan.day}일차가 끝났어요"})
+                end: dict[str, Any] = {"day": plan.day, "partial": stopped, "metrics": dict(metrics),
+                                       "line_ko": f"{plan.day}일차가 끝났어요"}
+                if self._kit is not None:
+                    end["usage"] = self._kit.meter.summary()
+                await out("day.end", end)
                 if on_summary is not None:
                     on_summary(self.summary())
                 if stopped:
@@ -631,11 +780,19 @@ class DaySim:
         at = step.at_local
         hhmm = at.strftime("%H:%M")
         self._clock_ko = f"{step.day}일차 {hhmm}"
-        await self._apply_taps(svc, transport, step, out, secret)
-        if hhmm == TRAY_REVIEW_AT:
-            await self._tray_review(svc, step, out, secret)
+        self.log.append(("step", (step.day, hhmm)))
+        # cloud 모드: 응답 적용·모아보기(기억 쓰기·거주자 모델 호출)는 센서 반영과 안전 첫 알림 뒤로
+        # 간다. fake 모드는 예전 순서 그대로다(사건 목록이 바뀌지 않게).
+        late = self._kit is not None
+        if not late:
+            await self._apply_taps(svc, transport, step, out, secret)
+            if hhmm == TRAY_REVIEW_AT:
+                await self._tray_review(svc, step, out, secret)
 
         changed = {k: v for k, v in step.readings.items() if last.get(k) != v}
+        if late:
+            # 안전 센서를 먼저 반영한다 — 같은 단계의 다른 값이 판정(외부 호출)을 먼저 부르지 않게.
+            changed = dict(sorted(changed.items(), key=lambda kv: kv[0] not in (LEAK, GAS)))
         weather_changed = last.get("__weather__") != step.weather
         weather.set_values(**step.weather)
         last.update(step.readings)
@@ -657,6 +814,11 @@ class DaySim:
             if eid in (LEAK, GAS):
                 await self._safety_reading(svc, transport, step, eid, bool(value), res, out)
 
+        if late:
+            await self._apply_taps(svc, transport, step, out, secret)
+            if hhmm == TRAY_REVIEW_AT:
+                await self._tray_review(svc, step, out, secret)
+
         transport.phase = "tick"
         app.last_trace = None
         generator.last_decision = None
@@ -677,6 +839,9 @@ class DaySim:
         await self._safety_sends(transport, step, out)
         transport.phase = "idle"
         await self._expiries(svc, step, out)
+        if self._kit is not None:
+            await self._luna_shadows(self._kit, step, out)
+            await self._announce_trip(self._kit, out)
 
         if changed or weather_changed or silence or at.minute == 0:
             data: dict[str, Any] = {
@@ -780,6 +945,12 @@ class DaySim:
         self._by_pid[p.proposal_id] = sim_id
         destination = {"IMMEDIATE": "phone", "DIGEST": "tray"}.get(result.decision, "blocked")
         title = self._title(rule_id, p.action.entity_id)
+        template_reason = getattr(decision, "reason_ko", "") or ""
+        cloud_fields: dict[str, Any] = {}
+        if self._kit is not None:
+            template_reason, cloud_fields = await self._cloud_reason(
+                self._kit, title, scene, step, template_reason
+            )
         rec = {
             "id": sim_id,
             "day": step.day,
@@ -802,7 +973,7 @@ class DaySim:
             "score": score,
             "noop_score": noop_score,
             "candidates": candidates,
-            "reason_ko": getattr(decision, "reason_ko", "") or "",
+            "reason_ko": template_reason,
             # 성립한 규칙 전부(선언 순). 승자 앞의 규칙이 빠졌다면 거절·쿨다운으로 건너뛴 것이다.
             "matched_rules": matched,
             "skipped": self._skipped(app, generator, matched, rule_id),
@@ -810,6 +981,7 @@ class DaySim:
             "state": "pending",
             "state_ko": _STATE_KO["pending"],
             "line_ko": f"{title} — {_DECISION_KO.get(result.decision, result.decision)}",
+            **cloud_fields,
         }
         self.proposals.append(rec)
         self._records[sim_id] = rec
@@ -819,7 +991,11 @@ class DaySim:
             metrics["scenes"][scene] = metrics["scenes"].get(scene, 0) + 1
         if result.decision == "IMMEDIATE":
             metrics["pushes"] += 1
-            reaction = self._persona_reaction(scene)
+            if self._kit is None:
+                reaction = self._persona_reaction(scene)
+            else:
+                reaction = await self._cloud_reaction(self._kit, sim_id, scene, title,
+                                                      template_reason, step)
             if reaction is not None:
                 self._persona_due.append((sim_id, reaction))
         elif result.decision == "DIGEST":
@@ -877,7 +1053,14 @@ class DaySim:
             if t.kind != "comfort" or t.decision != "DIGEST" or t.day != step.day:
                 continue
             before = t.state
-            reaction = self._persona_reaction(t.scene, table) if before == "pending" else None
+            reaction: str | None = None
+            if before == "pending" and self._kit is None:
+                reaction = self._persona_reaction(t.scene, table)
+            elif before == "pending" and self._kit is not None:
+                rec0 = self._records[t.sim_id]
+                reaction = await self._cloud_reaction(self._kit, t.sim_id, t.scene,
+                                                      rec0["title_ko"], rec0["reason_ko"], step,
+                                                      table=table)
             if reaction is not None:
                 await self._tap(svc, step, t.sim_id, reaction, "tray", out, secret)
             items.append({
@@ -933,9 +1116,15 @@ class DaySim:
             else:
                 day_m["tray_accepted"] += 1
             _refresh_rate(day_m)
+            if self._kit is not None:
+                await self._remember_feedback(self._kit, tracked, new_state, step, out)
         who = _SOURCE_KO.get(source, source)
         what = self._records[sim_id]["title_ko"] if sim_id in self._records else "안전 경보"
         actor = {"tray": "거주자가 모아보기에서", "viewer": "보는 사람이"}.get(source, f"{who}가")
+        decided: dict[str, Any] = {}
+        if self._kit is not None and source in ("persona", "tray") and sim_id in self._decided_by:
+            decided = {"decided_by": self._decided_by[sim_id],
+                       "decided_by_ko": _DECIDED_KO[self._decided_by[sim_id]]}
         line = (f"{actor} [{_SIGNAL_KO.get(signal, signal)}]를 눌렀어요 — {what}" if code == "200"
                 else f"{who}의 [{_SIGNAL_KO.get(signal, signal)}]가 반영되지 않았어요({code})")
         await out(
@@ -957,6 +1146,7 @@ class DaySim:
                 "state_ko": _STATE_KO.get(tracked.state, tracked.state),
                 "line_ko": line,
                 "metrics": dict(day_m),
+                **decided,
             },
         )
 
@@ -980,6 +1170,8 @@ class DaySim:
             rec["state_ko"] = _STATE_KO["expired"]
             day_m = self.metrics[t.day - 1]
             day_m["expired"] += 1
+            if self._kit is not None:
+                await self._remember_feedback(self._kit, t, "expired", step, out)
             await out("feedback", {
                 "id": t.sim_id, "day": step.day, "at": step.at_local.isoformat(),
                 "hhmm": step.at_local.strftime("%H:%M"), "signal": "expired",
@@ -1086,6 +1278,216 @@ class DaySim:
     def _finish_day(self, metrics: dict[str, Any]) -> None:
         _refresh_rate(metrics)
 
+    # ── cloud 모드(실제 모델·기억). fake 모드에서는 하나도 불리지 않는다 ──────────
+
+    async def _ext(
+        self,
+        kit: CloudKit,
+        kind: str,
+        fn: Callable[[], _T],
+        usage: Callable[[_T], tuple[str | None, int | None, int | None]] | None = None,
+    ) -> _T | None:
+        """외부 호출 하나: 계량기 자리 → 스레드에서 실행(제한시간) → 사용량 기록.
+
+        상한에 닿았거나 시간이 넘으면 None(호출자는 가짜로 대체한다). 기억 쪽의 송신 전 거부
+        (MemoryRefused)도 None 이다.
+        """
+        if not kit.meter.allow():
+            return None
+        self.log.append(("ext", kind))
+        t0 = time.perf_counter()
+        result: _T | None = None
+        try:
+            result = await asyncio.wait_for(asyncio.to_thread(fn), timeout=kit.call_timeout_s)
+        except (TimeoutError, MemoryRefused):
+            result = None
+        finally:
+            model, tokens_in, tokens_out = (None, None, None)
+            if result is not None and usage is not None:
+                model, tokens_in, tokens_out = usage(result)
+            kit.meter.record(kind, model, seconds=round(time.perf_counter() - t0, 4),
+                             input_tokens=tokens_in, output_tokens=tokens_out)
+        return result
+
+    async def _announce_trip(
+        self, kit: CloudKit, out: Callable[[str, dict[str, Any]], Awaitable[None]]
+    ) -> None:
+        """상한에 처음 닿은 단계에서 한 번 알린다. 남은 단계는 가짜 모델로 돈다."""
+        if kit.meter.tripped is None or self._trip_announced:
+            return
+        self._trip_announced = True
+        await out("models.fallback", {"reason": kit.meter.tripped,
+                                      "line_ko": kit.meter.trip_reason_ko() or "",
+                                      "usage": kit.meter.summary()})
+
+    def _memory_event(self, verb: str, who: str, title: str, *, rule: bool = False,
+                      ok: bool = True) -> dict[str, Any]:
+        rec = {"day": self._day, "clock_ko": self._clock_ko, "verb": verb, "who": who,
+               "title_ko": title, "rule": rule, "ok": ok,
+               "source_ko": "memgineering · liot-demo"}
+        self.memory_events.append(rec)
+        return rec
+
+    async def _cloud_start(
+        self, kit: CloudKit, out: Callable[[str, dict[str, Any]], Awaitable[None]]
+    ) -> None:
+        """실행 시작: 데모 브레인 확인(use) → 거주자 취향 심기(처음 한 번) → 부품 상태 알림."""
+        memory = kit.memory
+        status = next((st for st in kit.status if st["part"] == "memory"), None)
+        if memory is not None:
+            ready = await self._ext(kit, "memory", memory.check_ready)
+            if ready:
+                self._house = HouseMemory(memory, self.house_id)
+                self._resident = ResidentMemory(memory)
+                resident = self._resident
+                planted = await self._ext(
+                    kit, "memory",
+                    lambda: resident.seed(RESIDENT_PREFERENCES, reason="하루 시뮬레이션 가상 거주자 취향"),
+                )
+                for sentence in RESIDENT_PREFERENCES[: planted or 0]:
+                    self._memory_event("seed", "resident", sentence)
+            if status is not None:
+                status.update(state="cloud" if ready else "fake",
+                              reason_ko=None if ready else memory.disabled_reason_ko)
+        await out("models.status", {"status": [dict(st) for st in kit.status],
+                                    "line_ko": "실제 모델·기억으로 시작해요",
+                                    "usage": kit.meter.summary()})
+        await self._announce_trip(kit, out)
+
+    async def _recall(self, kit: CloudKit, view: HouseMemory | ResidentMemory | None,
+                      query: str, who: str) -> list[MemoryCard]:
+        if view is None:
+            return []
+        cards = await self._ext(kit, "memory", lambda: view.recall(query))
+        for card in cards or []:
+            self._memory_event("recall", who, card.title, rule=card.rule)
+        return list(cards or [])
+
+    async def _cloud_reason(
+        self, kit: CloudKit, title: str, scene: str | None, step: StepPlan, template: str
+    ) -> tuple[str, dict[str, Any]]:
+        """이유 작성기: 집 기억(장면 이름으로 recall)과 날씨 숫자로 한 줄. 실패면 규칙 문장."""
+        cards = await self._recall(kit, self._house, title, "house")
+        fields: dict[str, Any] = {"reason_source": "template", "reason_model": "template",
+                                  "memory_used": [c.title for c in cards]}
+        cheap = kit.cheap
+        if cheap is None or not template:
+            return template, fields
+        weather = step.weather
+        facts = {
+            "title": title,
+            "scene": scene or "",
+            "hhmm": step.at_local.strftime("%H:%M"),
+            "pm25": weather.get("pm25"),
+            "cloud_pct": None if weather.get("cloud_cover") is None
+            else round(float(weather["cloud_cover"]) * 100),
+            "outdoor_temp_c": weather.get("outdoor_temp_c"),
+            "rule_sentence": template,
+            "memories": [f"{c.title} — {c.summary}" if c.summary else c.title for c in cards],
+        }
+        res = await self._ext(kit, "reason", lambda: cheap.reason(facts, fallback=template),
+                              usage=_cheap_usage)
+        if res is None or res.source != "model":
+            return template, fields
+        fields.update(reason_source="model", reason_model=f"{res.provider}:{res.model}")
+        return res.text, fields
+
+    async def _cloud_reaction(
+        self,
+        kit: CloudKit,
+        sim_id: str,
+        scene: str | None,
+        title: str,
+        reason: str,
+        step: StepPlan,
+        table: dict[str, str] | None = None,
+    ) -> str | None:
+        """거주자 결정기: 취향 기억을 읽고 싼 모델이 고른다. 답이 이상하면 성향 표."""
+        # 성향 표 값은 늘 먼저 정한다(동전 난수를 fake 와 같은 순서로 쓴다) — 대체값이기도 하다.
+        fallback = self._persona_reaction(scene, table) or "ignore"
+        self._decided_by[sim_id] = "persona_table"
+        cheap = kit.cheap
+        if cheap is None:
+            return None if fallback == "ignore" else fallback
+        cards = await self._recall(kit, self._resident, title, "resident")
+        facts = {
+            "title": title,
+            "reason": reason,
+            "hhmm": step.at_local.strftime("%H:%M"),
+            "where": "모아보기" if table is not None else "폰 알림",
+            "likes": [c.title for c in cards],
+        }
+        res = await self._ext(
+            kit, "resident",
+            lambda: cheap.choose(facts, _RESIDENT_OPTIONS, fallback=fallback),
+            usage=_cheap_usage,
+        )
+        choice = fallback
+        if res is not None and res.source == "model" and res.text in _RESIDENT_OPTIONS.values():
+            choice = res.text
+            self._decided_by[sim_id] = "model"
+        return None if choice == "ignore" else choice
+
+    async def _remember_feedback(
+        self,
+        kit: CloudKit,
+        tracked: _Tracked,
+        state: str,
+        step: StepPlan,
+        out: Callable[[str, dict[str, Any]], Awaitable[None]],
+    ) -> None:
+        """집 기억: [도움됐어요]·만료는 일화, [그만해]는 규칙(--rule)."""
+        house = self._house
+        if house is None or tracked.kind != "comfort":
+            return
+        title = self._records[tracked.sim_id]["title_ko"]
+        hhmm = step.at_local.strftime("%H:%M")
+        if state == "dismissed":
+            text, rule, kind = f"'{title}' 제안은 [그만해] — 다시 먼저 제안하지 않는다", True, "decision"
+        elif state == "accepted":
+            text, rule, kind = f"{step.day}일차 {hhmm} '{title}' 제안이 도움됐다", False, "episode"
+        else:
+            text, rule, kind = f"{step.day}일차 '{title}' 제안은 아무도 누르지 않아 만료됐다", False, "episode"
+        op = await self._ext(kit, "memory", lambda: house.remember(
+            text, reason=f"하루 시뮬레이션 [{_SIGNAL_KO.get(state, state)}]", rule=rule, kind=kind))
+        rec = self._memory_event("remember", "house", text, rule=rule, ok=op is not None)
+        await out("memory", {**rec, "line_ko": ("규칙으로 기억했어요 — " if rule else "기억했어요 — ")
+                             + text})
+
+    async def _luna_shadows(
+        self, kit: CloudKit, step: StepPlan, out: Callable[[str, dict[str, Any]], Awaitable[None]]
+    ) -> None:
+        """이번 단계의 Jev 판정마다 luna 확률을 나란히 남긴다(판정은 바꾸지 않는다)."""
+        due, self._shadow_due[:] = list(self._shadow_due), []
+        luna = kit.luna
+        if luna is None:
+            return
+        def usage(r: ShadowResult) -> tuple[str | None, int | None, int | None]:
+            return luna.cfg.model, r.input_tokens, r.output_tokens
+
+        for evidence, probs, model_id in due:
+            res: ShadowResult | None
+            if luna.cfg.mode == "logprobs":
+                def compare(ev: str = evidence,
+                            pr: dict[str, dict[str, float]] = probs) -> ShadowResult:
+                    return luna.compare(ev, pr)
+
+                res = await self._ext(kit, "luna", compare, usage=usage)
+            else:
+                res = luna.compare(evidence, probs)  # 부르지 않는 방식 — 외부 호출 없음
+            rec: dict[str, Any] = {
+                "day": step.day, "hhmm": step.at_local.strftime("%H:%M"), "judge": model_id,
+                "jev": probs, "status": "unavailable" if res is None else res.status,
+                "luna": {} if res is None else res.probs,
+                "agree": {} if res is None else res.agree,
+                "reason_ko": ("luna 미접근 — 상한 또는 시간 초과" if res is None else res.reason_ko),
+            }
+            self.luna_results.append(rec)
+
+
+def _cheap_usage(res: ReasonResult) -> tuple[str | None, int | None, int | None]:
+    return res.model, res.input_tokens, res.output_tokens
+
 
 # ── 실행 관리(관제실 서버가 쓴다) ────────────────────────────────────────────
 
@@ -1093,16 +1495,51 @@ class DaySim:
 class DayRuns:
     """하루 시뮬레이션 실행 관리자. ``LiveRuns`` 위에 시뮬레이터 객체를 붙인다."""
 
-    def __init__(self, runs: LiveRuns | None = None) -> None:
+    def __init__(
+        self,
+        runs: LiveRuns | None = None,
+        *,
+        secrets_path: Path = DEFAULT_SECRETS_PATH,
+        kit_factory: Callable[[Secrets], CloudKit] = build_cloud_kit,
+    ) -> None:
         self.runs = runs if runs is not None else LiveRuns()
         self._sims: dict[str, DaySim] = {}
+        # cloud 모드에서만 읽는다(fake 실행은 비밀 파일을 열지 않는다). 시험은 임시 경로를 넣는다.
+        self.secrets_path = secrets_path
+        self.kit_factory = kit_factory
+
+    def key_status(self) -> dict[str, Any]:
+        """키 상태 — 이름과 있음/없음만(값은 절대 싣지 않는다)."""
+        loaded = load_secrets(self.secrets_path)
+        presence = loaded.presence(KNOWN_KEYS)
+        return {
+            "ok": True,
+            "status": loaded.status,
+            "reason_ko": loaded.reason_ko,
+            "keys": [{"name": name, "present": present} for name, present in presence.items()],
+            "present": sum(presence.values()),
+            "total": len(presence),
+        }
 
     def start(self, body: dict[str, Any]) -> dict[str, Any]:
         req = parse_day_request(body)
-        sim = DaySim(seed=req.seed, days=req.days, persona=req.persona, pace_ms=req.pace_ms)
+        sim_box: list[DaySim] = []
 
         def make_worker() -> Callable[[RunContext], None]:
+            kit: CloudKit | None = None
+            if req.models == "cloud":
+                try:
+                    kit = self.kit_factory(load_secrets(self.secrets_path))
+                except (ModelConfigError, OSError) as exc:
+                    raise LiveRequestError(
+                        f"실제 모델 설정을 읽지 못했습니다({type(exc).__name__}).", 503,
+                        field="models") from None
+            sim = DaySim(seed=req.seed, days=req.days, persona=req.persona, pace_ms=req.pace_ms,
+                         models=req.models, cloud=kit)
+            sim_box.append(sim)
+
             def worker(ctx: RunContext) -> None:
+                sim.house_id = ctx.run_id
                 asyncio.run(
                     sim.run(
                         lambda stage, data: ctx.emit(stage, data),
@@ -1114,15 +1551,21 @@ class DayRuns:
 
             return worker
 
-        run = self.runs.start(make_worker, meta={"seed": req.seed, "days": req.days,
-                                                 "persona": req.persona,
-                                                 "pace_ms": req.pace_ms})
+        meta: dict[str, Any] = {"seed": req.seed, "days": req.days, "persona": req.persona,
+                                "pace_ms": req.pace_ms}
+        if req.models != "fake":
+            meta["models"] = req.models
+        run = self.runs.start(make_worker, meta=meta)
+        sim = sim_box[0]
         self._sims[run.run_id] = sim
         live = set(self.runs.run_ids())
         for rid in [r for r in self._sims if r not in live]:
             del self._sims[rid]
-        return {"ok": True, "run_id": run.run_id, "days": req.days, "seed": req.seed,
-                "persona": req.persona, "pace_ms": req.pace_ms}
+        out: dict[str, Any] = {"ok": True, "run_id": run.run_id, "days": req.days,
+                               "seed": req.seed, "persona": req.persona, "pace_ms": req.pace_ms}
+        if req.models != "fake":
+            out["models"] = req.models
+        return out
 
     def get(self, run_id: str) -> LiveRun | None:
         return self.runs.get(run_id)

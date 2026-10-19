@@ -1690,6 +1690,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == DAY_PREFIX + "stream":
             self._day_stream(runs)
             return
+        if path == DAY_PREFIX + "keys":
+            # 실제 모델 키 상태 — 이름과 있음/없음만. 값은 응답에 없다.
+            self._json(200, runs.key_status())
+            return
         if path.startswith(DAY_PREFIX + "runs/"):
             view = runs.view(path[len(DAY_PREFIX + "runs/"):])
             if view is None:

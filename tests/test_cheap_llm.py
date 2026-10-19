@@ -368,3 +368,30 @@ def test_connection_refused_is_cheap_llm_error() -> None:
         port = s.getsockname()[1]
     with pytest.raises(CheapLLMError, match="transport failed"):
         HTTPCheapTransport().post(_loopback(f"http://127.0.0.1:{port}/v1/messages"), timeout_s=1)
+
+
+# ── 보기 고르기(가상 거주자) ────────────────────────────────────────────────
+
+
+OPTIONS = {"도움됐어요": "accepted", "그만해": "dismissed", "무시": "ignore"}
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("도움됐어요", "accepted"), (" [그만해] ", "dismissed"), ("「무시」.", "ignore"),
+    ("그만해요", None), ("도움됐어요\n그만해", None), ("", None), (3, None),
+])
+def test_match_option(text: Any, expected: str | None) -> None:
+    from liot.cheap_llm import match_option
+
+    assert match_option(text, OPTIONS) == expected
+
+
+def test_choose_sends_the_options_and_falls_back_on_an_odd_answer() -> None:
+    llm, fake = _client("anthropic", "그만해")
+    res = llm.choose(FACTS, OPTIONS, fallback="accepted")
+    assert (res.source, res.text) == ("model", "dismissed")
+    assert "도움됐어요 / 그만해 / 무시" in fake.requests[0].body["system"]
+    odd, _ = _client("anthropic", "글쎄요")
+    res = odd.choose(FACTS, OPTIONS, fallback="accepted")
+    assert (res.source, res.text, res.fallback_reason) == ("fallback", "accepted", "invalid_output")
+    assert not any(word in cheap_llm._CHOOSE_SYSTEM for word in TRAIT_WORDS)
