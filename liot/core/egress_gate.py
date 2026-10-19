@@ -1,10 +1,10 @@
 """외부 송신 단일 통로(egress gate).
 
-모든 외부 송신(LLM 프롬프트, ntfy 알림, KMA 기상 조회)은 ``emit_external`` 한
+모든 외부 송신(LLM 프롬프트, ntfy 알림, KMA 기상 조회, 기억 쓰기)은 ``emit_external`` 한
 함수를 통과해야 한다. 이 게이트는:
   1. 목적지가 ALLOWLIST 에 있는지 확인하고(없으면 EgressViolation),
   2. 목적지별 정제(LLM=재귀 가명화 / NTFY=화이트리스트 키만 / KMA=좌표 그리드
-     일반화)를 적용하며,
+     일반화 / MEMORY=변환 없음, 검사만)를 적용하며,
   3. 정제 후에도 PII 패턴이 남아 있으면 EgressViolation 을 던지고,
   4. 정제된 payload 를 반환한다.
 
@@ -39,11 +39,14 @@ class Destination(str, Enum):
     LLM = "LLM"
     NTFY = "NTFY"
     KMA = "KMA"
+    # memgineering 브레인(하루 시뮬레이터의 데모 브레인 전용). 쓰는 문장은 그대로 나가므로
+    # 변환 없이 PII 그물과 엔티티 모양 검사만 한다.
+    MEMORY = "MEMORY"
 
 
 # 명시적 허용 목록. 여기 없는 목적지로는 어떤 것도 나갈 수 없다.
 ALLOWLIST: frozenset[Destination] = frozenset(
-    {Destination.LLM, Destination.NTFY, Destination.KMA}
+    {Destination.LLM, Destination.NTFY, Destination.KMA, Destination.MEMORY}
 )
 
 # ntfy 페이로드에 허용되는 키. 그 외 키는 모두 제거된다.
@@ -296,6 +299,7 @@ def emit_external(
          - LLM : 재귀 가명화(pseudonymize_recursive)
          - NTFY: 화이트리스트 키(NTFY_ALLOWED_KEYS)만 남김
          - KMA : 좌표 그리드 일반화
+         - MEMORY: 변환 없음(얕은 복사) — 문장이 그대로 저장되므로 아래 두 검사가 전부다
       3) 정제 후에도 PII 패턴이 남아 있으면 EgressViolation.
       4) 정제된 payload 반환.
 
@@ -321,6 +325,8 @@ def emit_external(
         sanitized = {k: v for k, v in payload.items() if k in NTFY_ALLOWED_KEYS}
     elif dest is Destination.KMA:
         sanitized = _generalize_coords(payload)
+    elif dest is Destination.MEMORY:
+        sanitized = dict(payload)
     else:  # pragma: no cover - ALLOWLIST 가 이미 막음
         raise EgressViolation(f"unhandled destination: {dest.value}")
 
@@ -331,12 +337,12 @@ def emit_external(
             f"{', '.join(sorted(set(pii_hits)))}"
         )
 
-    # LLM 한정: 가명화를 비껴간 entity_id 형태 식별자가 남아 있으면 거부.
-    if dest is Destination.LLM:
+    # LLM·MEMORY: 가명화를 비껴간(또는 가명화가 없는) entity_id 형태 식별자가 남아 있으면 거부.
+    if dest in (Destination.LLM, Destination.MEMORY):
         hit = _scan_entity_shaped(sanitized)
         if hit:
             raise EgressViolation(
-                f"entity-shaped identifier in egress to LLM (trace={trace_id}): "
+                f"entity-shaped identifier in egress to {dest.value} (trace={trace_id}): "
                 f"{hit!r} survived pseudonymization"
             )
 
