@@ -871,6 +871,9 @@ class LiotService:
         stage = ladder.stage
         due = escalation.realerts_due(opened, final, now_dt)
         if due > stage:
+            # 공유 연결에서 닫힘이 끼어들었을 수 있다 — 해소 뒤 낡은 재알림 금지.
+            if not await self._ladder_still_open(situation_id):
+                return
             await self._send_realert(info, final)
             stage = due  # 재시작 뒤 밀린 재알림은 한 번으로 따라잡는다
 
@@ -1014,7 +1017,8 @@ class LiotService:
                 situation_label=escalation.message_label(info.category, kind),
                 home_alias=alias,
                 at=at,
-                severity=final,
+                # 해소 알림은 NOTICE(주의) — 상황의 최종 파급도로 다시 깨우지 않는다.
+                severity=SeverityLevel.NOTICE if kind == "resolved" else final,
                 situation_id=info.situation_id if with_link else None,
                 guardian_id=with_link,
             )

@@ -47,12 +47,12 @@ http, Dismiss, <피드백URL>/feedback?p=<pid>&t=<티어>&n=<nonce>&sig=<dismiss
 | `situation_label` | 상황 종류 라벨. 전달: `가스 누출` 등 · 해소: `가스 누출 · 해소됨` · 119: `가스 누출 · 119에 직접 전화해 주세요(자동 신고 아님)`. 모르는 카테고리는 `안전 상황` |
 | `home_alias` | 집 별칭(기본 `우리 집`). 별칭이 송신 검사에 걸리면 `우리 집` 으로 다시 만든다 |
 | `at` | 상황이 열린 시각(해소 알림은 보낸 시각) |
-| `severity_label` | 최종 파급도 라벨 |
+| `severity_label` | 전달·119 안내는 최종 파급도 라벨, 해소 알림은 늘 `주의` |
 | `signed_deeplink` | 보호자 전달과 보호자 119 안내에만 있다: `liot://ack/<situation_id>?g=<guardian_id>&sig=<서명>` — 서명 대상 `guardian-ack:<situation_id>:<guardian_id>`. 해소 알림·거주자 119 안내에는 키가 없다 |
 
 상황 종류 라벨: 가스 `가스 누출` · 연기 `연기·화재` · 오븐 `오븐 과열` · 고온 `고온` · 누수 `누수` · 수도 본관 `수도 이상` · 문 `문 열림` · 도어락 `잠금장치 이상`.
 
-HTTP 헤더: `Title: LIOT`, `Priority`(파급도 라벨 기준), `Tags: rotating_light`. `Click` 은 두지 않는다(열기는 확인이 아니다). 확인 링크와 피드백 URL 이 있으면 `Actions: http, Ack, <피드백URL>/guardian-ack?s=<sid>&g=<gid>&sig=<서명>, method=GET`.
+HTTP 헤더: `Title: LIOT`, `Priority`(파급도 라벨 기준), `Tags: rotating_light`. `Click` 은 두지 않는다(열기는 확인이 아니다). 확인 링크와 피드백 URL 이 있으면 `Actions: http, Ack, <피드백URL>/guardian-ack?s=<sid>&g=<gid>&sig=<서명>, method=GET`. 119 안내에는 전화 앱만 여는 `view, Call 119, tel:119` 액션이 붙는다(확인 버튼이 있으면 `; ` 로 이어 붙인다). 번호를 누르는 건 사람이다 — 자동 발신 액션은 없다.
 
 본문: `[<home_alias>] <situation_label> (<severity_label>) · <at>`.
 

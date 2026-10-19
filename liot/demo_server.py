@@ -50,6 +50,7 @@ from liot.layers.l2_context.proactive import ProactiveGenerator
 from liot.layers.l3_judgment.guardrail import _reset_floor_extensions_for_tests
 from liot.layers.l3_judgment.llm_judge import FakeLLM, LLMBackend
 from liot.layers.l3_judgment.ollama_backend import HTTPOllamaTransport, OllamaBackend
+from liot.layers.l4_execution.escalation import situation_label
 from liot.layers.l4_execution.executor import ExecutionPolicy
 from liot.registry import RegistryError, RuntimeRegistry
 from liot.serve import resolve_db_path
@@ -809,18 +810,6 @@ _FORWARD_KIND_KO: dict[str, str] = {
     "resolved": "상황 해제 알림",
     "guidance_119": "거주자에게 119 안내",
 }
-# 상황 카테고리 → 화면 표기(config/severity/situations.yaml 의 안전 카테고리).
-_SITUATION_KO: dict[str, str] = {
-    "gas": "가스",
-    "smoke": "연기·화재",
-    "oven": "오븐",
-    "high_temp": "고온",
-    "leak": "누수",
-    "water_main": "수도",
-    "door": "문",
-    "lock": "잠금장치",
-    "inactivity": "움직임 없음",
-}
 
 # 화면 질문(답 키) → 저장 특성. invert=True 면 '아니요'(False)가 특성 참으로 저장된다
 # ("혼자 대피할 수 있나요? 아니요" = cannot_self_evacuate=True). 뒤집기는 여기 한 곳.
@@ -1098,7 +1087,7 @@ async def _get_forwards(
                 "situation_id": f.situation_id,
                 "category": cat,
                 "situation_ko": (
-                    f"{_SITUATION_KO.get(cat, cat)} 상황" if cat is not None else "알 수 없는 상황"
+                    situation_label(cat) if cat is not None else "알 수 없는 상황"
                 ),
                 "guardian_id": f.guardian_id,
                 "guardian_alias": (

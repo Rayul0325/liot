@@ -364,7 +364,7 @@ def test_forwarding_history_shows_when_what_and_whom(server, db_path) -> None:
     assert topic not in raw
     first, second = body["forwards"]  # 최근 것이 위
     assert first["kind_ko"] == "거주자에게 119 안내" and first["guardian_id"] is None
-    assert second["situation_ko"] == "가스 상황"
+    assert second["situation_ko"] == "가스 누출"
     assert second["kind_ko"] == "보호자에게 알림 전달"
     assert second["guardian_alias"] == "큰딸"
     assert second["at"] == "2026-10-19T05:01:00+00:00"

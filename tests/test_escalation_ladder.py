@@ -549,6 +549,8 @@ async def test_close_cancels_the_ladder_and_resolves_forwarded_guardians() -> No
         msgs = _to(transport, gtopic)
         assert len(msgs) == 2
         assert "해소" in msgs[1]["situation_label"]
+        # 해소 알림의 파급도는 NOTICE(주의) — 최고 우선순위로 가족을 다시 깨우지 않는다.
+        assert msgs[1]["severity_label"] == "주의"
         assert msgs[1].get("signed_deeplink") in (None, "")
         assert await _forwards(svc) == [(gid, "forward"), (gid, "resolved")]
         sent = len(transport.sent)

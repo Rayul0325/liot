@@ -102,6 +102,11 @@ class FeedbackEvent(BaseModel):
 class NotificationPayload(BaseModel):   # device/room/rationale 필드 없음 (의도적)
     channel: str; proposal_id: str; risk_tier: RiskTier; glyph: str
     label: str; signed_deeplink: str; topic: str
+    severity_label: str | None = None   # 상황 알림의 파급도 라벨(ntfy 세기 결정)
+
+class GuardianNotificationPayload(BaseModel):   # 기기·방·근거·거주자 특성 필드 없음
+    channel: str; situation_label: str; home_alias: str; at: str
+    signed_ack_link: str; severity_label: str
 
 class EventMessage(BaseModel):
     trace_id: str; home_id: str; layer_from: Layer; layer_to: Layer
@@ -225,7 +230,8 @@ feedback, notifications, audit_log, trust_state, candidate_evaluations`.
 class Destination(str, Enum): LLM="LLM"; NTFY="NTFY"; KMA="KMA"
 ALLOWLIST: frozenset[Destination]    # = {LLM, NTFY, KMA}
 NTFY_ALLOWED_KEYS: frozenset[str]
-    # = {'channel','proposal_id','risk_tier','glyph','label','signed_deeplink','topic'}
+    # = {'channel','proposal_id','risk_tier','glyph','label','signed_deeplink','topic',
+    #    'severity_label','situation_label','home_alias','at'}   # 11개 — 정확한 집합을 테스트가 고정
 PII_PATTERNS: dict[str, re.Pattern]  # phone_kr, email, rrn_kr, geo_precise
 
 class AliasMap:
@@ -289,7 +295,7 @@ proposals, feedback, notifications, audit_log, llm_cache, trust_state`.
 
 ```python
 SCHEMA_SQL_PATH: Path                 # schema.sql 절대경로
-LATEST_VERSION: int                   # = 2
+LATEST_VERSION: int                   # = 3
 async def current_version(db) -> int                 # 없으면 0
 async def run_migrations(db) -> int                  # forward-only, 멱등. 적용 후 최신 버전 반환.
 ```

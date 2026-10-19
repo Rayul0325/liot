@@ -24,6 +24,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from liot.core.severity import SeverityLevel
 
+from .escalation import GUIDANCE_119_TEXT
 from .notifier import sign_feedback
 
 __all__ = [
@@ -149,6 +150,12 @@ class HTTPNtfyTransport:
             sid, gid, sig = parsed
             ack = f"{self.feedback_base_url}/guardian-ack?s={sid}&g={gid}&sig={sig}"
             headers["Actions"] = f"http, Ack, {ack}, method=GET"
+        if GUIDANCE_119_TEXT in str(sanitized.get("situation_label", "")):
+            # 119 안내: 전화 앱을 여는 버튼만(번호를 누르는 건 사람 — 자동 신고 아님).
+            call = "view, Call 119, tel:119"
+            headers["Actions"] = (
+                f"{headers['Actions']}; {call}" if "Actions" in headers else call
+            )
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
