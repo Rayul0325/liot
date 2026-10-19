@@ -28,7 +28,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from liot.app import LiotApp
 from liot.core.clock import Clock
@@ -36,6 +36,7 @@ from liot.core.contracts import SensorReading
 from liot.core.invariants import EgressViolation
 from liot.core.risk import RiskTier, _reset_safety_extensions_for_tests
 from liot.core.severity import SeverityLevel
+from liot.day_sim import DayRuns
 from liot.db.database import init_db
 from liot.db.safety_repo import DEFAULT_HOME_ALIAS, Guardian, Resident, SafetyRepo
 from liot.layers.l1_sensing.normalizer import normalize
@@ -62,6 +63,7 @@ from liot.layers.l4_execution.notifier import (
     Notifier,
 )
 from liot.layers.l4_execution.ntfy_transport import HTTPNtfyTransport
+from liot.live_runs import LiveRequestError, resume_from
 from liot.registry import RegistryError, RuntimeRegistry
 from liot.serve import resolve_db_path
 
@@ -1583,6 +1585,25 @@ _STATIC_TYPES = {
 }
 
 
+# 하루 시뮬레이션 실행 관리자(프로세스 기본값). 서버 객체가 자기 것을 들고 있으면 그것을 쓴다
+# (시험이 서버마다 새 관리자를 넣는다). 실행 상태는 메모리뿐이다 — 데몬과 무관하다.
+_DAY_RUNS = DayRuns()
+DAY_PREFIX = "/api/day/"
+
+
+class LabServer(ThreadingHTTPServer):
+    """관제실 HTTP 서버. 하루 시뮬레이션 실행 관리자를 서버마다 하나 든다."""
+
+    def __init__(self, addr: tuple[str, int], *, day_runs: DayRuns | None = None) -> None:
+        super().__init__(addr, Handler)
+        self.day_runs = day_runs if day_runs is not None else _DAY_RUNS
+
+
+def make_server(host: str, port: int, *, day_runs: DayRuns | None = None) -> LabServer:
+    """관제실 서버를 만든다(띄우지는 않는다). 시험은 포트 0 과 자기 관리자를 넣는다."""
+    return LabServer((host, port), day_runs=day_runs)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "LiotDemoLab/1.0"
     # 소켓 수준 타임아웃. StreamRequestHandler.setup() 이 이 값을 연결에 건다.
@@ -1637,8 +1658,102 @@ class Handler(BaseHTTPRequestHandler):
         result, code = safety_call(method, path, body)
         self._json(code, result)
 
+    # ── 하루 시뮬레이션(/api/day/*) ────────────────────────────────────────
+    def _day_runs(self) -> DayRuns:
+        runs = getattr(self.server, "day_runs", None)
+        return runs if isinstance(runs, DayRuns) else _DAY_RUNS
+
+    def _day_blocked(self, method: str) -> bool:
+        """``/api/day/*`` 는 이 기기 접속만 받는다(안전 설정과 같은 검사, POST 는 쓰기 검사)."""
+        block = safety_block_reason(
+            str(self.client_address[0]),
+            self.headers.get("Host"),
+            self.headers.get("Origin"),
+            self.headers.get("Content-Type"),
+            write=method == "POST",
+        )
+        if block is not None:
+            self._json(403, {"ok": False, "error": block})
+            return True
+        return False
+
+    def _live_error(self, exc: LiveRequestError) -> None:
+        payload: dict[str, Any] = {"ok": False, "error": exc.message}
+        if exc.field is not None:
+            payload["field"] = exc.field
+        self._json(exc.status, payload)
+
+    def _day_get(self, path: str) -> None:
+        if self._day_blocked("GET"):
+            return
+        runs = self._day_runs()
+        if path == DAY_PREFIX + "stream":
+            self._day_stream(runs)
+            return
+        if path.startswith(DAY_PREFIX + "runs/"):
+            view = runs.view(path[len(DAY_PREFIX + "runs/"):])
+            if view is None:
+                self._json(404, {"ok": False, "error": "없는 실행입니다."})
+                return
+            self._json(200, view)
+            return
+        self._send(404, b"not found", "text/plain; charset=utf-8")
+
+    def _day_stream(self, runs: DayRuns) -> None:
+        """Server-Sent Events. 보관분(seq >= from, Last-Event-ID 우선)을 먼저, 그다음 새 사건."""
+        query = parse_qs(urlsplit(self.path).query)
+        run = runs.get((query.get("run") or [""])[0])
+        if run is None:
+            self._json(404, {"ok": False, "error": "없는 실행입니다."})
+            return
+        try:
+            froms = query.get("from")
+            start = resume_from(froms[0] if froms else None, self.headers.get("Last-Event-ID"))
+        except LiveRequestError as exc:
+            self._live_error(exc)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        def write(chunk: bytes) -> None:
+            self.wfile.write(chunk)
+            self.wfile.flush()
+
+        try:
+            runs.runs.follow(run, start, write)
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            return  # 받는 쪽이 끊었다 — 스트림만 끝난다(실행은 계속 돈다)
+
+    def _day_post(self, path: str) -> None:
+        if self._day_blocked("POST"):
+            return
+        body = self._read_json()
+        if body is None:
+            return
+        runs = self._day_runs()
+        try:
+            if path == DAY_PREFIX + "run":
+                self._json(200, runs.start(body))
+                return
+            if path == DAY_PREFIX + "stop":
+                self._json(200, runs.stop())
+                return
+            if path == DAY_PREFIX + "feedback":
+                self._json(202, runs.feedback(body))
+                return
+        except LiveRequestError as exc:
+            self._live_error(exc)
+            return
+        self._send(404, b"not found", "text/plain; charset=utf-8")
+
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
+        if path.startswith(DAY_PREFIX):
+            self._day_get(path)
+            return
         if path.startswith("/api/safety/"):
             self._safety_request("GET", path)
             return
@@ -1714,6 +1829,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
+        if path.startswith(DAY_PREFIX):
+            self._day_post(path)
+            return
         if path.startswith("/api/safety/"):
             self._safety_request("POST", path)
             return
@@ -1835,7 +1953,7 @@ def main() -> None:
     host = os.environ.get("LIOT_LAB_HOST", "127.0.0.1")
     port = int(os.environ.get("LIOT_LAB_PORT", "8765") or "8765")
     os.chdir(REPO_ROOT)  # config/proactive 등 상대경로 로딩 보장
-    httpd = ThreadingHTTPServer((host, port), Handler)
+    httpd = make_server(host, port)
     print(f"LIOT 데모 랩: http://{host}:{port}/  (Ctrl+C 로 종료)")
     print(f"  정적 UI={WEB_DIR}  · 파이프라인=실제 LiotApp · Gate2=로컬 ollama")
     try:

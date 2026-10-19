@@ -145,6 +145,17 @@ DB 를 읽지도 쓰지도 않는 순수 계산이다. 실제 파급도 표·사
 - 규칙: 위험이면 1분마다 재알림(화면은 420초에서 자름), 보호자 전달은 90초(하한 위험 + 동의 보호자 ≥1), 119 안내는 390초. 경고면 600·1200·1800초 재알림만. `ack_at_s` 뒤 사건은 없다. 기본 게이트(알림 켜짐·음소거 없음)와 집 별칭 `우리 집` 을 가정한다.
 - 오류: 미등록 엔티티 `400 {ok:false, error, field:"entity_id"}`, 안전 센서가 아닌 엔티티도 400.
 
+### 3d. 하루 시뮬레이션 `/api/day/*`
+
+임시 SQLite 위의 실제 `LiotService` 를 집 시간대(Asia/Seoul) 15분 단계로 돌린다(`liot/day_sim.py`). 데몬 DB·실제 ntfy·HA 와 무관하고, 끝나면 임시 DB 를 지운다. 모든 경로는 `/api/safety/*` 와 같은 이 기기 검사를 거친다(POST 는 쓰기 검사 — JSON + 이 기기 Origin). 실행은 한 번에 하나, 최근 3개만 메모리에 남는다.
+
+- `POST /api/day/run` `{days: 1–7 = 3, seed: int = 7, persona: "default", pace_ms?: 0–500 = 0}` → `200 {ok, run_id, days, seed, persona, pace_ms}`. 모르는 항목·범위 밖 값 400, 진행 중이면 409.
+- `GET /api/day/stream?run=<id>&from=<seq>` → `text/event-stream`. 메시지 = `id: <seq>` · `event: <stage>` · `data: <json>`. `Last-Event-ID` 가 있으면 그 다음부터, 없으면 `from`(기본 1)부터 보관분을 먼저 보내고 `done` 까지 이어 보낸다. 사건이 없으면 15초마다 `: keepalive`. 단계: `day.start` · `step`(바뀐 것이 있을 때와 매시 정각) · `proposal`(`id`=`p<n>`, `scene`, `tier`, `decision` IMMEDIATE·DIGEST·SUPPRESS, `destination` phone·tray·blocked, `score`, `reason_ko`, `matched_rules`) · `digest` · `feedback`(`signal` accepted·dismissed·ok·expired, `source` persona·viewer·timeout, `status`) · `safety`(`kind` first_alert·realert·guidance_119·resolved·normal) · `day.end`(`metrics`) · `error` · `done`(`stopped`, `failed`, `summary`).
+- `GET /api/day/runs/<id>` → `{ok, run_id, status(running·stopping·done·stopped·failed), event_count, meta, summary{seed, days, persona, metrics[], proposals[], safety[]}, error}`. 날짜별 `metrics` = `{day, proposals, pushes(IMMEDIATE), digests, suppressed, accepted, dismissed, expired, accept_rate(= accepted / pushes, 폰 알림이 없으면 null), safety_alerts, scenes}` — 서버가 기록에서 센다.
+- `POST /api/day/stop` `{}` → `{ok, run_id, status:"stopping"}`. 지금 단계는 끝까지 가고 `done.stopped = true` 로 끝난다. 진행 중 실행이 없으면 409.
+- `POST /api/day/feedback` `{run, proposal_id: "p<n>", signal: accepted|dismissed}` → `202 {ok, queued}`. 시뮬레이터 스레드가 다음 단계 경계에서 폰 서명 링크와 같은 실제 피드백 경로로 적용한다(결과는 `feedback` 사건). 없는 실행 404, 끝난 실행 409, 잘못된 값 400.
+- 이유 한 줄(`reason_ko`)은 이 사건에만 있다. ntfy 페이로드 필드는 바뀌지 않는다.
+
 ### 감시 불가 알림(데몬 → 거주자)
 
 HA 가 안전 센서를 `unavailable`·`unknown` 으로 보내면 상황 요약 형식으로 거주자 토픽에만 한 건 간다. `situation_label` = `<센서 종류> 센서 · 감시 불가(연결 끊김)`, `severity_label` = `주의`, 확인 링크 없음. 보호자에게는 가지 않는다.

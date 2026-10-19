@@ -7,8 +7,11 @@ The files directly in `liot/`:
 - `app.py` — `LiotApp`, the brain. Wires L1→L2→L3→L4 on the in-process bus, turns one reading or one tick into at most one `Proposal`. No network, no DB.
 - `service.py` — `LiotService`, the body. Persistence, notification dispatch, situation episodes, table-first two-phase dispatch, escalation ladder loop, feedback HTTP receiver, nonce lifecycle, expiry sweep, personalization signals, judgment storage.
 - `serve.py` — `liot-serve` entry point; builds everything from environment variables. Owns `DEFAULT_DB_PATH` / `resolve_db_path`.
-- `demo_server.py` — control-room HTTP server: the pipeline lab (`/api/simulate`, `/api/registry/*`, `/api/feedback`, `/api/directive`, `/api/catalog`) and safety settings (`/api/safety/*`, shared daemon DB).
+- `demo_server.py` — control-room HTTP server: the pipeline lab (`/api/simulate`, `/api/registry/*`, `/api/feedback`, `/api/directive`, `/api/catalog`) and safety settings (`/api/safety/*`, shared daemon DB), and the day simulation (`/api/day/*`, temp DB per run).
 - `registry.py` — `RuntimeRegistry`, in-memory runtime registration used only by the lab.
+- `live_runs.py` — generic run manager: one background worker at a time (409 otherwise), stored events with `seq`, SSE replay (`from`, `Last-Event-ID`), keepalive, stop flag, last 3 runs.
+- `live_graph.py` — stage-by-stage runner for one situation through the real functions (prod order and bench order); used by the bench runner (`build_one`, `TRAIT_WORDS`).
+- `day_sim.py` — simulated days on a real `LiotService` over a temp SQLite file (KST clock, fake transport, FakeLLM, FakeExternalProvider); persona and viewer taps go through `_route_feedback` with real signed links; `DayRuns` backs `/api/day/*`.
 - `demo.py` — CLI demo.
 
 Not this module's scope: risk/severity types, contracts, egress, invariant checkers (`liot/core`); schema and SQL (`liot/db`); gate, judge, router, notifier, ladder policy, executor logic (`liot/layers/*`); browser code (`web/`); config data (`config/`).
@@ -17,6 +20,7 @@ Not this module's scope: risk/severity types, contracts, egress, invariant check
 
 - `app.py` must not import `liot.db`, `liot.service`, or do I/O. Anything that needs the DB (residents, episodes, ladders) is passed in by the service as plain values (`vulnerable_resident: bool`, `situation_id`, `SeverityResult`).
 - `service.py` must not import `demo_server` or `registry`.
+- `day_sim.py` never opens the daemon DB, never sends real notifications, and applies viewer taps only on its own thread at a step boundary (the HTTP thread only enqueues).
 - `demo_server.py` must not start or talk to the daemon; it shares state only through the SQLite file. Lab state (`_REGISTRY`, `_PREF_CELLS`, `_DIRECTIVES`, runtime safety extensions) is process memory and never reaches the daemon.
 - Outbound sends happen only in `service.py` (`transport.send`) and only with dicts returned by `Notifier.sanitize` / `notify` / `sanitize_summary` (egress-gated).
 

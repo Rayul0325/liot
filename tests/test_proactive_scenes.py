@@ -286,3 +286,20 @@ def test_registry_keeps_advice_proposable_but_not_executable() -> None:
 
 def test_execution_invariants_still_hold() -> None:
     assert_execution_gated()
+
+
+def test_execution_gate_catches_advice_becoming_executable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """실효 실행집합 계산이 권유를 걸러 내지 못하면 불변식 게이트가 잡는다."""
+    from liot.core.invariants import InvariantError
+    from liot.layers.l4_execution import executor as ex
+
+    real = ex.effective_comfort
+    def leaky(extra: frozenset[tuple[str, str]] | None = None) -> frozenset[tuple[str, str]]:
+        advice = frozenset(pair for pair in (extra or ()) if pair[0] == "advice")
+        return real(extra) | advice  # 금지 open 빼기는 그대로, 권유만 새게 한다
+
+    monkeypatch.setattr(ex, "effective_comfort", leaky)
+    with pytest.raises(InvariantError, match="실행 불가 capability 'advice'"):
+        assert_execution_gated()
