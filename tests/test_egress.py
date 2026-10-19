@@ -167,3 +167,33 @@ def test_coordinate_generalization_only_touches_numeric_coordinates() -> None:
     assert _generalize_coords({"lat": "삼십칠"})["lat"] == "삼십칠"
     # 숫자지만 좌표 키가 아니다 → 그대로(온도까지 뭉개면 판단이 망가진다).
     assert _generalize_coords({"temp_c": 37.123456})["temp_c"] == 37.123456
+
+
+# ── 무작위 uuid 제안 id 가 전화번호 패턴에 우연히 걸려 알림이 막히면 안 된다 ──────
+def test_uuid_proposal_id_never_trips_phone_pattern():
+    from liot.core.egress_gate import Destination, emit_external
+
+    # uuid4 의 'c010-1234-5678' 구간이 phone_kr 패턴(010-1234-5678)과 겹치는 실제 형태.
+    payload = {
+        "channel": "ntfy",
+        "proposal_id": "aaaaaaaa-c010-1234-5678-bbbbbbbbbbbb",
+        "risk_tier": 3,
+        "glyph": "🛡",
+        "label": "불씨",
+        "signed_deeplink": "liot://p/x?t=3&sig=00",
+        "topic": "t",
+    }
+    out = emit_external(Destination.NTFY, payload, trace_id="t", alias=None)
+    assert out["proposal_id"] == payload["proposal_id"]
+
+
+def test_non_uuid_proposal_id_is_still_scanned():
+    import pytest as _pytest
+
+    from liot.core.egress_gate import Destination, emit_external
+    from liot.core.invariants import EgressViolation
+
+    payload = {"channel": "ntfy", "proposal_id": "call 010-1234-5678", "risk_tier": 1,
+               "glyph": "✓", "label": "숨결", "signed_deeplink": "x", "topic": "t"}
+    with _pytest.raises(EgressViolation):
+        emit_external(Destination.NTFY, payload, trace_id="t", alias=None)

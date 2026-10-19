@@ -240,6 +240,14 @@ def _generalize_coords(payload: Any) -> Any:
 # 16진수 다이제스트·token_hex)라 사용자 PII 를 담을 수 없다.
 PII_SCAN_SKIP_KEYS: frozenset[str] = frozenset({"signed_deeplink"})
 
+# 값이 *정확히 uuid 형태일 때만* 스캔을 건너뛰는 키. 제안 id 는 uuid4 라 사용자 PII 를
+# 담을 수 없는데, 무작위 16진수 구간(예: 'c010-1234-5678')이 phone_kr 패턴과 우연히
+# 겹치면(실측 약 0.05%) 안전 알림 전체가 차단됐다. uuid 가 아닌 값은 그대로 스캔한다.
+PII_SCAN_UUID_KEYS: frozenset[str] = frozenset({"proposal_id"})
+_UUID_RE = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
 
 def _scan_pii(payload: Any, skip_keys: frozenset[str] = frozenset()) -> list[str]:
     """정제된 payload 의 모든 문자열 값에서 PII 패턴을 검출한다.
@@ -259,6 +267,12 @@ def _scan_pii(payload: Any, skip_keys: frozenset[str] = frozenset()) -> list[str
                 walk(str(k))
                 if str(k) in skip_keys:
                     continue  # 불투명 서명 토큰: 값은 스캔 제외(키는 스캔함)
+                if (
+                    str(k) in PII_SCAN_UUID_KEYS
+                    and isinstance(v, str)
+                    and _UUID_RE.fullmatch(v)
+                ):
+                    continue  # uuid 제안 id: 구조상 PII 불가
                 walk(v)
         elif isinstance(obj, (list, tuple)):
             for v in obj:
