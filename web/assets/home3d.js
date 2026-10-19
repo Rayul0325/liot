@@ -4,7 +4,7 @@
 // POST /api/home3d/scenario 응답에서 온다(서버가 실제 표·사다리·송신 코드로 계산).
 // 화면이 하는 일은 그 응답을 시간 순서대로 보여 주는 것뿐이다.
 //
-// 규칙(web/AGENTS.md): DOM 은 el() + textContent 로만 만든다(서버 값에 innerHTML 금지),
+// 규칙(web/AGENTS.md): DOM 은 el() + textContent 로만 만든다(서버 값을 HTML 로 해석해 넣지 않는다),
 // 응답은 data.ok 를 먼저 본다, 외부 네트워크 로드는 없다(three.js 도 저장소 안 파일).
 
 const API_CATALOG = "/api/catalog";
@@ -424,7 +424,7 @@ async function initThree(host, overlay) {
     camera.aspect = width / height;
     // 화면 비율이 좁을수록 조금 물러나 집 전체가 들어오게.
     const aspect = width / height;
-    orbit.r = aspect < 1.1 ? 19 : aspect < 1.6 ? 16.5 : 14.5;
+    orbit.r = aspect < 1.1 ? 20 : aspect < 1.45 ? 18 : aspect < 1.8 ? 16 : 14.5;
     camera.updateProjectionMatrix();
     render();
   };
@@ -513,6 +513,8 @@ function initPlan(host, overlay) {
   host.append(plan);
   const note = el("p", "h3-plan-note", "이 브라우저는 3D(WebGL)를 쓸 수 없어 평면도로 보여 드려요.");
   host.append(note);
+  const hint = document.getElementById("homeHint");
+  if (hint) hint.hidden = true; // 평면도는 돌릴 수 없다
   return {
     render: () => {},
     setRoomTint: (key, color) => {
@@ -687,6 +689,7 @@ function resetPhones() {
   state.shown = 0;
   state.realerts = { resident: 0, guardian: 0 };
   state.ackShown = false;
+  syncBadges();
 }
 
 /** 현재 시각까지의 사건을 폰에 보이게 한다(사건은 서버가 시각 순으로 준다). */
@@ -738,6 +741,7 @@ function addEvent(ev, idx) {
     line.title = `우선순위 ${ev.priority}`;
     if (fresh) line.classList.add("is-new");
     p.feed.prepend(line);
+    bumpBadge(ev.who);
     return;
   }
   const card = el("article", "notif h3-card");
@@ -779,6 +783,56 @@ function addEvent(ev, idx) {
     card.append(actions);
   }
   p.feed.prepend(card);
+  bumpBadge(ev.who);
+  // 좁은 화면(폰이 탭)에서는 새 알림이 온 폰으로 넘어간다(재알림은 반복이라 넘기지 않는다).
+  if (state.playing && narrowScreen()) selectPhone(ev.who);
+}
+
+/** @returns {boolean} 폰이 탭으로 바뀌는 좁은 화면인가 */
+function narrowScreen() {
+  return window.matchMedia("(max-width: 640px)").matches;
+}
+
+/**
+ * 좁은 화면에서 보이는 폰을 고른다.
+ * @param {"resident"|"guardian"} who
+ * @returns {void}
+ */
+function selectPhone(who) {
+  const layout = document.getElementById("layout");
+  if (layout) layout.dataset.phone = who;
+  for (const tab of document.querySelectorAll(".h3-tab")) {
+    const tabEl = /** @type {HTMLElement} */ (tab);
+    tabEl.setAttribute("aria-selected", tabEl.dataset.who === who ? "true" : "false");
+    tabEl.tabIndex = tabEl.dataset.who === who ? 0 : -1;
+  }
+}
+
+/**
+ * 탭 배지 = 그 폰에 지금 떠 있는 알림 수. 새 알림이면 잠깐 튄다.
+ * @param {"resident"|"guardian"} who
+ * @returns {void}
+ */
+function bumpBadge(who) {
+  const badge = document.querySelector(`.h3-tab[data-who="${who}"] [data-role="badge"]`);
+  const p = phone(who);
+  if (!badge || !p) return;
+  const count = p.feed.querySelectorAll(".h3-card, .h3-realert").length;
+  badge.textContent = String(count);
+  if (state.playing && !reducedMotion()) {
+    badge.classList.remove("is-bump");
+    void (/** @type {HTMLElement} */ (badge).offsetWidth);
+    badge.classList.add("is-bump");
+  }
+}
+
+/** 배지를 현재 폰 내용과 맞춘다(되감기·새 시나리오 뒤). */
+function syncBadges() {
+  for (const who of /** @type {const} */ (["resident", "guardian"])) {
+    const badge = document.querySelector(`.h3-tab[data-who="${who}"] [data-role="badge"]`);
+    const p = phone(who);
+    if (badge && p) badge.textContent = String(p.feed.querySelectorAll(".h3-card, .h3-realert").length);
+  }
 }
 
 /**
@@ -995,6 +1049,25 @@ function buildControls() {
   if (playBtn) playBtn.addEventListener("click", () => (state.playing ? pause() : play()));
   const restart = document.getElementById("restartBtn");
   if (restart) restart.addEventListener("click", () => loadScenario(null));
+  const tabs = document.getElementById("phoneTabs");
+  if (tabs) {
+    for (const tab of tabs.querySelectorAll(".h3-tab")) {
+      const tabEl = /** @type {HTMLElement} */ (tab);
+      tabEl.addEventListener("click", () => {
+        selectPhone(tabEl.dataset.who === "guardian" ? "guardian" : "resident");
+      });
+    }
+    // 탭 사이를 좌우 방향키로 옮긴다(탭 목록 관례).
+    tabs.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const layout = document.getElementById("layout");
+      const next = layout && layout.dataset.phone === "resident" ? "guardian" : "resident";
+      selectPhone(next);
+      /** @type {HTMLElement|null} */ (tabs.querySelector(`.h3-tab[data-who="${next}"]`))?.focus();
+      e.preventDefault();
+    });
+    selectPhone("resident");
+  }
   const range = /** @type {HTMLInputElement|null} */ (document.getElementById("tlRange"));
   if (range) {
     range.addEventListener("input", () => {

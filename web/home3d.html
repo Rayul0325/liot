@@ -46,7 +46,7 @@
       </div>
     </header>
 
-    <main class="h3-layout">
+    <main class="h3-layout" id="layout" data-phone="resident">
       <section class="h3-controls" aria-label="시나리오 고르기">
         <div class="h3-picker" role="radiogroup" aria-label="시나리오" id="scenarioPicker"></div>
         <div class="h3-toggles">
@@ -61,6 +61,31 @@
         </div>
         <p class="h3-summary" id="scenarioSummary" aria-live="polite"></p>
       </section>
+
+      <div class="h3-tabs" role="tablist" aria-label="폰 고르기" id="phoneTabs">
+        <button
+          class="h3-tab"
+          type="button"
+          role="tab"
+          id="tabResident"
+          data-who="resident"
+          aria-controls="residentPhone"
+          aria-selected="true"
+        >
+          거주자 폰 <span class="h3-badge tabnum" data-role="badge">0</span>
+        </button>
+        <button
+          class="h3-tab"
+          type="button"
+          role="tab"
+          id="tabGuardian"
+          data-who="guardian"
+          aria-controls="guardianPhone"
+          aria-selected="false"
+        >
+          보호자 폰 <span class="h3-badge tabnum" data-role="badge">0</span>
+        </button>
+      </div>
 
       <aside class="h3-phone" id="residentPhone" data-who="resident" aria-label="거주자 폰">
         <div class="h3-phone-frame">

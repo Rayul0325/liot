@@ -69,6 +69,10 @@
 #guardianPhone {
   grid-area: guardian;
 }
+.h3-tabs {
+  grid-area: tabs;
+  display: none;
+}
 
 @media (min-width: 641px) {
   .h3-layout {
@@ -792,6 +796,11 @@
 .is-new {
   animation: h3-in 0.35s ease-out;
 }
+@keyframes h3-bump {
+  40% {
+    transform: scale(1.35);
+  }
+}
 @keyframes h3-in {
   from {
     opacity: 0;
@@ -809,16 +818,87 @@
   .h3-switch-track::after {
     transition: none;
   }
-  .is-new {
+  .is-new,
+  .h3-badge.is-bump {
     animation: none;
   }
 }
 
-/* ── 좁은 화면 ─────────────────────────────────────────────────────── */
+/* ── 좁은 화면: 집이 위, 폰 두 대는 탭(새 알림이 오면 그 폰으로 넘어간다) ── */
 @media (max-width: 640px) {
   .h3-layout {
     padding: var(--s3) var(--s4) var(--s5);
     gap: var(--s3);
+    grid-template-areas:
+      "controls"
+      "home"
+      "timeline"
+      "tabs"
+      "phone";
+  }
+  #residentPhone,
+  #guardianPhone {
+    grid-area: phone;
+    min-height: 440px;
+  }
+  .h3-layout[data-phone="resident"] #guardianPhone,
+  .h3-layout[data-phone="guardian"] #residentPhone {
+    display: none;
+  }
+  .h3-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--s1);
+    padding: var(--s1);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--bg-panel);
+  }
+  .h3-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--s2);
+    font-size: 13.5px;
+    font-weight: 650;
+    color: var(--ink-dim);
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    padding: 8px 10px;
+    cursor: pointer;
+  }
+  .h3-tab[aria-selected="true"] {
+    color: var(--ink);
+    background: var(--bg-raised);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .h3-tab:focus-visible {
+    outline: none;
+    box-shadow: var(--focus);
+  }
+  .h3-tab[data-who="resident"] .h3-badge {
+    --badge: var(--h3-resident);
+  }
+  .h3-tab[data-who="guardian"] .h3-badge {
+    --badge: var(--h3-guardian);
+  }
+  .h3-badge {
+    min-width: 20px;
+    padding: 0 6px;
+    font-size: 11.5px;
+    font-weight: 700;
+    line-height: 20px;
+    text-align: center;
+    border-radius: 999px;
+    color: var(--accent-ink);
+    background: var(--badge, var(--accent));
+  }
+  .h3-badge.is-bump {
+    animation: h3-bump 0.4s ease-out;
+  }
+  .hdr-sub {
+    display: none;
   }
   .h3-stage {
     height: 300px;
