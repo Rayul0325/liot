@@ -241,10 +241,12 @@ def test_severity_label_survives_ntfy_egress_but_leaks_are_stripped() -> None:
     assert set(out) <= NTFY_ALLOWED_KEYS
 
 
-def test_ntfy_allowed_keys_gained_only_severity_label() -> None:
+def test_ntfy_allowed_keys_gained_only_severity_label_and_summary_keys() -> None:
+    # T8: 상황 요약 알림(보호자 전달·해소·119 안내) 키 3개만 더해졌다 — 상황 종류 라벨·
+    # 집 별칭·시각. 기기·방·근거·거주자 특성 키는 여전히 없다.
     expected = frozenset({
         "channel", "proposal_id", "risk_tier", "glyph", "label", "signed_deeplink", "topic",
-        "severity_label",
+        "severity_label", "situation_label", "home_alias", "at",
     })
     assert expected == NTFY_ALLOWED_KEYS
 
