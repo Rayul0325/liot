@@ -122,13 +122,16 @@ def read_jev_probs(answer: object, option_ids: Sequence[str]) -> dict[str, float
             raise LLMUnavailable("jev probabilities has an unknown option key")
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise LLMUnavailable("jev probability is not a number")
-        v = float(value)
+        try:
+            v = float(value)  # 너무 큰 정수는 OverflowError — 형식 오류로 친다
+        except OverflowError:
+            raise LLMUnavailable("jev probability overflows a float") from None
         if not math.isfinite(v) or v < 0:
             raise LLMUnavailable("jev probability is not a finite non-negative number")
         vals[int(key)] = v
     total = sum(vals)
-    if total <= 0:
-        raise LLMUnavailable("jev probabilities sum to zero")
+    if not math.isfinite(total) or total <= 0:
+        raise LLMUnavailable("jev probabilities sum to zero or overflow")
     return {oid: v / total for oid, v in zip(option_ids, vals, strict=True)}
 
 

@@ -754,3 +754,32 @@ def test_safety_reading_is_applied_before_other_readings_of_the_step(
     send_at = next(i for i, e in seg if e == ("send", pid))
     probes = [i for i, e in seg if e == ("ext", "probe")]
     assert probes and send_at < min(probes)
+
+
+
+def test_meter_ignores_oversized_token_counts(tmp_path: Path) -> None:
+    """리뷰 B2 같은 부류: 응답의 큰 정수 토큰 수 × 가격이 OverflowError 를 내지 않는다."""
+    _, prices = load_cloud_settings()
+    meter = UsageMeter(CloudLimits(10, 1.0, 1.0, tmp_path / "u.json"), prices, today=lambda: TODAY)
+    assert meter.allow()
+    usd = meter.record("judge", "jev-latest", seconds=0.1, input_tokens=10**400,
+                       output_tokens=10**400, sent_chars=40)
+    assert usd >= 0 and meter.summary()["estimated_calls"] == 1
+
+
+def test_oversized_jev_usage_does_not_break_a_cloud_judgment(tmp_path: Path) -> None:
+    class Huge(FakeJev):
+        def post(self, payload: dict[str, Any], *, timeout_s: float) -> dict[str, Any]:
+            out = super().post(payload, timeout_s=timeout_s)
+            out["usage"] = {"input_tokens": 10**400, "output_tokens": 10**400}
+            return out
+
+    kit = _kit(tmp_path)
+    kit.judge = JevBackend(transport=Huge())
+    judge = _RecordingJudge(FakeLLM(), [], cloud=kit.judge, kit=kit)
+    cand = CandidateAction(capability="light", action="turn_on", params={},
+                           entity_id="light.living_room", category="light")
+    g = Guardrail()
+    jd = LLMJudge(backend=judge).judge(cand, _ctx(), g.evaluate(cand, _ctx()),
+                                       ruleset_version=g.ruleset_version)
+    assert jd.model_id == "jev:jev-latest" and not jd.degraded

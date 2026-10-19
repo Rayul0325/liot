@@ -221,8 +221,12 @@ def read_option_probs(top_logprobs: object, option_ids: Sequence[str]) -> dict[s
             or not isinstance(logprob, (int, float))
         ):
             raise LLMUnavailable("top_logprobs entry has no str token / numeric logprob")
-        if math.isfinite(logprob):
-            seen[token] = float(logprob)
+        try:
+            value = float(logprob)  # 너무 큰 정수는 OverflowError — 형식 오류로 친다
+        except OverflowError:
+            raise LLMUnavailable("top_logprobs entry logprob overflows a float") from None
+        if math.isfinite(value):
+            seen[token] = value
     letters = _LETTERS[: len(option_ids)]
     if not any(letter in seen for letter in letters):
         raise LLMUnavailable("no option letter in top_logprobs")

@@ -180,3 +180,22 @@ def test_bad_config_is_rejected(tmp_path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
     with pytest.raises(ModelConfigError):
         load_luna_config(path)
+
+
+@pytest.mark.parametrize("logprob", [10**400, -(10**400)])
+def test_oversized_logprob_is_unavailable_not_a_raise(logprob: int) -> None:
+    """리뷰 B2: luna 응답의 큰 정수 logprob 도 compare 밖으로 예외를 내지 않는다."""
+    reply = _completion({"A": -0.1})
+    reply["choices"][0]["logprobs"]["content"][0]["top_logprobs"] = [
+        {"token": "A", "logprob": logprob}]
+    shadow, fake = _shadow(replies=[reply])
+    res = shadow.compare(EVIDENCE, {"tier": JEV_TIER})
+    assert res.status == "unavailable" and len(fake.requests) == 1
+
+
+def test_oversized_token_counts_are_ignored() -> None:
+    reply = _completion({"A": -0.1})
+    reply["usage"] = {"prompt_tokens": 10**400, "completion_tokens": -5}
+    shadow, _ = _shadow(replies=[reply])
+    res = shadow.compare(EVIDENCE, {"tier": JEV_TIER})
+    assert res.status == "ok" and (res.input_tokens, res.output_tokens) == (0, 0)

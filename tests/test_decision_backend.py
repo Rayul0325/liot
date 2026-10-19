@@ -500,3 +500,10 @@ def test_invalid_decision_timeout_is_rejected(monkeypatch: pytest.MonkeyPatch, v
     monkeypatch.setenv("LIOT_DECISION_TIMEOUT", value)
     with pytest.raises(ValueError):
         build_decision_backend()
+
+
+@pytest.mark.parametrize("logprob", [10**400, -(10**400)])
+def test_oversized_logprob_is_unavailable_not_overflow(logprob: int) -> None:
+    """리뷰 B2: 실수로 못 바꾸는 큰 정수 logprob 은 OverflowError 가 아니라 판독 불가다."""
+    with pytest.raises(LLMUnavailable):
+        read_option_probs([{"token": "A", "logprob": logprob}], ("a", "b", "c", "d"))

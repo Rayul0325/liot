@@ -28,6 +28,7 @@ from typing import Any
 import yaml
 
 from liot.cheap_llm import (
+    MAX_TOKEN_COUNT,
     MODELS_PATH,
     PROVIDER_KEY_NAMES,
     CheapLLM,
@@ -116,6 +117,12 @@ def load_cloud_settings(path: Path = MODELS_PATH) -> tuple[CloudLimits, dict[str
             estimate=row.get("estimate") is True,
         )
     return limits, prices
+
+
+def _bounded(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if 0 <= value <= MAX_TOKEN_COUNT else None
 
 
 _TRIP_KO = {
@@ -220,11 +227,15 @@ class UsageMeter:
         """끝난 호출 하나의 비용을 더한다(USD 추정). 하루 합계도 파일에 쓴다."""
         with self._lock:
             estimated = False
-            tokens_in = input_tokens
+            # 응답이 준 토큰 수는 믿을 범위(0~MAX_TOKEN_COUNT)일 때만 쓴다. 큰 정수 × 가격이
+            # OverflowError 로 판정 경로를 깨지 않게, 범위 밖은 모르는 값으로 친다.
+            tokens_in = _bounded(input_tokens)
             if tokens_in is None:
                 tokens_in = max(0, sent_chars) // 2  # 한글 위주 본문: 대략 2글자당 1토큰
-                estimated = sent_chars > 0
-            tokens_out = output_tokens or 0
+                estimated = sent_chars > 0 or input_tokens is not None
+            tokens_out = _bounded(output_tokens) or 0
+            if output_tokens is not None and _bounded(output_tokens) is None:
+                estimated = True
             price = self.prices.get(model or "")
             if price is None:
                 usd = 0.0

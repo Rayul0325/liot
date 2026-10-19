@@ -31,15 +31,16 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 import yaml
 
-from liot.core.egress_gate import AliasMap, Destination, emit_external
+from liot.core.egress_gate import PII_PATTERNS, AliasMap, Destination, emit_external
 from liot.core.invariants import EgressViolation
-from liot.live_graph import TRAIT_WORDS
+from liot.core.traits import TRAIT_WORDS
 
 __all__ = [
     "ANTHROPIC_URL",
     "ANTHROPIC_VERSION",
     "GEMINI_URL",
     "MAX_REASON_CHARS",
+    "MAX_TOKEN_COUNT",
     "MODELS_PATH",
     "OPENAI_RESPONSES_URL",
     "PROVIDERS",
@@ -56,6 +57,7 @@ __all__ = [
     "load_cheap_config",
     "match_option",
     "parse_reply",
+    "raw_pii",
     "sanitize_for_llm",
     "validate_reason",
 ]
@@ -228,6 +230,24 @@ def sanitize_for_llm(obj: Any) -> Any:
     return _clean_text(str(obj))
 
 
+def raw_pii(obj: Any) -> str | None:
+    """정리 전 원본에서 egress PII 패턴(전화·이메일·주민번호·정밀좌표)을 찾는다. 첫 패턴 이름."""
+    if isinstance(obj, str):
+        return next((name for name, pat in PII_PATTERNS.items() if pat.search(obj)), None)
+    if isinstance(obj, Mapping):
+        for key, value in obj.items():
+            hit = raw_pii(str(key)) or raw_pii(value)
+            if hit is not None:
+                return hit
+        return None
+    if isinstance(obj, (list, tuple)):
+        for value in obj:
+            hit = raw_pii(value)
+            if hit is not None:
+                return hit
+    return None
+
+
 # ── 출력 검증 ─────────────────────────────────────────────────────────
 
 _HANGUL_RE = re.compile(r"[가-힣]")
@@ -302,8 +322,15 @@ def build_request(
     )
 
 
+# 토큰 수로 믿을 수 있는 상한. 넘는 값(비정상 응답)은 모르는 것으로 친다 — 비용 계산의
+# 큰 정수 × 실수가 OverflowError 를 내지 않게.
+MAX_TOKEN_COUNT = 10**9
+
+
 def _count(value: object) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if 0 <= value <= MAX_TOKEN_COUNT else None
 
 
 def _texts(items: object, *, kind_key: str, kind: str) -> list[str]:
@@ -450,7 +477,16 @@ class CheapLLM:
         )
 
     def outbound(self, facts: Mapping[str, Any], *, trace_id: str = "cheap") -> dict[str, Any]:
-        """보낼 사용자 입력(정리 → egress 통과). 거부되면 ``EgressViolation``."""
+        """보낼 사용자 입력(원본 PII 검사 → 정리 → egress 통과). 거부되면 ``EgressViolation``.
+
+        정리기는 문장을 고쳐 쓴다(엔티티 모양 → 한글 이름, 경로·파일명 제거, 긴 소수 반올림). 그
+        고쳐 쓰기가 egress 가 거부할 입력을 통과할 입력으로 바꾸면 안 된다 — 예: 이메일의 도메인
+        ``example.com`` 이 '기기'로 바뀌면 이메일 검사가 놓치고 앞부분이 나간다. 그래서 **고치기
+        전** 원본의 모든 문자열(키 포함)에 같은 PII 패턴을 먼저 건다. 하나라도 걸리면 보내지 않는다.
+        """
+        hit = raw_pii(facts)
+        if hit is not None:
+            raise EgressViolation(f"PII in cheap-llm input before sanitizing: {hit}")
         payload = {"facts": sanitize_for_llm(facts)}
         dumped = json.dumps(payload, ensure_ascii=False)
         if any(word in dumped for word in TRAIT_WORDS):

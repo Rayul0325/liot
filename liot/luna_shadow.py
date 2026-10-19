@@ -27,6 +27,7 @@ from typing import Any, Literal
 import yaml
 
 from liot.cheap_llm import (
+    MAX_TOKEN_COUNT,
     MODELS_PATH,
     CheapLLMError,
     CheapTransport,
@@ -112,7 +113,10 @@ class ShadowResult:
 
 
 def _count(value: object) -> int:
-    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+    """응답의 토큰 수. 정수가 아니거나 범위(0~MAX_TOKEN_COUNT) 밖이면 0."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return value if 0 <= value <= MAX_TOKEN_COUNT else 0
 
 
 class LunaShadow:

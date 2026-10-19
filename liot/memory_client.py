@@ -30,7 +30,7 @@ from typing import Any, Literal
 
 from liot.core.egress_gate import Destination, emit_external
 from liot.core.invariants import EgressViolation
-from liot.live_graph import TRAIT_WORDS
+from liot.core.traits import TRAIT_WORDS
 
 __all__ = [
     "ALLOWED_VERBS",

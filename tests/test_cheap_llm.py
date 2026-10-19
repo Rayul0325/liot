@@ -395,3 +395,46 @@ def test_choose_sends_the_options_and_falls_back_on_an_odd_answer() -> None:
     res = odd.choose(FACTS, OPTIONS, fallback="accepted")
     assert (res.source, res.text, res.fallback_reason) == ("fallback", "accepted", "invalid_output")
     assert not any(word in cheap_llm._CHOOSE_SYSTEM for word in TRAIT_WORDS)
+
+
+
+# ── 리뷰 B1: 정리기가 egress 거부를 통과로 바꾸지 않는다 ──────────────────────
+
+
+@pytest.mark.parametrize("facts", [
+    {"memo": "메일 someone@example.com 로 보내기"},
+    {"someone@example.com": "키에 든 이메일"},
+    {"list": ["a", {"deep": "연락 someone@mail.example.co.kr"}]},
+    {"memo": "좌표 37.56789,126.97801"},
+    {"memo": "/Users/x/010-1234-5678.txt"},
+])
+def test_pii_in_raw_facts_is_never_sent_even_if_sanitizing_would_hide_it(
+    facts: dict[str, Any],
+) -> None:
+    llm, fake = _client()
+    res = llm.reason({**FACTS, **facts}, fallback=FALLBACK)
+    assert (res.source, res.fallback_reason) == ("fallback", "egress")
+    assert fake.requests == [] and llm.calls == []
+
+
+def test_sanitizer_alone_would_have_let_the_email_domain_through() -> None:
+    # 고치기 전 상태의 재현: 정리기가 도메인을 '기기'로 바꿔 이메일 검사를 피했다.
+    raw = {"facts": {"memo": "메일 someone@example.com"}}
+    from liot.core.invariants import EgressViolation
+
+    with pytest.raises(EgressViolation):
+        emit_external(Destination.LLM, raw, trace_id="t")
+    assert emit_external(Destination.LLM, sanitize_for_llm(raw), trace_id="t") == {
+        "facts": {"memo": "메일 someone@기기"}}
+    from liot.cheap_llm import raw_pii
+
+    assert raw_pii(raw) == "email"
+    assert raw_pii({"facts": {"memo": "환기 좋아요", "n": 37.56789}}) is None  # 실수는 반올림 대상
+
+
+def test_oversized_usage_tokens_are_unknown() -> None:
+    reply = _reply("anthropic", GOOD)
+    reply["usage"] = {"input_tokens": 10**400, "output_tokens": -1}
+    llm = CheapLLM(_cfg(), KEY, transport=FakeTransport(reply))
+    res = llm.reason(FACTS, fallback=FALLBACK)
+    assert res.source == "model" and (res.input_tokens, res.output_tokens) == (None, None)

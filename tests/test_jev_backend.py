@@ -186,6 +186,8 @@ def test_read_jev_probs_normalizes_and_fills_missing() -> None:
         {"probabilities": {"0": -0.1, "1": 1.0}},
         {"probabilities": {"0": float("nan")}},
         {"probabilities": {"0": 0, "1": 0}},
+        {"probabilities": {"0": 10**400}},  # 실수로 못 바꾸는 정수(OverflowError 였다)
+        {"probabilities": {"0": 1e308, "1": 1e308}},  # 합이 inf
     ],
 )
 def test_malformed_answer_is_unavailable(answer: Any) -> None:
@@ -335,3 +337,12 @@ def test_connection_refused_is_unavailable() -> None:
     jev = JevBackend(transport=HTTPJevTransport(KEY, f"http://127.0.0.1:{port}/v1/systemone"))
     with pytest.raises(LLMUnavailable, match="transport failed"):
         jev.judge_raw(LIGHT, _ctx(), RiskTier.AMBIENT)
+
+
+@pytest.mark.parametrize("value", [10**400, -(10**400)])
+def test_oversized_probability_degrades_through_llm_judge(value: int) -> None:
+    """리뷰 B2: 너무 큰 정수 확률이 OverflowError 로 LLMJudge.judge 밖까지 새지 않는다."""
+    fake = FakeJev(response={"answers": {"risk": {"probabilities": {"0": value, "1": 0.5}}}})
+    jd, floor = _judge(fake, LIGHT)
+    assert jd.degraded and jd.risk_tier >= floor
+    assert len(fake.calls) == 1

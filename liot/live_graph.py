@@ -53,6 +53,7 @@ from liot.core.severity import (
     escalate_severity,
     load_severity_table,
 )
+from liot.core.traits import TRAIT_WORDS
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l3_judgment.guardrail import Gate1Result, Guardrail
 from liot.layers.l3_judgment.llm_judge import LLMBackend, LLMJudge, LLMResult, LLMUnavailable
@@ -93,11 +94,7 @@ _REPO = Path(__file__).resolve().parents[1]
 BENCH_CASES_PATH = _REPO / "bench" / "risk" / "cases.yaml"
 BENCH_LABELS_PATH = _REPO / "bench" / "risk" / "labels.yaml"
 
-# 거주자 특성(safety_repo.PERSON_TRAITS + lives_alone)을 떠올리게 하는 낱말. 모델 입력 금지.
-TRAIT_WORDS = (
-    "75세", "고령", "노인", "어르신", "치매", "인지 저하", "인지저하", "혼자 거주", "혼자 살",
-    "독거", "1인 가구", "자력 대피", "대피 불가", "거동", "휠체어", "와상",
-)
+# 거주자 특성 낱말은 liot.core.traits 에 있다. 기존 import(liot.live_graph.TRAIT_WORDS)를 위해 다시 낸다.
 
 _HOME_ID = "singleton"
 # 시간대 → 그 시간대에 드는 UTC 시(hour) 목록. Clock.time_bucket 이 UTC 시로 나눈다.

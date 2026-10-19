@@ -8,6 +8,7 @@ The kernel every layer depends on:
 - `severity.py` — `SeverityLevel` (RECORD < NOTICE < WARNING < CRITICAL, `label_ko`, `ntfy_priority`), `escalate_severity`, `SeverityTable` / `load_severity_table` (reads `config/severity/situations.yaml`), abnormal rules, source order `("table", "resident", "model")`.
 - `contracts.py` — pydantic v2 models crossing layer boundaries (`SensorReading`, `CandidateAction`, `ContextSnapshot`, `Judgment`, `Proposal`, `NotificationPayload`, `GuardianNotificationPayload`, candidate-set models), `compute_snapshot_hash`.
 - `invariants.py` — exception hierarchy, `assert_monotonic`, `assert_executor_confined`, `assert_execution_gated`.
+- `traits.py` — `TRAIT_WORDS`, the resident-trait words no model or memory input may contain (re-exported by `liot.live_graph` for older imports).
 - `egress_gate.py` — `emit_external`, `NTFY_ALLOWED_KEYS`, PII patterns, `AliasMap` pseudonymization, entity-shaped backstop (LLM and MEMORY). `ALLOWLIST` is exactly {LLM, NTFY, KMA, MEMORY} (pinned by `tests/test_egress.py`); MEMORY (the day simulator's demo memgineering brain) is not transformed — only the PII net and the entity-shaped scan apply.
 - `event_bus.py` (`ALLOWED_EDGES`), `scoped_repo.py` (tenant scoping), `clock.py` (UTC timestamps, home-timezone time buckets), `categories.py` (`resolve_category`), `env.py` (`env_flag`).
 
