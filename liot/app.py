@@ -68,7 +68,7 @@ from liot.layers.l2_context.feature_vector import (
     FakePreferenceEmbedder,
     PreferenceEmbedder,
 )
-from liot.layers.l2_context.feedback_store import FeedbackStore
+from liot.layers.l2_context.feedback_store import FeedbackStore, InMemoryFeedbackStore
 from liot.layers.l2_context.nl_directive import UserDirective, apply_directives
 from liot.layers.l2_context.proactive import (
     PROACTIVE_TIER_CEILING,
@@ -712,14 +712,22 @@ class LiotApp:
         trig = self._event_detector.detect(cur)
         if not trig.fire:
             return None
-        decision = self.proactive.propose(cur)
+        # 외부 맥락(날씨)은 발의 **앞에서** 가져온다 — 규칙의 external: 조건이 읽고, 후보
+        # 집합 해시에도 들어간다. 최근 거절 키는 발의가 예산을 쓰기 전에 거른다.
+        external = await self._fetch_external()
+        rejected = (
+            self.feedback_store.rejected_keys
+            if isinstance(self.feedback_store, InMemoryFeedbackStore)
+            else frozenset()
+        )
+        decision = self.proactive.propose(cur, external=external, rejected_keys=rejected)
         if decision.candidate is None:
-            return None  # 예산/쿨다운/무매칭 → 침묵(게이팅은 propose 의 몫)
+            return None  # 예산/쿨다운/무매칭/거절 → 침묵(게이팅은 propose 의 몫)
 
         trace_id = uuid.uuid4().hex
         # 다중 후보 집합(L4 생성) → 평가기(L5)가 점수 기반으로 선택을 구동한다.
         candidate_set = self.proactive.candidate_set_for(
-            cur, decision, trace_id=trace_id
+            cur, decision, trace_id=trace_id, external=external
         )
         # 2갈래 제안: 규칙 풀(Line A)에 ML/LLM 라인 후보를 병합한다(validate 강제).
         # 같은 행동에 여러 소스가 동의하면 origin 이 합쳐진다. 최종 선택은
@@ -742,7 +750,6 @@ class LiotApp:
         # (안전은 억제 불가). 전부 억제되면 NoOp 만 남아 침묵.
         if self._directives:
             candidate_set = apply_directives(candidate_set, self._directives)
-        external = await self._fetch_external()
         # 선호 임베딩이 evaluator 의 선호 신호(user_preference_fit)를 구동 →
         # 선택이 개인화된다(맥락별 셀). base(거절 이력)의 강한 거절은 우선하고,
         # safety_risk 는 여전히 카탈로그 결정론이라 개인화가 안전을 못 낮춘다(2′).

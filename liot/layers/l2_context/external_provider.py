@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import os
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from liot.core.clock import Clock
 from liot.core.contracts import ExternalContext
@@ -47,9 +47,12 @@ class ExternalDataProvider(Protocol):
 class FakeExternalProvider:
     """결정론적 외부 데이터. 테스트·오프라인 기본값(네트워크 없음).
 
-    주입된 고정값을 그대로 돌려준다. ``degraded=True`` 면 조회 실패 상황을
-    시뮬레이션한다(수치는 비우고 보수적 선택을 유도).
+    주입된 값을 그대로 돌려준다. ``degraded=True`` 면 조회 실패 상황을
+    시뮬레이션한다(수치는 비우고 보수적 선택을 유도). ``set_values`` 로 값을 바꾸면
+    다음 ``fetch`` 부터 반영된다(하루 시뮬레이터가 단계마다 날씨를 갈아 끼운다).
     """
+
+    _FIELDS = frozenset({"outdoor_temp_c", "outdoor_aqi", "pm25", "cloud_cover", "degraded"})
 
     def __init__(
         self,
@@ -57,27 +60,40 @@ class FakeExternalProvider:
         clock: Clock | None = None,
         outdoor_temp_c: float | None = None,
         outdoor_aqi: int | None = None,
+        pm25: float | None = None,
+        cloud_cover: float | None = None,
         degraded: bool = False,
         source: str = "fake",
     ) -> None:
         self._clock = clock or Clock()
-        self._temp = outdoor_temp_c
-        self._aqi = outdoor_aqi
-        self._degraded = degraded
+        self._values: dict[str, Any] = {
+            "outdoor_temp_c": outdoor_temp_c,
+            "outdoor_aqi": outdoor_aqi,
+            "pm25": pm25,
+            "cloud_cover": cloud_cover,
+            "degraded": degraded,
+        }
         self._source = source
 
+    def set_values(self, **values: Any) -> None:
+        """주어진 항목만 바꾼다(나머지는 그대로). 모르는 항목은 ``ValueError``."""
+        unknown = set(values) - self._FIELDS
+        if unknown:
+            raise ValueError(f"unknown external fields: {sorted(unknown)}")
+        self._values.update(values)
+
     async def fetch(self) -> ExternalContext:
-        if self._degraded:
+        if self._values["degraded"]:
             return ExternalContext(
-                outdoor_temp_c=None,
-                outdoor_aqi=None,
                 source=self._source,
                 fetched_at=self._clock.now_utc(),
                 degraded=True,
             )
         return ExternalContext(
-            outdoor_temp_c=self._temp,
-            outdoor_aqi=self._aqi,
+            outdoor_temp_c=self._values["outdoor_temp_c"],
+            outdoor_aqi=self._values["outdoor_aqi"],
+            pm25=self._values["pm25"],
+            cloud_cover=self._values["cloud_cover"],
             source=self._source,
             fetched_at=self._clock.now_utc(),
             degraded=False,

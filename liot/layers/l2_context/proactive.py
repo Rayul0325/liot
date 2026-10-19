@@ -36,6 +36,7 @@ from liot.core.contracts import (
     ActionCandidate,
     CandidateAction,
     CandidateSet,
+    ExternalContext,
     compute_snapshot_hash,
     make_noop_candidate,
 )
@@ -44,6 +45,7 @@ from liot.core.risk import RiskTier, is_safety_category
 
 from .candidate_llm import LLMCandidateBackend, parse_llm_candidates
 from .context_builder import derive_occupancy
+from .feedback_store import candidate_key
 from .proactive_rules import (
     ProactiveLimits,
     ProactiveRule,
@@ -155,7 +157,7 @@ def assert_proactive_candidate(
 class ProactiveDecision:
     """생성기의 단일 결정(불변). candidate 가 None 이면 침묵 + 사유.
 
-    suppressed_by: None | 'no_match' | 'cooldown' | 'budget' |
+    suppressed_by: None | 'no_match' | 'cooldown' | 'budget' | 'rejected' |
                    'safety_target' | 'tier_ceiling' | 'not_allowed'
     """
 
@@ -270,11 +272,21 @@ class ProactiveGenerator:
         )
 
     # ------------------------------------------------------------------
-    def propose(self, cur: Mapping[str, Any]) -> ProactiveDecision:
+    def propose(
+        self,
+        cur: Mapping[str, Any],
+        *,
+        external: ExternalContext | None = None,
+        rejected_keys: frozenset[str] = frozenset(),
+    ) -> ProactiveDecision:
         """현재 상태에서 능동 결정을 내린다. 후보 없음 = 침묵(안전 기본값).
 
-        첫 번째로 (match+state 성립 ∧ 검증 통과 ∧ 쿨다운 비활성) 인 규칙이
-        이긴다(선언 순서 우선). 예산 초과면 규칙을 보지도 않는다.
+        첫 번째로 (match+state+external 성립 ∧ 검증 통과 ∧ 최근 거절 아님 ∧ 쿨다운
+        비활성) 인 규칙이 이긴다(선언 순서 우선). 예산 초과면 규칙을 보지도 않는다.
+
+        ``rejected_keys``: 최근(30일) 거절된 후보 키(`cap:action:entity:category`). 그 키에
+        걸린 규칙은 쿨다운·예산을 쓰기 **전에** 건너뛴다 — 거절된 행동은 어차피 고르기와
+        알림 게이트에서 막히므로, 그 자리를 차지하면 같은 시간대의 다른 제안만 밀려난다.
         """
         # 집 지역 시각: 예산의 '하루'·시간대 묶음이 그 집의 날짜로 갈린다(UTC 자정이 아니라).
         # 쿨다운은 시각 차이라 시간대와 무관하다. tz 미지정 Clock 이면 UTC 그대로다.
@@ -295,10 +307,7 @@ class ProactiveGenerator:
                 suppressed_by="budget",
             )
 
-        facts = {
-            "time_bucket": bucket,
-            "occupancy": derive_occupancy(cur, self.categories),
-        }
+        facts = self._gen_facts(cur, external)
         matched = self.ruleset.matching(facts, cur)
         if not matched:
             return ProactiveDecision(
@@ -315,6 +324,9 @@ class ProactiveGenerator:
             reason = validate_proactive_candidate(candidate, self.catalog)
             if reason is not None:
                 last_reason = reason
+                continue
+            if candidate_key(candidate) in rejected_keys:
+                last_reason = "rejected"
                 continue
             if self.state.cooldown_active(
                 self.home_id,
@@ -350,11 +362,20 @@ class ProactiveGenerator:
     # 다중 후보 (새 기획: 생성 → 평가 → 선택). propose() 는 보존하고 그 위에
     # 후보 집합(다중 + 무행동)을 *추가*한다. 선택 구동은 Phase3 평가기로.
     # ------------------------------------------------------------------
-    def _gen_facts(self, cur: Mapping[str, Any]) -> dict[str, str]:
-        return {
+    def _gen_facts(
+        self, cur: Mapping[str, Any], external: ExternalContext | None = None
+    ) -> dict[str, Any]:
+        """규칙이 읽는 맥락 사실. 외부 맥락이 있으면 ``external`` 로 싣는다(해시에도 들어간다).
+
+        외부 맥락이 없으면 키 자체를 넣지 않는다 — 외부 없는 경로의 후보 해시는 예전 그대로.
+        """
+        facts: dict[str, Any] = {
             "time_bucket": self.clock.time_bucket(),
             "occupancy": derive_occupancy(cur, self.categories),
         }
+        if external is not None:
+            facts["external"] = external.rule_facts()
+        return facts
 
     def candidate_set_for(
         self,
@@ -362,6 +383,7 @@ class ProactiveGenerator:
         decision: ProactiveDecision,
         *,
         trace_id: str = "",
+        external: ExternalContext | None = None,
     ) -> CandidateSet:
         """이미 내려진 decision 을 선택으로 삼아 후보 집합을 빚는다(읽기 전용).
 
@@ -369,24 +391,24 @@ class ProactiveGenerator:
         선택(selected_index)은 decision.candidate(=propose 승자) 또는 무행동.
         상태(쿨다운/예산) 변경은 하지 않는다 — 그건 propose() 의 몫이다.
         """
-        facts = self._gen_facts(cur)
+        facts = self._gen_facts(cur, external)
         gen_hash = compute_snapshot_hash({"facts": dict(facts), "cur": dict(cur)})
 
         cands: list[ActionCandidate] = []
         seen: set[tuple[str, str, str]] = set()
 
-        def _add(c: CandidateAction, origin: str) -> None:
+        def _add(c: CandidateAction, origin: str, benefit: float | None = None) -> None:
             key = (c.capability, c.action, c.entity_id)
             if key in seen:
                 return
             seen.add(key)
-            cands.append(ActionCandidate(candidate=c, origin=origin))
+            cands.append(ActionCandidate(candidate=c, origin=origin, declared_benefit=benefit))
 
-        # 규칙 후보(검증 통과만).
+        # 규칙 후보(검증 통과만). 규칙이 선언한 기대 효과(benefit)를 후보에 싣는다.
         for rule in self.ruleset.matching(facts, cur):
             c = self._build_candidate(rule)
             if validate_proactive_candidate(c, self.catalog) is None:
-                _add(c, f"rule:{rule.rule_id}")
+                _add(c, f"rule:{rule.rule_id}", rule.benefit)
 
         # LLM 후보(검증 통과만 — 금지/화이트리스트 밖은 폐기, fail-closed).
         if self.llm_candidate_backend is not None:
@@ -443,11 +465,17 @@ class ProactiveGenerator:
             selected_index=selected,
         )
 
-    def generate(self, cur: Mapping[str, Any], *, trace_id: str = "") -> CandidateSet:
+    def generate(
+        self,
+        cur: Mapping[str, Any],
+        *,
+        trace_id: str = "",
+        external: ExternalContext | None = None,
+    ) -> CandidateSet:
         """현재 상태에서 후보 집합을 만든다 = propose(선택+상태) + 후보 데코.
 
         Phase2 임시 선택은 propose() 승자(최우선 유효 규칙) 또는 무행동이다.
         Phase3 평가기가 이 선택을 점수 기반으로 대체한다.
         """
-        decision = self.propose(cur)
-        return self.candidate_set_for(cur, decision, trace_id=trace_id)
+        decision = self.propose(cur, external=external)
+        return self.candidate_set_for(cur, decision, trace_id=trace_id, external=external)

@@ -150,7 +150,11 @@ async def test_run_tick_persists_candidate_evaluation(tmp_path) -> None:
         await db.close()
 
 
-async def test_rejected_history_silences_and_records_noop(tmp_path) -> None:
+async def test_rejected_history_silences_before_the_rule_spends_budget(tmp_path) -> None:
+    # 2026-10-19 의도 변경: 거절 이력은 예전엔 평가기 선호 감점(→ 무행동 선택·기록)으로만
+    # 침묵시켰다. 그러면 거절된 규칙이 발의 단계에서 시간대·하루 예산을 먼저 써 버려 같은
+    # 시간대의 다른 제안을 밀어냈다. 이제 발의(propose)가 거절 키에 걸린 규칙을 예산을 쓰기
+    # 전에 건너뛴다 — 후보 평가 자체가 없으므로 평가 기록도 남지 않는다.
     db = await init_db(":memory:")
     try:
         app = _app(tmp_path)
@@ -161,19 +165,20 @@ async def test_rejected_history_silences_and_records_noop(tmp_path) -> None:
         res1 = await svc.run_tick()
         assert res1 is not None
         await svc.proposals.set_state(res1.proposal.proposal_id, "dismissed")
+        fired_after_first = app.proactive.state.fired_today(
+            app.home_id, app.clock.local_dt()
+        )
 
-        # 2틱: 쿨다운 0 이므로 규칙은 다시 매칭되지만, 거절 이력 스냅샷이
-        # 선호를 감점해 평가기가 무행동을 고른다 → 침묵.
+        # 2틱: 쿨다운 0 이므로 규칙은 다시 매칭되지만 거절 키라 발의 전에 걸러진다 → 침묵.
         res2 = await svc.run_tick()
         assert res2 is None
+        assert app.proactive.state.fired_today(app.home_id, app.clock.local_dt()) == (
+            fired_after_first
+        )
 
         rows = await _fetch_evals(db)
-        assert len(rows) == 2  # 무행동 선택도 기록된다(연구 로그)
-        assert len({r["trace_id"] for r in rows}) == 2  # 틱마다 별개 trace
-        selected_caps = sorted(
-            json.loads(r["scored_json"])[r["selected_index"]]["candidate"]["capability"]
-            for r in rows
-        )
-        assert selected_caps == ["light", "noop"]
+        assert len(rows) == 1  # 1틱의 평가만 — 2틱은 평가까지 가지 않았다
+        sel = json.loads(rows[0]["scored_json"])[rows[0]["selected_index"]]
+        assert sel["candidate"]["capability"] == "light"
     finally:
         await db.close()

@@ -41,8 +41,11 @@ __all__ = [
     "derive_proactive_allowed",
     "ALLOWED_PROACTIVE_MATCH_KEYS",
     "ALLOWED_PREDICATE_OPS",
+    "ALLOWED_EXTERNAL_KEYS",
+    "ALLOWED_EXTERNAL_OPS",
     "ProactiveRuleError",
     "StatePredicate",
+    "ExternalPredicate",
     "ProactiveRule",
     "ProactiveLimits",
     "ProactiveRuleSet",
@@ -95,6 +98,11 @@ ALLOWED_PROACTIVE_MATCH_KEYS: frozenset[str] = frozenset({"time_bucket", "occupa
 
 # 상태 술어의 닫힌 비교자 어휘. 표현식/스크립트/임의 연산 불가.
 ALLOWED_PREDICATE_OPS: frozenset[str] = frozenset({"eq", "ne", "lt", "le", "gt", "ge"})
+
+# 외부(날씨) 조건이 읽을 수 있는 값과 비교자. 값은 전부 실수라 순서 비교만 둔다
+# (실수 같음 비교는 함정이다). 외부 맥락이 없거나 degraded 면 조건은 성립하지 않는다.
+ALLOWED_EXTERNAL_KEYS: frozenset[str] = frozenset({"pm25", "cloud_cover", "outdoor_temp_c"})
+ALLOWED_EXTERNAL_OPS: frozenset[str] = frozenset({"lt", "le", "gt", "ge"})
 
 DEFAULT_PROACTIVE_DIR = Path(__file__).resolve().parents[3] / "config" / "proactive"
 
@@ -150,6 +158,35 @@ class StatePredicate:
 
 
 @dataclass(frozen=True)
+class ExternalPredicate:
+    """외부 맥락 값에 대한 단일 술어: external[key] <op> value (순서 비교만).
+
+    외부 맥락이 없거나(None) degraded 이거나 그 값이 비어 있으면 거짓 — 모르는 날씨로
+    발의하지 않는다(Proactive-Safe-Silent).
+    """
+
+    key: str
+    op: str
+    value: float
+
+    def holds(self, external: Mapping[str, Any] | None) -> bool:
+        if not isinstance(external, Mapping) or external.get("degraded", True):
+            return False
+        have = external.get(self.key)
+        if isinstance(have, bool) or not isinstance(have, (int, float)):
+            return False
+        if self.op == "lt":
+            return have < self.value
+        if self.op == "le":
+            return have <= self.value
+        if self.op == "gt":
+            return have > self.value
+        if self.op == "ge":
+            return have >= self.value
+        return False  # pragma: no cover - 로더가 op 를 이미 검증
+
+
+@dataclass(frozen=True)
 class ProactiveRule:
     """단일 능동 규칙: match(enum facts) + state(술어들) 가 모두 성립하면
     (capability, action, target_entity, params) 후보를 발의한다."""
@@ -163,14 +200,23 @@ class ProactiveRule:
     params: dict[str, Any]
     ttl_minutes: int
     description: str = ""
+    external: tuple[ExternalPredicate, ...] = ()
+    # 규칙이 선언한 기대 효과(0~1, 선택). 평가기가 이 후보의 효과 점수로 쓴다.
+    benefit: float | None = None
 
     def matches(self, facts: Mapping[str, Any], entities: Mapping[str, Any]) -> bool:
-        """match 키 전부 일치(정규화 비교) AND 모든 상태 술어 성립."""
+        """match 키 전부 일치(정규화 비교) AND 모든 상태 술어 AND 모든 외부 술어 성립.
+
+        외부 술어는 ``facts["external"]``(ExternalContext.rule_facts)을 읽는다.
+        """
         for key, want in self.match.items():
             have = facts.get(key)
             if have is None or _norm(have) != _norm(want):
                 return False
-        return all(p.holds(entities) for p in self.state)
+        if not all(p.holds(entities) for p in self.state):
+            return False
+        ext = facts.get("external")
+        return all(p.holds(ext) for p in self.external)
 
 
 @dataclass(frozen=True)
@@ -228,6 +274,44 @@ def _parse_predicate(raw: Any, rule_id: str, idx: int) -> StatePredicate:
     return StatePredicate(entity_id=entity, op=op, value=value)
 
 
+def _parse_external(raw: Any, rule_id: str, idx: int) -> ExternalPredicate:
+    if not isinstance(raw, dict):
+        raise ProactiveRuleError(
+            f"rule {rule_id!r}: external[{idx}] must be a mapping {{key, op, value}}"
+        )
+    unknown = set(raw.keys()) - {"key", "op", "value"}
+    if unknown:
+        raise ProactiveRuleError(
+            f"rule {rule_id!r}: external[{idx}] unknown keys {sorted(unknown)}"
+        )
+    key = _norm(raw.get("key", ""))
+    op = _norm(raw.get("op", ""))
+    value = raw.get("value")
+    if key not in ALLOWED_EXTERNAL_KEYS:
+        raise ProactiveRuleError(
+            f"rule {rule_id!r}: external[{idx}] key {key!r} not in "
+            f"{sorted(ALLOWED_EXTERNAL_KEYS)}"
+        )
+    if op not in ALLOWED_EXTERNAL_OPS:
+        raise ProactiveRuleError(
+            f"rule {rule_id!r}: external[{idx}] op {op!r} not in closed vocabulary "
+            f"{sorted(ALLOWED_EXTERNAL_OPS)}"
+        )
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ProactiveRuleError(
+            f"rule {rule_id!r}: external[{idx}] value must be a number"
+        )
+    return ExternalPredicate(key=key, op=op, value=float(value))
+
+
+def _parse_benefit(raw: Any, rule_id: str) -> float | None:
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not 0.0 <= raw <= 1.0:
+        raise ProactiveRuleError(f"rule {rule_id!r}: benefit must be a number in 0..1")
+    return float(raw)
+
+
 def _parse_rule(
     raw: dict[str, Any], idx: int, *, allowed: frozenset[tuple[str, str]] | None = None
 ) -> ProactiveRule:
@@ -261,7 +345,13 @@ def _parse_rule(
         raise ProactiveRuleError(f"rule {rule_id!r}: 'state' must be a list")
     state = tuple(_parse_predicate(p, rule_id, i) for i, p in enumerate(state_raw))
 
-    if not match and not state:
+    # ── external: 날씨 값의 닫힌 순서 비교 ─────────────────────────────
+    ext_raw = raw.get("external", []) or []
+    if not isinstance(ext_raw, list):
+        raise ProactiveRuleError(f"rule {rule_id!r}: 'external' must be a list")
+    external = tuple(_parse_external(p, rule_id, i) for i, p in enumerate(ext_raw))
+
+    if not match and not state and not external:
         raise ProactiveRuleError(
             f"rule {rule_id!r}: requires at least one match key or state predicate "
             "(unconditional proactive rules are nag-by-construction)"
@@ -312,6 +402,8 @@ def _parse_rule(
         params=dict(params_raw),
         ttl_minutes=ttl,
         description=str(raw.get("description", "")),
+        external=external,
+        benefit=_parse_benefit(raw.get("benefit"), rule_id),
     )
 
 
@@ -390,6 +482,13 @@ def _compute_hash(name: str, version: str, rules: tuple[ProactiveRule, ...]) -> 
                 "target": r.target_entity,
                 "params": dict(sorted(r.params.items())),
                 "ttl_minutes": r.ttl_minutes,
+                # 새 항목은 있을 때만 싣는다 — 없는 규칙의 해시(출처 식별자)는 예전 그대로.
+                **(
+                    {"external": [{"key": p.key, "op": p.op, "value": p.value}
+                                  for p in r.external]}
+                    if r.external else {}
+                ),
+                **({"benefit": r.benefit} if r.benefit is not None else {}),
             }
             for r in rules
         ],

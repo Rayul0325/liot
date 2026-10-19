@@ -46,6 +46,9 @@ __all__ = [
     "CandidateSet",
     "ExternalContext",
     "EvaluationResult",
+    "PM25_GOOD_MAX",
+    "PM25_BAD_MIN",
+    "pm25_from_aqi",
 ]
 
 
@@ -301,6 +304,9 @@ class ActionCandidate(BaseModel):
     # 제안 라인이 실은 자신감(0~1). v1 은 텔레메트리/타이브레이크 전용이며
     # final_score 에 개입하지 않는다(결정론 아비터 = evaluator 무변경 유지).
     line_confidence: float = 0.0
+    # 규칙이 선언한 기대 효과(0~1). 있으면 평가기가 기본 효과·외기 보정 대신 이 값을
+    # 효과 점수로 쓴다(규칙 조건이 이미 외기를 읽었으므로 이중 보정하지 않는다).
+    declared_benefit: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class CandidateSet(BaseModel):
@@ -345,21 +351,60 @@ class CandidateSet(BaseModel):
         return is_noop(self.selected_action())
 
 
+# 미세먼지(PM2.5, ㎍/㎥) 한국 예보 등급 경계. 공기질 판단의 단일 척도다.
+PM25_GOOD_MAX = 15.0  # 좋음 ≤ 15
+PM25_BAD_MIN = 36.0  # 나쁨 ≥ 36
+
+# 옛 입력(outdoor_aqi, 미국 EPA AQI)만 있을 때 pm25 를 유도하는 구간표
+# (EPA 2024 PM2.5 구간: AQI 저점·고점 ↔ PM2.5 저점·고점, 구간 안은 선형).
+_AQI_TO_PM25: tuple[tuple[int, int, float, float], ...] = (
+    (0, 50, 0.0, 9.0),
+    (51, 100, 9.1, 35.4),
+    (101, 150, 35.5, 55.4),
+    (151, 200, 55.5, 125.4),
+    (201, 300, 125.5, 225.4),
+    (301, 500, 225.5, 325.4),
+)
+
+
+def pm25_from_aqi(aqi: int) -> float:
+    """미국 EPA AQI → PM2.5(㎍/㎥). 구간 안 선형 역변환, 500 초과는 마지막 고점."""
+    a = max(0, int(aqi))
+    for lo_i, hi_i, lo_c, hi_c in _AQI_TO_PM25:
+        if a <= hi_i:
+            a = max(a, lo_i)
+            return round(lo_c + (a - lo_i) * (hi_c - lo_c) / (hi_i - lo_i), 1)
+    return _AQI_TO_PM25[-1][3]
+
+
 class ExternalContext(BaseModel):
     """외부 데이터(날씨·외기 공기질) 조회 결과(L3 Context Acquisition).
 
-    degraded=True 면 외부 조회가 실패/불확실 → 평가는 보수적으로(무행동/저위험) 선택.
+    degraded=True 면 외부 조회가 실패/불확실 → 평가는 보수적으로(무행동/저위험) 선택하고,
+    ``external:`` 조건을 가진 능동 규칙은 성립하지 않는다.
     to_structured() 산출물이 틱 트리거(→ structured)에 병합돼 snapshot_hash 에
     반영된다(외기가 후보 우선순위를 바꾸므로 해시에 고정돼야 재현 가능, 불변식 4).
+
+    공기질 척도는 ``pm25``(㎍/㎥, 한국 등급: 좋음 ≤15 · 나쁨 ≥36) 하나다. ``outdoor_aqi`` 는
+    관제실 실험실 입력(`/api/simulate` 의 `outdoor.aqi`) 호환으로만 남는다 — pm25 가 없고
+    aqi 만 있으면 pm25 를 EPA 구간표로 유도해 채운다(반대 방향 유도는 하지 않는다).
     """
 
     model_config = ConfigDict(extra="forbid")
 
     outdoor_temp_c: float | None = None
     outdoor_aqi: int | None = None
+    pm25: float | None = Field(default=None, ge=0.0)
+    cloud_cover: float | None = Field(default=None, ge=0.0, le=1.0)
     source: str = "fake"
     fetched_at: str
     degraded: bool = False
+
+    @model_validator(mode="after")
+    def _derive_pm25(self) -> ExternalContext:
+        if self.pm25 is None and self.outdoor_aqi is not None:
+            self.pm25 = pm25_from_aqi(self.outdoor_aqi)
+        return self
 
     def to_structured(self) -> dict[str, Any]:
         """ContextSnapshot.structured 에 병합할 결정론적 dict.
@@ -370,8 +415,21 @@ class ExternalContext(BaseModel):
         return {
             "outdoor_temp_c": self.outdoor_temp_c,
             "outdoor_aqi": self.outdoor_aqi,
+            "pm25": self.pm25,
+            "cloud_cover": self.cloud_cover,
             "ext_source": self.source,
             "ext_degraded": self.degraded,
+        }
+
+    def rule_facts(self) -> dict[str, Any]:
+        """능동 규칙 ``external:`` 조건이 읽는 값. degraded 면 수치를 싣지 않는다."""
+        if self.degraded:
+            return {"degraded": True}
+        return {
+            "degraded": False,
+            "pm25": self.pm25,
+            "cloud_cover": self.cloud_cover,
+            "outdoor_temp_c": self.outdoor_temp_c,
         }
 
 
