@@ -191,8 +191,16 @@ class AbnormalRule:
     def is_abnormal(self, norm_value: object) -> bool:
         """정규화 값이 이상이면 True. 판정 불가 값도 True(fail-closed)."""
         if self.kind == "truthy":
-            # 정상은 정확히 False 하나뿐. True 는 이상, 그 외(정규화 불가)도 이상.
-            return norm_value is not False
+            # 정상은 False 와 숫자 0(정규화기가 정수 0 을 0.0 으로 바꾼다) 뿐.
+            # True·0 아닌 수는 이상, 그 외(정규화 불가)도 이상(fail-closed).
+            if norm_value is False:
+                return False
+            is_zero = (
+                isinstance(norm_value, (int, float))
+                and not isinstance(norm_value, bool)
+                and norm_value == 0
+            )
+            return not is_zero
         # 'above': bool 은 int 의 하위형이지만 온도 값이 아니므로 판정 불가로 본다.
         if (
             self.threshold is None

@@ -322,7 +322,17 @@ def test_boolean_abnormal(table: SeverityTable, category: str) -> None:
 
 
 @pytest.mark.parametrize("category", BOOLEAN_CATEGORIES)
-@pytest.mark.parametrize("value", ["unavailable", None, "", 3.0])
+@pytest.mark.parametrize("value", [0, 0.0])
+def test_boolean_numeric_zero_is_normal(
+    table: SeverityTable, category: str, value: float
+) -> None:
+    # 정수로 보고하는 불리언 센서(0/1)가 영원히 '이상'에 갇히지 않게.
+    assert table.is_abnormal(category, value) is False
+    assert table.is_abnormal(category, 1.0) is True
+
+
+@pytest.mark.parametrize("category", BOOLEAN_CATEGORIES)
+@pytest.mark.parametrize("value", ["unavailable", None, "", 3.0, float("nan")])
 def test_boolean_unnormalizable_is_abnormal(
     table: SeverityTable, category: str, value: object
 ) -> None:
