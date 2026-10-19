@@ -29,8 +29,8 @@ if TYPE_CHECKING:  # pragma: no cover
 
 __all__ = ["ProposalService", "FEEDBACK_STATE_MAP"]
 
-# user_action -> 제안 상태 전이.
-FEEDBACK_STATE_MAP: dict[str, str] = {
+# user_action -> 제안 상태 전이. None = 상태를 바꾸지 않는다(기록만).
+FEEDBACK_STATE_MAP: dict[str, str | None] = {
     "accepted": "accepted",
     "accept": "accepted",
     "confirmed": "accepted",
@@ -41,6 +41,9 @@ FEEDBACK_STATE_MAP: dict[str, str] = {
     "snoozed": "pending",
     "snooze": "pending",
     "stop": "dismissed",
+    # '괜찮아요'(ok): 상황 사다리 확인 전용. 상태를 옮기지 않아 수용률·거절 이력·
+    # 선호 셀 어디에도 신호가 남지 않는다(피드백 행은 감사용으로 남는다).
+    "ok": None,
 }
 
 
@@ -360,7 +363,8 @@ class ProposalService:
         """사용자 피드백을 기록하고 제안 상태를 전이한다.
 
         - feedback 행을 append 한다.
-        - user_action 에 따라 제안 상태를 전이(FEEDBACK_STATE_MAP).
+        - user_action 에 따라 제안 상태를 전이(FEEDBACK_STATE_MAP). 매핑이 None 인
+          행동('ok')은 상태를 그대로 둔다.
         - 알 수 없는 user_action 이면 InvariantError.
         반환: 갱신된 Proposal(없으면 None).
         """
@@ -401,9 +405,10 @@ class ProposalService:
             },
         )
 
-        await self._set_state(
-            feedback.proposal_id, new_state, trace_id=feedback.trace_id
-        )
+        if new_state is not None:
+            await self._set_state(
+                feedback.proposal_id, new_state, trace_id=feedback.trace_id
+            )
         await self._db.commit()
         return await self.get(feedback.proposal_id)
 

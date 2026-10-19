@@ -83,6 +83,26 @@ def _parse_deeplink(deeplink: str) -> tuple[str, str, str, str] | None:
     return None
 
 
+def _parse_ack_link(link: str) -> tuple[str, str, str] | None:
+    """보호자 확인 링크(liot://ack/<sid>?g=<gid>&sig=<hex>) → (sid, gid, sig).
+
+    형식이 어긋나면 None(확인 버튼 없이 알림만 보낸다).
+    """
+    try:
+        parts = urlsplit(link)
+        if parts.scheme != "liot" or parts.netloc != "ack":
+            return None
+        sid = parts.path.rsplit("/", 1)[-1]
+        q = parse_qs(parts.query)
+        gid = q.get("g", [""])[0]
+        sig = q.get("sig", [""])[0]
+    except (ValueError, IndexError):  # pragma: no cover - 방어적
+        return None
+    if sid and gid and sig:
+        return sid, gid, sig
+    return None
+
+
 class HTTPNtfyTransport:
     """ntfy 서버로 실제 HTTP POST(urllib). 기본 https://ntfy.sh.
 
@@ -113,7 +133,29 @@ class HTTPNtfyTransport:
             else signing_secret
         )
 
+    def _summary_headers(self, sanitized: dict[str, Any]) -> dict[str, str]:
+        """상황 요약 알림(보호자 전달·해소·119 안내) 헤더.
+
+        Click 을 두지 않는다 — 알림을 여는 것은 확인이 아니다. 보호자 확인은
+        서명 링크를 옮긴 별도 액션 버튼(``/guardian-ack``)에서만 일어난다.
+        """
+        headers: dict[str, str] = {
+            "Title": "LIOT",
+            "Priority": _priority(sanitized, 2),
+            "Tags": "rotating_light",
+        }
+        parsed = _parse_ack_link(str(sanitized.get("signed_deeplink", "")))
+        if parsed and self.feedback_base_url:
+            sid, gid, sig = parsed
+            ack = f"{self.feedback_base_url}/guardian-ack?s={sid}&g={gid}&sig={sig}"
+            headers["Actions"] = f"http, Ack, {ack}, method=GET"
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        return headers
+
     def _headers(self, sanitized: dict[str, Any]) -> dict[str, str]:
+        if "situation_label" in sanitized:
+            return self._summary_headers(sanitized)
         tier = int(sanitized.get("risk_tier", 1))
         # 헤더는 ASCII 만(한글 라벨/글리프는 본문에). Tags 는 tier 영문명.
         headers: dict[str, str] = {
@@ -150,12 +192,23 @@ class HTTPNtfyTransport:
                 f"http, Accept, {accept}, method=GET; "
                 f"http, Dismiss, {dismiss}, method=GET"
             )
+            # 상황 알림(파급도 있음)에는 '괜찮아요'(ok) 버튼을 덧붙인다 — 그 상황의
+            # 사다리만 멈추고 선호 학습 신호는 남기지 않는다. ntfy 버튼 상한(3) 안이다.
+            if sanitized.get("severity_label"):
+                ok = f"{base}/feedback?{qs}&sig={_sig('ok')}&a=ok"
+                headers["Actions"] += f"; http, OK, {ok}, method=GET"
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
     @staticmethod
     def _body(sanitized: dict[str, Any]) -> bytes:
+        if "situation_label" in sanitized:
+            # 상황 요약: [집 별칭] 상황 라벨(파급도) · 시각. 기기·방·근거는 페이로드에 없다.
+            return (
+                f"[{sanitized.get('home_alias', '')}] {sanitized.get('situation_label', '')}"
+                f" ({sanitized.get('severity_label', '')}) · {sanitized.get('at', '')}"
+            ).encode()
         # 본문은 위험도 라벨/글리프만(디바이스/방/rationale 부재). UTF-8 허용.
         glyph = str(sanitized.get("glyph", ""))
         label = str(sanitized.get("label", ""))

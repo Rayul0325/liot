@@ -60,6 +60,12 @@ NTFY_ALLOWED_KEYS: frozenset[str] = frozenset(
         # 파급도 한국어 라벨(예: "위험"). 라벨 문자열뿐이라 식별 정보가 없다.
         # transport 가 이걸로 푸시 세기를 정한다.
         "severity_label",
+        # 상황 요약 알림(보호자 전달·해소·119 안내)의 키. 상황 종류 라벨(예: "가스 누출"),
+        # 집 별칭, ISO 시각뿐 — 기기·방·근거·거주자 특성 키는 여기 없다(GuardianNotification
+        # Payload 계약과 짝). 확인 링크는 이미 허용된 signed_deeplink 키로 싣는다.
+        "situation_label",
+        "home_alias",
+        "at",
     }
 )
 

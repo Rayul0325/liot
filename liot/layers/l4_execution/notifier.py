@@ -34,7 +34,7 @@ import hmac
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
-from liot.core.contracts import NotificationPayload, Proposal
+from liot.core.contracts import GuardianNotificationPayload, NotificationPayload, Proposal
 from liot.core.egress_gate import Destination, emit_external
 from liot.core.risk import RiskTier
 from liot.core.severity import SeverityLevel
@@ -49,8 +49,10 @@ __all__ = [
     "NotificationContext",
     "Notifier",
     "gate_pipeline",
+    "guardian_ack_link",
     "sign_deeplink",
     "sign_feedback",
+    "sign_guardian_ack",
     "tier_int",
 ]
 
@@ -234,6 +236,27 @@ def sign_feedback(
     return hmac.new(secret, message, hashlib.sha256).hexdigest()
 
 
+def sign_guardian_ack(secret: bytes, situation_id: str, guardian_id: str) -> str:
+    """보호자 확인 링크 서명. 대상 = ``guardian-ack:<situation_id>:<guardian_id>``.
+
+    보호자마다 다른 서명이다 — 한 보호자의 링크로 다른 보호자인 척 확인할 수 없다.
+    접두사로 피드백 서명(``<pid>:<tier>:<action>:<nonce>``)과 대상 공간을 가른다.
+    nonce 를 묶지 않는 이유: 확인은 멱등이다(두 번 눌러도 사다리가 한 번 멈출 뿐).
+    """
+    message = f"guardian-ack:{situation_id}:{guardian_id}".encode()
+    return hmac.new(secret, message, hashlib.sha256).hexdigest()
+
+
+def guardian_ack_link(secret: bytes, situation_id: str, guardian_id: str) -> str:
+    """보호자 확인 링크. 형식: ``liot://ack/<situation_id>?g=<guardian_id>&sig=<hmac_hex>``.
+
+    알림을 여는(Click) 것으로는 확인되지 않는다 — transport 가 이 링크를 별도
+    액션 버튼(``/guardian-ack``)으로만 옮긴다.
+    """
+    sig = sign_guardian_ack(secret, situation_id, guardian_id)
+    return f"liot://ack/{situation_id}?g={guardian_id}&sig={sig}"
+
+
 class Notifier:
     """발화 게이트를 적용하고, 통과 시 egress_gate 로 알림을 내보낸다.
 
@@ -332,6 +355,52 @@ class Notifier:
         if raw.get("severity_label") is None:
             raw.pop("severity_label", None)
         return emit_external(Destination.NTFY, raw, trace_id=proposal.proposal_id)
+
+    def build_guardian_payload(
+        self,
+        *,
+        situation_label: str,
+        home_alias: str,
+        at: str,
+        severity: SeverityLevel,
+        situation_id: str | None = None,
+        guardian_id: str | None = None,
+    ) -> GuardianNotificationPayload:
+        """상황 요약 알림(보호자 전달·해소·119 안내) 페이로드를 만든다.
+
+        싣는 것은 상황 종류 라벨·집 별칭·시각·서명된 확인 링크·파급도 라벨뿐이다.
+        계약(extra="forbid")에 기기·방·근거·거주자 특성 칸이 없어 구조적으로 못 싣는다.
+        situation_id 와 guardian_id 를 둘 다 주면 그 보호자 전용 확인 링크를 싣고,
+        아니면(해소 알림·거주자 119 안내) 링크 없이 보낸다.
+        """
+        link = (
+            guardian_ack_link(self._secret, situation_id, guardian_id)
+            if situation_id and guardian_id
+            else ""
+        )
+        return GuardianNotificationPayload(
+            channel=self._channel,
+            situation_label=situation_label,
+            home_alias=home_alias,
+            at=at,
+            signed_ack_link=link,
+            severity_label=severity.label_ko,
+        )
+
+    def sanitize_summary(
+        self, payload: GuardianNotificationPayload, *, trace_id: str
+    ) -> dict[str, Any]:
+        """요약 알림 페이로드를 egress(NTFY) 로 정제한다.
+
+        확인 링크는 ``signed_deeplink`` 키로 옮겨 싣는다 — 이미 허용된 키이고, 그
+        값(HMAC 16진수)은 PII 스캔에서 빠지는 불투명 토큰 자리라 무작위 서명이 우연히
+        전화번호 패턴에 걸려 안전 알림이 막히는 일이 없다. 링크가 없으면 키를 뺀다.
+        """
+        raw = payload.model_dump()
+        link = raw.pop("signed_ack_link", "")
+        if link:
+            raw["signed_deeplink"] = link
+        return emit_external(Destination.NTFY, raw, trace_id=trace_id)
 
     def _now(self) -> str:
         if self._clock is not None:
