@@ -136,6 +136,19 @@ HTTP 헤더: `Title: LIOT`, `Priority`(파급도 라벨 기준), `Tags: rotating
 | `POST /api/feedback` | `cell`(`<시간대>\|<재실>\|<능력>:<행동>`, 최대 200자), `signal`(`accepted`·`dismissed`·`expired`·`ignored`) | `{ok, cell, signal, before, after}` · 400(형식 오류, 셀 512칸 초과 시 새 셀 거부) |
 | `POST /api/directive` | `{text, source?(chat), until?(ISO8601)}` 또는 `{reset: true}` | `{ok, parsed: [지시], active: [지시]}` · 400 `field: until`(만료 시각을 해석 못 하면 아무것도 저장하지 않는다) |
 
+### 3c. 3D 가상 집 시나리오 `POST /api/home3d/scenario`
+
+DB 를 읽지도 쓰지도 않는 순수 계산이다. 실제 파급도 표·사다리 규칙·ntfy 송신 문구로 한 센서 값의 알림 타임라인을 만든다.
+
+- 요청: `{entity_id, value, vulnerable_resident?: bool=false, consented_guardians?: 0|1|2=0, ack_at_s?: number, opened_at?: ISO}`. `opened_at` 을 주면 같은 시나리오를 다시 요청해도 카드의 시각이 바뀌지 않는다.
+- 응답: `{ok, opened_at, entity_id, category, situation_ko, state(abnormal·unmonitorable·normal), severity, markers, horizon_s, acked_at_s, events}`. `events[]` = `{t_s, who(resident·guardian), guardian, kind(alert·realert·forward·guidance_119·unmonitorable), title, body, priority, severity_ko, actions[{label_ko, role, stops_ladder, target}]}` — `body`·`priority`·버튼은 실제 송신 코드가 만든 그대로다.
+- 규칙: 위험이면 1분마다 재알림(화면은 420초에서 자름), 보호자 전달은 90초(하한 위험 + 동의 보호자 ≥1), 119 안내는 390초. 경고면 600·1200·1800초 재알림만. `ack_at_s` 뒤 사건은 없다. 기본 게이트(알림 켜짐·음소거 없음)와 집 별칭 `우리 집` 을 가정한다.
+- 오류: 미등록 엔티티 `400 {ok:false, error, field:"entity_id"}`, 안전 센서가 아닌 엔티티도 400.
+
+### 감시 불가 알림(데몬 → 거주자)
+
+HA 가 안전 센서를 `unavailable`·`unknown` 으로 보내면 상황 요약 형식으로 거주자 토픽에만 한 건 간다. `situation_label` = `<센서 종류> 센서 · 감시 불가(연결 끊김)`, `severity_label` = `주의`, 확인 링크 없음. 보호자에게는 가지 않는다.
+
 ## 4. Home Assistant 입력(HA → 데몬)
 
 - 연결: `LIOT_HA_URL` 의 WebSocket. 순서는 서버 `auth_required` → 클라이언트 `{"type":"auth","access_token":<토큰>}` → 서버 `auth_ok`. `auth_ok` 가 아니면 인증 실패로 기동이 멈춘다. 첫 메시지가 `auth_required` 가 아니어도 실패다.

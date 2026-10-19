@@ -6,6 +6,8 @@ Static browser UI served by `liot.demo_server` (no build step, plain JS):
 
 - `app.html` + `assets/app.js` + `assets/app.css` — the pipeline lab: board of sensors/devices from `GET /api/catalog`, presets, registration forms, `POST /api/simulate` trace view (trigger, two lines, embedding, arbiter, Gate1, Gate2, judgment with severity and sources, proposal, intervention), phone-feedback simulation (`/api/feedback`), directive chat (`/api/directive`).
 - `safety.html` + `assets/safety.js` — home and guardian settings: home alias and lives-alone, residents and their yes/no answers with "who is entering", guardian registration (secret topic shown once), consent grant/revoke by a chosen resident, consent history, forwarding history. Talks only to `/api/safety/*`.
+- `home3d.html` + `assets/home3d.js` + `assets/home3d.css` — 3D virtual home (three.js, hand-written pointer rotation, 2D floor-plan fallback when WebGL or the module fails) with resident and guardian phones and a playback timeline. Talks only to `GET /api/catalog` and `POST /api/home3d/scenario`; every title, body, priority, button label and time it shows comes from that response.
+- `assets/vendor/three.module.min.js` — three.js 0.160.0, pinned by sha256 in `assets/vendor/README.md`, MIT (`three.LICENSE`). Replace only with a recorded version and hash; never load three.js from a CDN.
 - `index.html` + `assets/main.js` + `assets/style.css` + `assets/presets.json` — older landing page and preset data.
 
 Not this module's scope: any decision logic (the server computes everything), persistence, authentication, notifications.
@@ -14,7 +16,7 @@ Not this module's scope: any decision logic (the server computes everything), pe
 
 - The UI never computes tiers, severities, or eligibility itself; it renders what the API returns.
 - `safety.js` must not persist resident answers or guardian topics anywhere (`localStorage`, `sessionStorage`, cookies, query strings, non-local URLs). Answers live only in the in-memory `residents` list for rendering. The topic exists only as a local variable and DOM node inside `showTopicOnce` and disappears when that dialog closes.
-- No external network loads from `app.html` or `safety.html` (local assets and a data: icon only; only the older `index.html` loads Google Fonts). Do not add other-origin scripts or styles to the safety page.
+- No external network loads from `app.html`, `safety.html` or `home3d.html` (local assets and a data: icon only; only the older `index.html` loads Google Fonts). Do not add other-origin scripts or styles to the safety page.
 - Requests to `/api/safety/*` are same-origin `fetch` with `Content-Type: application/json`; the server rejects anything else.
 
 ## Invariants

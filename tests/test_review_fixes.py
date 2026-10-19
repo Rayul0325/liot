@@ -67,7 +67,8 @@ HOME3D_JS = ROOT / "web" / "assets" / "home3d.js"
 
 def test_home3d_js_calls_only_routes_the_server_serves() -> None:
     js = HOME3D_JS.read_text(encoding="utf-8")
-    called = set(re.findall(r'"(/api/[a-z0-9_\-/]+)"', js))
+    # 큰따옴표·작은따옴표·백틱 모두 — 따옴표 종류를 바꿔 계약 검사를 피하지 못하게.
+    called = set(re.findall(r"[\"'`](/api/[a-z0-9_\-/]+)[\"'`]", js))
     assert called, "home3d.js 에서 API 경로를 찾지 못함"
     assert called <= {"/api/catalog", SCENARIO_PATH}, called - {"/api/catalog", SCENARIO_PATH}
 

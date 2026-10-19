@@ -27,7 +27,8 @@ table:
 # 안전 카테고리 → (피해 유형, 시간) + 이상/정상 규칙(abnormal_when).
 #   abnormal_when: truthy        — 정규화 값이 True 면 이상, False 면 정상.
 #   abnormal_when: { above: N }  — 수치가 N 초과면 이상, N 이하면 정상.
-# 어느 쪽으로도 판정 못 하는 값(정규화 불가)은 이상으로 본다(fail-closed).
+# 'unavailable'·'unknown'(HA 가 센서를 못 읽음)은 판정 보류 — 상황을 열지 않고 감시 불가 알림만.
+# 그 밖에 어느 쪽으로도 판정 못 하는 값(정규화 불가)은 이상으로 본다(fail-closed).
 # 여기 행이 없는 안전 카테고리(런타임 등록 등)는 CRITICAL + truthy 규칙.
 situations:
   gas:        { damage: life,     time: minutes, abnormal_when: truthy }   # → CRITICAL
