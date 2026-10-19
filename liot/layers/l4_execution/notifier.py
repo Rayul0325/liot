@@ -13,6 +13,13 @@
     8. perishable 우회 — 위 4~7 에서 막혀도 perishable(시의성) 이면 IMMEDIATE
                          로 승격(단, charter/mute/rejected 는 우회 못 함).
 
+파급도(severity)는 긴급도를 **더하기만** 한다(기존 우회는 하나도 없애지 않는다):
+  - ``severity == CRITICAL``(위험) 상황 알림은 mute·recently_rejected 도 우회한다.
+    헌장(charter) OFF 만 존중한다 — 가스 알림을 한 번 거절했다고 다음 가스
+    상황이 조용해지면 안 된다.
+  - 4~7 의 우회 조건 = perishable OR EMBER OR severity == CRITICAL.
+  - severity 가 None 이면 판정은 예전과 똑같다.
+
 발화(IMMEDIATE)로 결정되면 ``notify`` 가 NotificationPayload 를 만들고
 반드시 ``emit_external(NTFY, ...)`` 를 통과시킨다 → device/room/rationale 가
 구조적으로 제거된 페이로드만 외부로 나간다.
@@ -30,6 +37,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from liot.core.contracts import NotificationPayload, Proposal
 from liot.core.egress_gate import Destination, emit_external
 from liot.core.risk import RiskTier
+from liot.core.severity import SeverityLevel
 
 if TYPE_CHECKING:  # pragma: no cover
 
@@ -116,24 +124,29 @@ def gate_pipeline(
     # 묶이거나 삼켜지면 Safety-Never-Silent(불변식 6)의 정신이 전달 단계에서
     # 깨진다 → EMBER 는 언제나 즉시 발화(단, charter/mute/recently_rejected
     # 같은 *명시적 사용자 옵트아웃* 은 여전히 존중).
-    bypass = bool(proposal.perishable) or tier == RiskTier.EMBER
+    #
+    # 파급도 '위험'(CRITICAL) 상황 알림도 같은 우회를 받는다. 파급도는 긴급도를
+    # 더하기만 하므로, 위의 두 우회 사유는 그대로 둔 채 OR 로 덧붙인다.
+    critical = proposal.severity == SeverityLevel.CRITICAL
+    bypass = bool(proposal.perishable) or tier == RiskTier.EMBER or critical
 
-    # 1) charter: 전면 OFF 면 무조건 침묵. 우회 못 함.
+    # 1) charter: 전면 OFF 면 무조건 침묵. 우회 못 함(CRITICAL 이라도).
     if not ctx.charter_enabled:
         return "SUPPRESS"
 
-    # 2) mute: 카테고리/엔티티 음소거. 우회 불가.
-    if (
+    # 2) mute: 카테고리/엔티티 음소거. CRITICAL 상황 알림만 우회한다.
+    if not critical and (
         proposal.action.category in ctx.muted_categories
         or proposal.action.entity_id in ctx.muted_entities
     ):
         return "SUPPRESS"
 
-    # 3) recently_rejected(30일): 사용자가 최근 거절한 류면 침묵. 우회 불가.
-    if key in ctx.recently_rejected_keys:
+    # 3) recently_rejected(30일): 사용자가 최근 거절한 류면 침묵.
+    #    CRITICAL 상황 알림만 우회한다(가스 거절 뒤 다음 가스 상황도 즉시 발화).
+    if not critical and key in ctx.recently_rejected_keys:
         return "SUPPRESS"
 
-    # --- 여기부터는 bypass(시의성 또는 EMBER)면 IMMEDIATE 로 승격 ---
+    # --- 여기부터는 bypass(시의성·EMBER·CRITICAL)면 IMMEDIATE 로 승격 ---
 
     # 4) dedup(2시간): 최근 동일 발화가 있으면 묶기/침묵.
     if key in ctx.recent_notified_keys:
@@ -256,6 +269,8 @@ class Notifier:
         """제안에서 외부 알림 페이로드를 만든다(rationale/device/room 없음).
 
         라벨은 위험도 한국어 라벨만 사용한다(엔티티명/방이름 누설 금지).
+        파급도가 있으면(상황 알림) 파급도 한국어 라벨(severity_label)만 덧붙인다 —
+        상황 id·근거·디바이스는 싣지 않는다.
         """
         signed = sign_deeplink(
             self._secret, proposal.proposal_id, proposal.risk_tier, nonce
@@ -269,6 +284,9 @@ class Notifier:
             label=tier.label_ko,  # 위험도 라벨만. 디바이스/방 정보 없음.
             signed_deeplink=signed,
             topic=self._topic,
+            severity_label=(
+                proposal.severity.label_ko if proposal.severity is not None else None
+            ),
         )
 
     def notify(
@@ -309,6 +327,10 @@ class Notifier:
         raw = payload.model_dump()
         # risk_tier 는 외부 송신용 정수로 직렬화(IntEnum -> int).
         raw["risk_tier"] = int(payload.risk_tier)
+        # 파급도가 없으면 severity_label 키 자체를 빼서, 페이로드가 예전과 똑같게
+        # 둔다(None 이 실려 나가면 transport·기록 쪽이 '값 있음'으로 오해할 여지).
+        if raw.get("severity_label") is None:
+            raw.pop("severity_label", None)
         return emit_external(Destination.NTFY, raw, trace_id=proposal.proposal_id)
 
     def _now(self) -> str:
