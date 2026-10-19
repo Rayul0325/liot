@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import string
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -46,6 +47,8 @@ __all__ = [
     "ProactiveRuleError",
     "StatePredicate",
     "ExternalPredicate",
+    "REASON_PLACEHOLDERS",
+    "render_reason",
     "ProactiveRule",
     "ProactiveLimits",
     "ProactiveRuleSet",
@@ -103,6 +106,27 @@ ALLOWED_PREDICATE_OPS: frozenset[str] = frozenset({"eq", "ne", "lt", "le", "gt",
 # (실수 같음 비교는 함정이다). 외부 맥락이 없거나 degraded 면 조건은 성립하지 않는다.
 ALLOWED_EXTERNAL_KEYS: frozenset[str] = frozenset({"pm25", "cloud_cover", "outdoor_temp_c"})
 ALLOWED_EXTERNAL_OPS: frozenset[str] = frozenset({"lt", "le", "gt", "ge"})
+
+# 이유 한 줄(reason_ko) 틀이 쓸 수 있는 자리표시자. 값은 발의 순간의 맥락 사실에서 채운다.
+# 틀은 규칙 메타데이터와 시뮬레이션 사건에만 실린다 — ntfy 페이로드에는 들어가지 않는다.
+REASON_PLACEHOLDERS: frozenset[str] = frozenset({"pm25", "cloud_pct", "outdoor_temp_c"})
+_MISSING = "?"
+
+
+def _reason_values(facts: Mapping[str, Any]) -> dict[str, str]:
+    ext = facts.get("external")
+    ext = ext if isinstance(ext, Mapping) and not ext.get("degraded", True) else {}
+    pm25, cloud, temp = ext.get("pm25"), ext.get("cloud_cover"), ext.get("outdoor_temp_c")
+    return {
+        "pm25": _MISSING if pm25 is None else f"{float(pm25):.0f}",
+        "cloud_pct": _MISSING if cloud is None else f"{float(cloud) * 100:.0f}",
+        "outdoor_temp_c": _MISSING if temp is None else f"{float(temp):.1f}",
+    }
+
+
+def render_reason(template: str, facts: Mapping[str, Any]) -> str:
+    """이유 틀을 맥락 값으로 채운다. 값이 없으면 '?' (로더가 자리표시자를 이미 검증)."""
+    return template.format_map(_reason_values(facts)) if template else ""
 
 DEFAULT_PROACTIVE_DIR = Path(__file__).resolve().parents[3] / "config" / "proactive"
 
@@ -203,6 +227,10 @@ class ProactiveRule:
     external: tuple[ExternalPredicate, ...] = ()
     # 규칙이 선언한 기대 효과(0~1, 선택). 평가기가 이 후보의 효과 점수로 쓴다.
     benefit: float | None = None
+    # 발의할 수 있는 집 지역 시(hour) 목록(비면 제한 없음). 시간대 버킷보다 좁게 잡을 때.
+    hours: tuple[int, ...] = ()
+    # 이유 한 줄 틀(한국어). 자리표시자는 REASON_PLACEHOLDERS 만.
+    reason_ko: str = ""
 
     def matches(self, facts: Mapping[str, Any], entities: Mapping[str, Any]) -> bool:
         """match 키 전부 일치(정규화 비교) AND 모든 상태 술어 AND 모든 외부 술어 성립.
@@ -213,6 +241,8 @@ class ProactiveRule:
             have = facts.get(key)
             if have is None or _norm(have) != _norm(want):
                 return False
+        if self.hours and facts.get("local_hour") not in self.hours:
+            return False
         if not all(p.holds(entities) for p in self.state):
             return False
         ext = facts.get("external")
@@ -238,6 +268,11 @@ class ProactiveRuleSet:
     ruleset_hash: str
     limits: ProactiveLimits = field(default_factory=ProactiveLimits)
     sources: tuple[str, ...] = field(default_factory=tuple)
+
+    @property
+    def uses_hours(self) -> bool:
+        """시(hour) 제한 규칙이 있는가 — 있을 때만 생성기가 local_hour 를 사실에 싣는다."""
+        return any(r.hours for r in self.rules)
 
     def matching(
         self, facts: Mapping[str, Any], entities: Mapping[str, Any]
@@ -302,6 +337,37 @@ def _parse_external(raw: Any, rule_id: str, idx: int) -> ExternalPredicate:
             f"rule {rule_id!r}: external[{idx}] value must be a number"
         )
     return ExternalPredicate(key=key, op=op, value=float(value))
+
+
+def _parse_hours(raw: Any, rule_id: str) -> tuple[int, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not raw:
+        raise ProactiveRuleError(f"rule {rule_id!r}: hours must be a non-empty list of 0..23")
+    out: list[int] = []
+    for h in raw:
+        if isinstance(h, bool) or not isinstance(h, int) or not 0 <= h <= 23:
+            raise ProactiveRuleError(f"rule {rule_id!r}: hours must be integers 0..23")
+        out.append(h)
+    return tuple(sorted(set(out)))
+
+
+def _parse_reason(raw: Any, rule_id: str) -> str:
+    if raw is None:
+        return ""
+    if not isinstance(raw, str):
+        raise ProactiveRuleError(f"rule {rule_id!r}: reason_ko must be a string")
+    try:
+        names = {name for _, name, _, _ in string.Formatter().parse(raw) if name is not None}
+    except ValueError as exc:
+        raise ProactiveRuleError(f"rule {rule_id!r}: reason_ko is malformed: {exc}") from exc
+    bad = names - REASON_PLACEHOLDERS
+    if bad:
+        raise ProactiveRuleError(
+            f"rule {rule_id!r}: reason_ko placeholders {sorted(bad)} not in "
+            f"{sorted(REASON_PLACEHOLDERS)}"
+        )
+    return raw.strip()
 
 
 def _parse_benefit(raw: Any, rule_id: str) -> float | None:
@@ -404,6 +470,8 @@ def _parse_rule(
         description=str(raw.get("description", "")),
         external=external,
         benefit=_parse_benefit(raw.get("benefit"), rule_id),
+        hours=_parse_hours(raw.get("hours"), rule_id),
+        reason_ko=_parse_reason(raw.get("reason_ko"), rule_id),
     )
 
 
@@ -489,6 +557,8 @@ def _compute_hash(name: str, version: str, rules: tuple[ProactiveRule, ...]) -> 
                     if r.external else {}
                 ),
                 **({"benefit": r.benefit} if r.benefit is not None else {}),
+                **({"hours": list(r.hours)} if r.hours else {}),
+                **({"reason_ko": r.reason_ko} if r.reason_ko else {}),
             }
             for r in rules
         ],

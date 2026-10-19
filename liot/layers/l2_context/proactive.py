@@ -52,6 +52,7 @@ from .proactive_rules import (
     ProactiveRuleSet,
     derive_proactive_allowed,
     load_proactive_rulesets,
+    render_reason,
 )
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -166,6 +167,9 @@ class ProactiveDecision:
     ttl_minutes: int
     matched_rule_ids: tuple[str, ...]
     suppressed_by: str | None
+    # 승자 규칙의 이유 한 줄(맥락 값으로 채운 것). 시뮬레이션 사건·관찰용 — 알림 페이로드에
+    # 싣지 않는다(ntfy 내용 필드는 정확한 집합으로 고정돼 있다).
+    reason_ko: str = ""
 
 
 class ProactiveState:
@@ -348,6 +352,7 @@ class ProactiveGenerator:
                 ttl_minutes=rule.ttl_minutes,
                 matched_rule_ids=tuple(r.rule_id for r in matched),
                 suppressed_by=None,
+                reason_ko=render_reason(rule.reason_ko, facts),
             )
 
         return ProactiveDecision(
@@ -373,6 +378,8 @@ class ProactiveGenerator:
             "time_bucket": self.clock.time_bucket(),
             "occupancy": derive_occupancy(cur, self.categories),
         }
+        if self.ruleset.uses_hours:
+            facts["local_hour"] = self.clock.local_dt().hour
         if external is not None:
             facts["external"] = external.rule_facts()
         return facts

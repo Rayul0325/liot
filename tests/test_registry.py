@@ -50,6 +50,9 @@ def test_seed_categories_are_demo_house(reg: RuntimeRegistry) -> None:
         "binary_sensor.hall_smoke": "smoke",
         "binary_sensor.bath_leak": "leak",
         "lock.front_door": "lock",
+        # 2026-10-19 의도적 갱신: 기획 4장면의 기기(공기청정기·책상 조명).
+        "fan.living_purifier": "climate",
+        "light.desk": "light",
     }
 
 

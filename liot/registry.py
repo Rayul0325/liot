@@ -51,6 +51,7 @@ from liot.layers.l2_context.proactive_rules import (
 )
 from liot.layers.l3_judgment.guardrail import category_floor, register_category_floor
 from liot.layers.l4_execution.device_catalog import DeviceCatalog, load_device_catalog
+from liot.layers.l4_execution.executor import NON_EXECUTABLE_CAPABILITIES
 
 __all__ = ["RuntimeRegistry", "RegistryError"]
 
@@ -92,6 +93,10 @@ _SEED_SENSORS: list[dict[str, Any]] = [
      "category": "leak", "kind": "bool", "unit": None, "min": None, "max": None},
     {"entity_id": "lock.front_door", "name": "현관 잠금",
      "category": "lock", "kind": "bool", "unit": None, "min": None, "max": None},
+    {"entity_id": "fan.living_purifier", "name": "거실 공기청정기",
+     "category": "climate", "kind": "bool", "unit": None, "min": None, "max": None},
+    {"entity_id": "light.desk", "name": "책상 조명",
+     "category": "light", "kind": "bool", "unit": None, "min": None, "max": None},
 ]
 
 # 카탈로그 devices 의 한글 표시 이름(카탈로그 YAML 엔 이름이 없다). 신규 등록
@@ -102,6 +107,9 @@ _SEED_DEVICE_NAMES: dict[str, str] = {
     "switch.gas_valve": "가스 밸브",
     "light.living_room": "거실 조명",
     "cover.garage": "차고 문",
+    "fan.living_purifier": "거실 공기청정기",
+    "light.desk": "책상 조명",
+    "advice.home": "생활 권유",
 }
 
 # entity_id 형식(HA 스타일): <domain>.<object_id>. 자동 생성분도 이 형식을 지킨다.
@@ -237,10 +245,15 @@ class RuntimeRegistry:
     def executable_extras(self) -> frozenset[tuple[str, str]]:
         """실행기(executor)에 주입할 카탈로그 파생 실행 확장분.
 
-        능동 허용목록과 동일 집합 — breath 이하·비안전 액추에이터. executor 가
-        ``FORBIDDEN_OPEN`` 을 다시 빼므로 여는 방향은 여기 있어도 실행 불가.
+        능동 허용목록에서 실행 대상이 아닌 capability(권유 ``advice``)를 뺀 집합 —
+        breath 이하·비안전 액추에이터. executor 가 ``FORBIDDEN_OPEN`` 과 실행 불가
+        capability 를 다시 빼므로 여기서 새도 실행되지 않는다(이중 차단).
         """
-        return self.proactive_allowed()
+        return frozenset(
+            (cap, act)
+            for cap, act in self.proactive_allowed()
+            if cap not in NON_EXECUTABLE_CAPABILITIES
+        )
 
     def proactive_ruleset(self) -> ProactiveRuleSet:
         """config 베이스라인 규칙 + 런타임 등록 규칙을 하나의 병합 룰셋으로.

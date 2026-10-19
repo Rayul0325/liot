@@ -8,20 +8,90 @@
 # 선언 자체가 불가능하다(로더가 거부).
 #
 # limits: 생성 시 게이팅(쿨다운/예산). L4 알림 예산(6/h)과 별개로 훨씬
-# 보수적이다 — 하루 3건, 시간대(time_bucket)당 1건, 같은 (타깃, 액션) 은
+# 보수적이다 — 하루 4건(기획 3~5건), 시간대(time_bucket)당 1건, 같은 (타깃, 액션) 은
 # 60분 쿨다운.
+#
+# 기획 4장면(2026-10-19): 아침 환기·미세먼지 나쁨·취침 준비·흐린 낮. 선언 순서가 우선순위다.
+#   external: 날씨 조건(pm25 ㎍/㎥ · cloud_cover 0~1 · outdoor_temp_c). 날씨를 모르면 불성립.
+#   hours:    집 지역 시(hour) 제한. benefit: 기대 효과(0~1) — 고르기 점수의 효과 항.
+#   reason_ko: 이유 한 줄 틀({pm25}·{cloud_pct}·{outdoor_temp_c}). 시뮬레이션 사건에만 싣고
+#              ntfy 페이로드에는 넣지 않는다.
 
 version: "1.0.0"
 name: comfort
 description: >-
-  컴포트 능동 제안 시드 — 자리 비움 조명 끄기, 저녁 한기 난방 올리기.
+  컴포트 능동 제안 — 기획 4장면(아침 환기·미세먼지·취침 준비·흐린 낮) + 자리 비움 조명 끄기,
+  저녁 한기 난방 올리기.
 
 limits:
   cooldown_minutes: 60
   max_per_bucket: 1
-  max_per_day: 3
+  max_per_day: 4
 
 rules:
+  - id: morning-ventilate
+    description: 아침 + 재실 + 바깥 공기 좋음(pm25 ≤ 15) → 창문 열어 환기 권유.
+    match:
+      time_bucket: morning
+      occupancy: occupied
+    external:
+      - { key: pm25, op: le, value: 15 }
+    propose:
+      target: advice.home
+      capability: advice
+      action: ventilate
+    benefit: 0.7
+    reason_ko: "바깥 미세먼지가 {pm25}㎍/㎥로 좋아요. 창문을 10분 열어 환기하면 좋겠어요."
+    ttl_minutes: 60
+
+  - id: bad-air-purifier
+    description: 재실 + 바깥 미세먼지 나쁨(pm25 ≥ 36) → 공기청정기 세기 강.
+    match:
+      occupancy: occupied
+    external:
+      - { key: pm25, op: ge, value: 36 }
+    propose:
+      target: fan.living_purifier
+      capability: fan
+      action: set_speed
+      params: { speed: high }
+    benefit: 0.8
+    reason_ko: "미세먼지가 {pm25}㎍/㎥로 나빠졌어요. 공기청정기를 강으로 바꾸면 좋겠어요."
+    ttl_minutes: 60
+
+  - id: bedtime-dim
+    description: >-
+      저녁 21시대 + 거실 조명 켜짐 → 거실 조명 30%. 기획의 23시 장면을 조용한 시간(밤)
+      앞으로 당겼다 — 밤에는 EMBER 아래 알림이 막힌다.
+    match:
+      time_bucket: evening
+    hours: [21]
+    state:
+      - { entity: light.living_room, op: eq, value: true }
+    propose:
+      target: light.living_room
+      capability: light
+      action: set_brightness
+      params: { brightness: 30 }
+    benefit: 0.6
+    reason_ko: "잘 시간이 다가와요. 거실 조명을 30%로 낮춰 두면 잠들기 편해요."
+    ttl_minutes: 45
+
+  - id: cloudy-desk-light
+    description: 낮 + 재실 + 구름 많음(cloud_cover ≥ 0.8) → 책상 조명 켜기.
+    match:
+      time_bucket: day
+      occupancy: occupied
+    external:
+      - { key: cloud_cover, op: ge, value: 0.8 }
+    propose:
+      target: light.desk
+      capability: light
+      action: turn_on
+    benefit: 0.6
+    reason_ko: "하늘이 {cloud_pct}% 흐려요. 책상 조명을 켜면 눈이 덜 피로해요."
+    ttl_minutes: 60
+
   - id: vacant-light-off
     description: 자리 비움(재실 센서 전부 비활성) + 거실 조명 켜짐 → 끄기 제안.
     match:

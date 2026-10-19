@@ -568,9 +568,10 @@ def test_occupancy_lands_in_gate1_facts() -> None:
 # ==========================================================================
 # 6) 카탈로그 파생 허용목록 (P4) — 구 고정 6튜플 허용목록과 동치 봉인
 # ==========================================================================
-def test_derive_proactive_allowed_equals_shipped_six_tuples() -> None:
-    # THE SEAL: 출하 YAML 파생 == 구 고정 6튜플 허용목록. 리팩터의 의미
-    # 동일성을 원샷 회귀로 봉인한다(P4 최대 정합성 리스크).
+def test_derive_proactive_allowed_equals_shipped_tuples() -> None:
+    # THE SEAL: 출하 YAML 파생 == 고정 허용목록. 리팩터의 의미 동일성을 원샷 회귀로 봉인한다
+    # (P4 최대 정합성 리스크). 2026-10-19 의도적 갱신: 기획 4장면을 위해 카탈로그에
+    # fan.set_speed·advice.ventilate·advice.close_window(모두 BREATH)를 더했다(구 6 → 9).
     assert derive_proactive_allowed(load_device_catalog()) == {
         ("light", "turn_on"),
         ("light", "turn_off"),
@@ -578,6 +579,9 @@ def test_derive_proactive_allowed_equals_shipped_six_tuples() -> None:
         ("climate", "set_temperature"),
         ("cover", "close"),
         ("notify", "send"),
+        ("fan", "set_speed"),
+        ("advice", "ventilate"),
+        ("advice", "close_window"),
     }
 
 
