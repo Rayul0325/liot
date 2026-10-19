@@ -5,6 +5,8 @@ from __future__ import annotations
 import atexit
 import signal
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -301,3 +303,84 @@ def test_stop_keeps_pidfile_rewritten_by_someone_else(world: World):
     world.pidfile.write_text("9999\n")
     assert mgr.stop_if_ours() is True
     assert world.pidfile.read_text().strip() == "9999"
+
+
+def _contended(world: World) -> DecisionServerManager:
+    """큰 락 대기를 0.05초로 줄인 관리자(락 경합 시험용)."""
+    mgr = world.manager()
+    mgr._stop_lock_wait_s = 0.05
+    return mgr
+
+
+def test_stop_under_contention_waits_for_launch_and_kills_unrecorded_proc(world: World):
+    # 스레드 A 가 큰 락을 쥔 채 launcher 안에 있다(프로세스는 떴지만 _proc 기록 전).
+    # 그때 온 끄기는 큰 락을 못 잡아도 그 프로세스를 놓치면 안 된다(고아 방지).
+    proc = FakeProc(7101)
+    entered, release = threading.Event(), threading.Event()
+
+    def slow_launch(cmd: list[str], log_path: Path) -> FakeProc:
+        entered.set()
+        assert release.wait(5.0)
+        world.next_proc = proc
+        return world.launch(cmd, log_path)
+
+    world.healthy = False  # 준비 대기가 끄기 전에 성공으로 끝나지 않게(결정적)
+    mgr = _contended(world)
+    mgr._launcher = slow_launch
+    errors: list[BaseException] = []
+
+    def spawn() -> None:
+        try:
+            mgr.ensure_running(timeout_s=5.0)
+        except DecisionServerError as exc:
+            errors.append(exc)
+
+    a = threading.Thread(target=spawn)
+    a.start()
+    assert entered.wait(5.0)
+    result: list[bool] = []
+    b = threading.Thread(target=lambda: result.append(mgr.stop_if_ours()))
+    b.start()
+    time.sleep(0.2)  # 끄기가 큰 락 대기(0.05초)를 넘겨 띄우기 구간 앞에서 기다리게
+    assert result == []
+    release.set()
+    b.join(5.0)
+    a.join(5.0)
+    assert result == [True]
+    assert proc.terminated == 1
+    assert not world.pidfile.exists()
+    # 끈 뒤 준비 대기는 poll() 로 종료를 보고 오류로 빠진다(띄운 채 성공으로 보고하지 않는다).
+    assert len(errors) == 1
+
+
+def test_stop_under_contention_before_launch_cancels_the_spawn(world: World):
+    # 스레드 A 가 큰 락을 쥔 채 아직 띄우기 전(실행 파일 찾는 중)이다. 그때 온 끄기는
+    # 끌 것이 없지만, 뒤이어 프로세스가 뜨면 고아가 되므로 그 띄우기를 취소시킨다.
+    entered, release = threading.Event(), threading.Event()
+
+    def slow_finder() -> str | None:
+        entered.set()
+        assert release.wait(5.0)
+        return world.binary
+
+    mgr = _contended(world)
+    mgr._binary_finder = slow_finder
+    errors: list[BaseException] = []
+
+    def spawn() -> None:
+        try:
+            mgr.ensure_running(timeout_s=5.0)
+        except DecisionServerError as exc:
+            errors.append(exc)
+
+    a = threading.Thread(target=spawn)
+    a.start()
+    assert entered.wait(5.0)
+    assert mgr.stop_if_ours() is False
+    release.set()
+    a.join(5.0)
+    assert world.launched == []
+    assert len(errors) == 1 and "띄우지 않았습니다" in str(errors[0])
+    # 취소 표식은 그 호출 몫이다 — 다음 호출은 정상으로 띄운다.
+    assert mgr.ensure_running().spawned_by_us
+    assert len(world.launched) == 1

@@ -218,6 +218,9 @@ async def test_night_comfort_proposal_is_judged_with_quiet_hours(env: LiveEnv) -
     out_day = gate_stage(await _comfort_proposal(env, day), Clock(fixed=day))
     assert out_day["quiet_hours"] is False
     assert out_day["verdict"] == "IMMEDIATE"
+    # 낮 DUSK 편의 제안은 그냥 통과할 뿐 우회가 아니다 — 우회 탐지가 '즉시 = 우회'로
+    # 무너지면(탐지 문맥이 최근 발화를 빼먹으면) 여기서 잡힌다.
+    assert out_day["bypass"] is False
 
 
 async def test_prod_model_raise_produces_followup_but_never_pages_family(env: LiveEnv) -> None:

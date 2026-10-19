@@ -158,6 +158,7 @@ class DecisionServerManager:
         monotonic: Callable[[], float] = time.monotonic,
         poll_interval_s: float = 0.5,
         stop_wait_s: float = 10.0,
+        stop_lock_wait_s: float = 2.0,
     ) -> None:
         self.model_path = model_path
         self.log_path = log_path
@@ -174,8 +175,16 @@ class DecisionServerManager:
         self._monotonic = monotonic
         self._poll_interval_s = poll_interval_s
         self._stop_wait_s = stop_wait_s
+        self._stop_lock_wait_s = stop_lock_wait_s
         # 재진입 락: 신호 처리기는 락을 쥔 메인 스레드 위에서도 돌 수 있다.
         self._lock = threading.RLock()
+        # 띄우기 구간(launcher 호출 → _proc 기록) 전용 짧은 락. 준비 대기로 큰 락을 오래 쥔
+        # 스레드가 있어도, 락 없이 끄는 쪽이 '방금 띄웠지만 아직 기록 안 된' 프로세스를
+        # 놓치지 않게 이 구간만은 기다린다(놓치면 서버가 고아로 남는다). 재진입 락인 이유는
+        # 큰 락과 같다 — 띄우기 구간 안의 메인 스레드 위에서 신호 처리기가 돌면 교착이 난다.
+        self._launch_lock = threading.RLock()
+        # 큰 락을 못 잡은 채 끄기가 왔는데 아직 띄우기 전이면 세운다 — 그 띄우기를 취소한다.
+        self._cancel_spawn = False
         self._proc: ServerProcess | None = None
         self._cleanup_installed = False
 
@@ -183,6 +192,9 @@ class DecisionServerManager:
 
     def ensure_running(self, timeout_s: float = 180.0) -> ServerHandle:
         with self._lock:
+            # 앞선 호출 때 세워진 취소 표식은 그 호출 몫이었다 — 새 호출은 깨끗하게 시작한다.
+            with self._launch_lock:
+                self._cancel_spawn = False
             if self._proc is not None and self._proc.poll() is not None:
                 self._proc = None  # 우리가 띄운 서버가 그새 죽었다
             reused = self._reusable_pid()
@@ -214,9 +226,13 @@ class DecisionServerManager:
             raise DecisionServerError(
                 f"포트 {PORT} 를 다른 프로세스가 쓰고 있습니다 — 확인 후 다시 시도하세요."
             )
-        proc = self._launcher(build_command(binary, self.model_path), self.log_path)
-        self._proc = proc
-        self._write_pid(proc.pid)
+        with self._launch_lock:
+            if self._cancel_spawn:
+                self._cancel_spawn = False
+                raise DecisionServerError("종료 중이라 결정 모델 서버를 띄우지 않았습니다.")
+            proc = self._launcher(build_command(binary, self.model_path), self.log_path)
+            self._proc = proc
+            self._write_pid(proc.pid)
         t0 = self._monotonic()
         while True:
             rc = proc.poll()
@@ -240,12 +256,17 @@ class DecisionServerManager:
     def stop_if_ours(self) -> bool:
         """이 프로세스가 띄운 서버만 끈다. 끈 게 있으면 True."""
         # 다른 스레드가 준비 대기로 락을 오래 쥐고 있어도 종료는 막히면 안 된다.
-        # 못 잡으면 락 없이 진행한다 — 대기 중인 쪽은 poll() 로 종료를 보고 빠진다.
-        got = self._lock.acquire(timeout=2.0)
+        # 못 잡으면 큰 락 없이 진행한다 — 대기 중인 쪽은 poll() 로 종료를 보고 빠진다.
+        # 띄우기 구간(_launch_lock)만은 기다린다: 그 안에서는 프로세스가 이미 떴는데
+        # _proc 가 아직 비어 있을 수 있다. 아직 띄우기 전이면 그 띄우기를 취소한다.
+        got = self._lock.acquire(timeout=self._stop_lock_wait_s)
         try:
-            proc = self._proc
-            if proc is None:
-                return False
+            with self._launch_lock:
+                proc = self._proc
+                if proc is None:
+                    if not got:
+                        self._cancel_spawn = True
+                    return False
             self._terminate(proc)
             self._forget(proc)
             return True
