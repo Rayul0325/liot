@@ -1,0 +1,81 @@
+# 벤치 후보 모델(llama.cpp GGUF 만). 파일은 ~/models/judge/ 에 둔다 — 저장소에 넣지 않는다.
+#
+# format_fit: 이 벤치가 모든 모델에 똑같이 쓰는 JK5 형식 프롬프트(ChatML system+user,
+#   빈 <think> 블록, evidence/criterion/options JSON, 첫 토큰 A–D 글자 확률 판독)가
+#   그 모델 카드가 말하는 사용법과 맞는지.
+#     fit      카드가 같은 형식을 쓴다.
+#     partial  턴 형식은 같지만 카드의 학습 프롬프트 본문이 다르다.
+#     no       카드의 판정 인터페이스가 글자 확률 판독이 아니다 — 이 벤치 숫자는 그 모델의
+#              실력이 아니라 '이 프롬프트로 백본을 읽었을 때'의 값이다.
+# small_hub: 4B 이하(소형 허브 후보).
+version: 1
+models:
+  - key: jevk5-9b-q8
+    file: jevk5-9b-v0.3.3-Q8_0.gguf
+    hf: alibiserikbay/JevK5-GGUF
+    params_b: 9
+    quant: Q8_0
+    small_hub: false
+    format_fit: fit
+    format_note: >-
+      카드의 standalone client 와 같은 system 문구·ChatML·빈 think 블록·/tokenize(parse_special)
+      →/completion n_probs 40 판독. 차이 두 가지: 카드는 선택지 설명을 "id: 설명" 으로, 백엔드는
+      "id — 설명" 으로 쓴다. 카드는 파일별 temperature(9B v0.3.3 = 1.316)로 확률을 보정하지만
+      백엔드는 보정하지 않는다(argmax 는 같고 확률값만 다르다).
+  - key: jevk5-4b-q8
+    file: jevk5-4b-v0.3-Q8_0.gguf
+    hf: alibiserikbay/JevK5-GGUF
+    params_b: 4
+    quant: Q8_0
+    small_hub: true
+    format_fit: fit
+    format_note: >-
+      9B 와 같은 카드·같은 형식. 카드 temperature 는 1.22(백엔드는 보정 안 함, argmax 불변).
+  - key: jevk5-4b-q4
+    file: jevk5-4b-v0.3-Q4_K_M.gguf
+    hf: alibiserikbay/JevK5-GGUF
+    params_b: 4
+    quant: Q4_K_M
+    small_hub: true
+    format_fit: fit
+    format_note: >-
+      9B 와 같은 카드·같은 형식. 카드 기준 bf16 과 같은 답 221/231(Q8 은 229/231).
+  - key: apus-openjev-4b-q4
+    file: APUS-OpenJev-v1-4B-Q4_K_M.gguf
+    hf: apus-ailab/APUS-OpenJev-v1-4B-GGUF
+    params_b: 4
+    quant: Q4_K_M
+    small_hub: true
+    format_fit: partial
+    format_note: >-
+      ChatML + 빈 think 블록 + 첫 글자 판독은 같다. 그러나 학습 프롬프트(openjev_contracts.py,
+      jev.dynamic.prompt.v2)는 system 턴이 없고 본문이 "Shared state:\n<state>\n\n" + 정렬된
+      task JSON(primitive/instructions/criteria) + "Return only the selected letter: A, B, C, D.
+      \nAnswer:" 이다. 이 벤치는 그 형식이 아닌 JK5 형식을 넣는다. 카드는 확률이 보정되지
+      않았다고 적는다.
+  - key: jev-9b-q6
+    file: JEV-9B.Q6_K.gguf
+    hf: prithivMLmods/JEV-9B-GGUF
+    params_b: 9
+    quant: Q6_K
+    small_hub: false
+    format_fit: "no"
+    format_note: >-
+      원본 autotrust/JEV-9B 의 판정 경로(System 1)는 별도 LoRA + 24칸 fp32 decision head 이고,
+      GGUF 는 lm_head 를 쓰는 생성 경로(System 2, 원본 카드상 Qwen3.5-9B 와 비트 동일)만 담는
+      것으로 보인다(이 GGUF 카드에 판정 인터페이스 설명이 없다). 그래서 이 숫자는 'JK5 프롬프트로
+      Qwen3.5-9B 계열 생성 헤드를 읽은 값'이다. 이 저장소에 Q8_0 이 없어 Q6_K 를 쓴다
+      (mradermacher/JEV-9B-GGUF 에 Q8_0 이 있다).
+  - key: jev-omni-q4
+    file: Jev-Omni-Q4_K_M.gguf
+    hf: ngquocvinh/Jev-Omni-GGUF
+    params_b: 12
+    quant: Q4_K_M
+    small_hub: false
+    format_fit: "no"
+    format_note: >-
+      공식이 아닌 커뮤니티 GGUF(원본 akhilaaa3/Jev-Omni, Gemma 4 12B IT 기반). 카드가 명시한다 —
+      "A plain text-generation request is not the classifier interface": 판정은 llama-server
+      --embedding 으로 받은 토큰 임베딩에 동봉 FP32 decision head 를 곱하는 별도 어댑터 스크립트
+      몫이다. 또 Gemma 의 턴 표식은 <start_of_turn> 이라 ChatML 표식이 특수 토큰이 아닌 글자로
+      들어간다. 어댑터 스크립트(내려받은 코드)는 실행하지 않았다. 이 숫자는 판정기 성능이 아니다.
