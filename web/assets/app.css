@@ -1683,3 +1683,214 @@ input[type="range"]:focus-visible {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ── 헤더 오른쪽(화면 이동 링크 + 상태) ─────────────────────────────── */
+.hdr-right {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--s3);
+}
+.hdr-link {
+  font-size: 13px;
+  color: var(--accent);
+  text-decoration: none;
+  padding: var(--s2) var(--s3);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: 999px;
+  transition: background 0.14s ease;
+}
+.hdr-link:hover {
+  background: var(--accent-glow);
+}
+.hdr-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+/* 파급도 출처(표·거주자·모델) 보조 글자 */
+.sev-src {
+  font-size: 11.5px;
+  color: var(--ink-dim);
+}
+
+/* ── 우리 집 · 보호자 설정 화면 ───────────────────────────────────── */
+.sf-layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--s4);
+  padding: var(--s5) var(--s6);
+  align-items: start;
+}
+.sf-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--s4) var(--s5);
+  min-width: 0;
+}
+.sf-card--wide {
+  grid-column: 1 / -1;
+}
+.sf-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.sf-input {
+  width: 100%;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 8px 11px;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 13.5px;
+}
+.sf-input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+.sf-row-end {
+  display: flex;
+  justify-content: flex-end;
+}
+.sf-help {
+  font-size: 13px;
+  color: var(--ink-dim);
+  line-height: 1.55;
+}
+.sf-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.sf-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  background: var(--bg-raised);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: var(--s3);
+}
+.sf-item .detail-facts dt {
+  white-space: normal;
+}
+.sf-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.sf-btns,
+.sf-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.sf-btns .btn-secondary {
+  padding: 6px 12px;
+  font-size: 12.5px;
+}
+.btn-danger {
+  background: var(--tier-3);
+  border-color: var(--tier-3);
+  color: #1a0505;
+}
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--tier-3) 85%, #000);
+}
+.btn-danger-ghost:hover {
+  color: var(--tier-3);
+  border-color: color-mix(in srgb, var(--tier-3) 45%, transparent);
+}
+.sf-radios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s4);
+}
+.sf-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.modal-form .sf-radio input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.sf-disabled {
+  opacity: 0.45;
+}
+.sf-notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--tier-1) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tier-1) 35%, transparent);
+  border-radius: var(--radius-sm);
+  padding: var(--s3);
+}
+.sf-notice-title {
+  font-weight: 650;
+  color: var(--tier-1);
+}
+.sf-topic {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  word-break: break-all;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: var(--s3);
+  user-select: all;
+}
+.sf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.sf-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--ink-faint);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.sf-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink);
+}
+.sf-empty {
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .sf-layout {
+    grid-template-columns: 1fr;
+    padding: var(--s4);
+  }
+  .hdr {
+    flex-wrap: wrap;
+  }
+}

@@ -357,6 +357,43 @@ function traceTier(t) {
   return chip;
 }
 
+/**
+ * 상황 파급도 칩(기록만/주의/경고/위험). 위험 등급과 별개의 축이지만 같은 4색을 쓴다
+ * (0=기록만 … 3=위험). 파급도가 없는 판단(쾌적 등)이면 null.
+ * @param {{level:number, ko:string}|null|undefined} s 서버의 severity 뷰
+ * @param {boolean} [withLabel] true 면 "파급도 경고"처럼 앞에 축 이름을 붙인다(등급 칩 옆에 놓일 때)
+ * @returns {HTMLElement|null}
+ */
+function severityChip(s, withLabel) {
+  if (!s) return null;
+  const chip = el("span", "chip", withLabel ? "파급도 " + s.ko : s.ko);
+  chip.dataset.tier = String(s.level);
+  chip.title = "상황 파급도";
+  return chip;
+}
+
+/** 파급도 → "경고" / "없음". */
+function severityText(s) {
+  return s ? s.ko : "없음";
+}
+
+/** 파급도 출처 → "표 · 거주자 · 모델" / "—". */
+function severitySources(s) {
+  return s && s.sources_ko && s.sources_ko.length ? s.sources_ko.join(" · ") : "—";
+}
+
+/** 라벨 + 파급도 칩 행(없으면 "없음" 글자). */
+function severityMetric(s) {
+  const row = el("div", "metric");
+  row.append(el("span", "metric-k", "파급도"));
+  const chip = severityChip(s);
+  row.append(chip || el("span", "metric-v", "없음"));
+  if (s && s.sources_ko && s.sources_ko.length) {
+    row.append(el("span", "metric-v sev-src", "출처: " + severitySources(s)));
+  }
+  return row;
+}
+
 /** 스테이지 head 에 붙는 등급 칩(Gate1 하한·L4 판정·알림 제안 등급). */
 function stageChip(key, data) {
   if (key === "gate1" && data.gate1) return traceTier(data.gate1.floor_tier);
@@ -525,6 +562,7 @@ function bodyGate2(data) {
   wrap.append(row);
   wrap.append(metric("모델", g.model_id));
   wrap.append(metric("신뢰도", Number(g.confidence).toFixed(2)));
+  if (data.judgment) wrap.append(severityMetric(data.judgment.severity));
   if (g.degraded) wrap.append(el("p", "stage-note", "성능 저하 모드"));
   return wrap;
 }
@@ -552,6 +590,7 @@ function bodyNotify(data) {
   const wrap = el("div", "notify-card");
   wrap.append(el("span", "notify-dev", nameFor(p.entity_id)));
   wrap.append(el("span", "notify-act", p.capability + "." + p.action));
+  wrap.append(severityMetric(p.severity));
   return wrap;
 }
 
@@ -688,6 +727,9 @@ function factRows(key, data) {
       ["모델", g.model_id],
       ["신뢰도", g.confidence],
       ["성능 저하", g.degraded ? "예" : "아니오"],
+      ["파급도", severityText(j.severity)],
+      ["파급도 출처", severitySources(j.severity)],
+      ["파급도 하한", j.severity_floor ? j.severity_floor.ko : "없음"],
       ["사유", j.rationale],
     ];
   }
@@ -707,6 +749,8 @@ function factRows(key, data) {
       ["기기", nameFor(p.entity_id)],
       ["행동", p.capability + "." + p.action],
       ["등급", p.tier ? p.tier.ko : null],
+      ["파급도", severityText(p.severity)],
+      ["파급도 출처", severitySources(p.severity)],
       ["카테고리", p.category],
       ["확인 요구", CONFIRM_LABELS[p.required_confirmation] || p.required_confirmation],
       ["사유", p.rationale],
@@ -868,6 +912,8 @@ function renderPhoneProposal(data) {
   sub.append(el("span", "notif-act", p.capability + "." + p.action));
   const chip = traceTier(p.tier);
   if (chip) sub.append(chip);
+  const sev = severityChip(p.severity, true);
+  if (sev) sub.append(sev);
   card.append(sub);
   if (p.rationale) card.append(el("p", "notif-reason", abbrev(p.rationale, 88)));
 

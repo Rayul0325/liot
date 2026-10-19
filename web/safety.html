@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>우리 집 설정</title>
+    <meta
+      name="description"
+      content="거주자 정보, 보호자, 알림 전달 동의와 전달 기록을 이 기기에서 관리한다."
+    />
+    <meta name="theme-color" content="#0a0e15" />
+    <link rel="stylesheet" href="assets/app.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0e15'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='%2335c6ff' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='2' fill='%2335c6ff'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <header class="hdr">
+      <div class="hdr-brand">
+        <span class="hdr-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="26" height="26">
+            <circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="2" />
+            <circle cx="16" cy="16" r="2.4" fill="currentColor" />
+          </svg>
+        </span>
+        <span class="hdr-titles">
+          <span class="hdr-title">우리 집 · 보호자 설정</span>
+          <span class="hdr-sub">이 화면의 정보는 이 기기에만 저장됩니다</span>
+        </span>
+      </div>
+      <div class="hdr-right">
+        <a class="hdr-link" href="app.html">← 관제실로</a>
+        <div class="hdr-status" id="status" data-state="loading">
+          <span class="hdr-dot" aria-hidden="true"></span>
+          <span class="hdr-status-text" id="statusText">불러오는 중…</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="sf-layout">
+      <!-- 우리 집 -->
+      <section class="sf-card" aria-labelledby="homeTitle">
+        <div class="board-head">
+          <h2 class="board-title" id="homeTitle">우리 집</h2>
+        </div>
+        <form class="sf-form" id="homeForm">
+          <label class="field">
+            <span class="field-label">집 이름 (보호자 알림에 이 이름으로 나갑니다)</span>
+            <input class="sf-input" type="text" id="homeAlias" maxlength="40" placeholder="우리 집" />
+          </label>
+          <label class="safety-field">
+            <input class="safety-check" type="checkbox" id="livesAlone" />
+            <span class="safety-label">혼자 산다</span>
+          </label>
+          <p class="modal-error" id="homeError" role="alert" hidden></p>
+          <div class="sf-row-end">
+            <button class="btn-primary" type="submit">저장</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- 거주자 -->
+      <section class="sf-card" aria-labelledby="residentTitle">
+        <div class="board-head">
+          <h2 class="board-title" id="residentTitle">함께 사는 사람</h2>
+          <button class="btn-add" type="button" id="addResidentBtn">
+            <span class="btn-plus" aria-hidden="true">+</span> 사람 추가
+          </button>
+        </div>
+        <p class="sf-help">
+          위급할 때 알림을 얼마나 세게 보낼지 정하는 데만 씁니다. 실명 대신 부르는 이름(예: 할머니)을 적어 주세요.
+        </p>
+        <ul class="sf-list" id="residentList" aria-live="polite"></ul>
+      </section>
+
+      <!-- 보호자 -->
+      <section class="sf-card" aria-labelledby="guardianTitle">
+        <div class="board-head">
+          <h2 class="board-title" id="guardianTitle">보호자</h2>
+          <button class="btn-add" type="button" id="addGuardianBtn">
+            <span class="btn-plus" aria-hidden="true">+</span> 보호자 추가
+          </button>
+        </div>
+        <p class="sf-help">
+          위급한 상황을 보호자에게 전달하려면 집에 사는 사람 중 한 명이 「전달 동의」를 해야 합니다.
+          누구든 언제든 철회할 수 있습니다.
+        </p>
+        <label class="field">
+          <span class="field-label">동의·철회를 하는 사람</span>
+          <select class="field-select" id="actingResident"></select>
+        </label>
+        <ul class="sf-list" id="guardianList" aria-live="polite"></ul>
+      </section>
+
+      <!-- 동의 이력 -->
+      <section class="sf-card" aria-labelledby="consentTitle">
+        <div class="board-head">
+          <h2 class="board-title" id="consentTitle">동의 이력</h2>
+        </div>
+        <div class="cand-scroll">
+          <table class="sf-table" id="consentTable">
+            <thead>
+              <tr><th>언제</th><th>무엇을</th><th>어느 보호자</th><th>누가</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 전달 기록 -->
+      <section class="sf-card sf-card--wide" aria-labelledby="forwardTitle">
+        <div class="board-head">
+          <h2 class="board-title" id="forwardTitle">전달 기록</h2>
+        </div>
+        <p class="sf-help">언제 어떤 상황이 누구에게 전달됐는지 보여 줍니다.</p>
+        <div class="cand-scroll">
+          <table class="sf-table" id="forwardTable">
+            <thead>
+              <tr><th>언제</th><th>어떤 상황</th><th>무엇을</th><th>누구에게</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div id="modalRoot"></div>
+
+    <script src="assets/safety.js"></script>
+  </body>
+</html>
