@@ -370,19 +370,25 @@ def _texts(items: object, *, kind_key: str, kind: str) -> list[str]:
     ]
 
 
+# Anthropic 이 '답을 다 썼다'고 하는 stop_reason. 그 밖의 값·없음은 끊긴 것으로 본다.
+_ANTHROPIC_DONE = frozenset({"end_turn", "stop_sequence"})
+
+
 def reply_truncated(provider: Provider, data: Mapping[str, Any]) -> bool:
     """응답이 출력 상한 등으로 중간에 끊겼는가. 끊긴 글은 검증을 통과해도 쓰지 않는다.
 
     실사례(2026-10-20): gpt-6-luna 가 max_output_tokens 에 닿아 "…외기온 14.2℃와 미세먼지" 를
     돌려줬고 한 줄·80자·한글 검사를 다 통과했다.
-      - anthropic: ``stop_reason == "max_tokens"``
-      - openai(Responses): ``status == "incomplete"``
-      - gemini: ``candidates[0].finishReason != "STOP"`` (없어도 끊긴 것으로 본다)
+    세 회사 모두 **끝났다는 표시가 있을 때만** 끝난 답으로 친다(표시가 없거나 목록에 없는 값이면 끊긴 것).
+      - anthropic: ``stop_reason`` 이 ``end_turn``·``stop_sequence`` 가 아니면 끊김
+        (``max_tokens``·``pause_turn``·``refusal``·없음 …)
+      - openai(Responses): ``status`` 가 ``completed`` 가 아니면 끊김(``incomplete``·없음 …)
+      - gemini: ``candidates[0].finishReason`` 이 ``STOP`` 이 아니면 끊김(없음 포함)
     """
     if provider == "anthropic":
-        return data.get("stop_reason") == "max_tokens"
+        return data.get("stop_reason") not in _ANTHROPIC_DONE
     if provider == "openai":
-        return data.get("status") == "incomplete"
+        return data.get("status") != "completed"
     candidates = data.get("candidates")
     first = candidates[0] if isinstance(candidates, list) and candidates else None
     return not (isinstance(first, Mapping) and first.get("finishReason") == "STOP")

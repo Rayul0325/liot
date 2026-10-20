@@ -63,7 +63,7 @@ def _cfg(provider: str = "anthropic") -> CheapModelConfig:
 def _reply(provider: str, text: str, tokens_in: int = 31, tokens_out: int = 17) -> dict[str, Any]:
     """회사별 실제 응답 모양(필요한 필드만)."""
     if provider == "anthropic":
-        return {"content": [{"type": "text", "text": text}],
+        return {"content": [{"type": "text", "text": text}], "stop_reason": "end_turn",
                 "usage": {"input_tokens": tokens_in, "output_tokens": tokens_out}}
     if provider == "gemini":
         return {"candidates": [{"content": {"role": "model", "parts": [
@@ -73,6 +73,7 @@ def _reply(provider: str, text: str, tokens_in: int = 31, tokens_out: int = 17) 
                                   "candidatesTokenCount": tokens_out}}
     return {"output": [{"type": "reasoning", "summary": []},
                        {"type": "message", "content": [{"type": "output_text", "text": text}]}],
+            "status": "completed",
             "usage": {"input_tokens": tokens_in, "output_tokens": tokens_out}}
 
 
@@ -556,3 +557,37 @@ def test_requests_turn_thinking_down_per_provider() -> None:
     assert oai["reasoning"] == {"effort": "none"}
     ant = build_request(_cfg("anthropic"), KEY, "S", "U").body
     assert ant["thinking"] == {"type": "disabled"} and "reasoning" not in ant
+
+
+# ── 리뷰: 끝났다는 표시가 있을 때만 끝난 답 ───────────────────────────────────
+
+
+@pytest.mark.parametrize(("provider", "marker"), [
+    ("anthropic", {}), ("anthropic", {"stop_reason": None}),
+    ("anthropic", {"stop_reason": "pause_turn"}), ("anthropic", {"stop_reason": "refusal"}),
+    ("anthropic", {"stop_reason": "tool_use"}), ("anthropic", {"stop_reason": "MAX_TOKENS"}),
+    ("openai", {}), ("openai", {"status": None}), ("openai", {"status": "in_progress"}),
+    ("openai", {"status": "failed"}), ("openai", {"status": "cancelled"}),
+])
+def test_absent_or_unlisted_stop_marker_counts_as_truncated(
+    provider: str, marker: dict[str, Any],
+) -> None:
+    from liot.cheap_llm import reply_truncated
+
+    reply = _reply(provider, GOOD)
+    reply.pop("stop_reason", None)
+    reply.pop("status", None)
+    reply.update(marker)
+    assert reply_truncated(provider, reply)  # type: ignore[arg-type]
+    llm = CheapLLM(_cfg(provider), KEY, transport=FakeTransport(reply))
+    res = llm.reason(FACTS, fallback=FALLBACK)
+    assert (res.source, res.fallback_reason) == ("fallback", "invalid_output")
+
+
+def test_listed_done_markers_are_not_truncated() -> None:
+    from liot.cheap_llm import reply_truncated
+
+    assert not reply_truncated("anthropic", {"stop_reason": "end_turn"})
+    assert not reply_truncated("anthropic", {"stop_reason": "stop_sequence"})
+    assert not reply_truncated("openai", {"status": "completed"})
+    assert not reply_truncated("gemini", {"candidates": [{"finishReason": "STOP"}]})

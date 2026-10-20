@@ -71,7 +71,7 @@ class FakeCheap:
                 "[그만해]" if "공기청정기" in facts["title"] else "도움됐어요")
         else:
             text = self.reason
-        return {"content": [{"type": "text", "text": text}],
+        return {"content": [{"type": "text", "text": text}], "stop_reason": "end_turn",
                 "usage": {"input_tokens": 120, "output_tokens": 20}}
 
     @staticmethod
@@ -1072,3 +1072,79 @@ def test_memory_events_stream_within_their_own_step(
         elif st == "step":
             closed = max(closed, when(d))
     assert checked > 10
+
+
+# ── 리뷰: 외부 호출 대체 사유 · luna 전체 마감 ───────────────────────────────
+
+
+def test_ext_reports_cap_timeout_and_refused(tmp_path: Path) -> None:
+    import time as _time
+
+    from liot.memory_client import MemoryRefused
+
+    kit = _kit(tmp_path, call_cap=2)
+    kit.call_timeout_s = 0.05
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=kit)
+
+    def refuse() -> str:
+        raise MemoryRefused("범위")
+
+    def slow() -> str:
+        _time.sleep(0.3)
+        return "late"
+
+    assert asyncio.run(sim._ext(kit, "memory", refuse)) is None
+    assert sim._ext_miss == "refused"
+    assert asyncio.run(sim._ext(kit, "memory", slow)) is None
+    assert sim._ext_miss == "timeout"
+    assert asyncio.run(sim._ext(kit, "memory", lambda: "ok")) is None  # 상한 2회를 다 썼다
+    assert sim._ext_miss == "cap"
+
+
+def test_slow_reason_call_is_recorded_as_timeout(tmp_path: Path) -> None:
+    import threading
+    import time as _time
+
+    class SlowFirst(FakeCheap):
+        def __init__(self) -> None:
+            super().__init__()
+            self.slowed = threading.Event()
+
+        def post(self, request: ProviderRequest, *, timeout_s: float) -> dict[str, Any]:
+            if not self.is_choice(request) and not self.slowed.is_set():
+                self.slowed.set()
+                _time.sleep(1.0)
+            return super().post(request, timeout_s=timeout_s)
+
+    kit = _kit(tmp_path, cheap=SlowFirst())
+    kit.call_timeout_s = 0.3
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=kit)
+    _run(sim)
+    first = sim.proposals[0]
+    assert (first["reason_source"], first["reason_fallback"]) == ("template", "timeout")
+    assert first["reason_fallback_ko"] == "시간 초과"
+
+
+def test_luna_comparison_has_an_overall_deadline(tmp_path: Path) -> None:
+    """luna 비교 전체(요청 최대 2번)에 마감이 있다 — 늦으면 '미접근 — 시간 초과'로 남기고 간다."""
+    import threading
+    import time as _time
+
+    class SlowLuna(FakeLuna):
+        def __init__(self) -> None:
+            self.slowed = threading.Event()
+
+        def post(self, request: ProviderRequest, *, timeout_s: float) -> dict[str, Any]:
+            if not self.slowed.is_set():
+                self.slowed.set()
+                _time.sleep(2.0)
+            return super().post(request, timeout_s=timeout_s)
+
+    kit = _kit(tmp_path)
+    kit.luna = LunaShadow(LunaConfig("logprobs", "gpt-6-luna", 1.0), KEY, transport=SlowLuna())
+    kit.call_timeout_s = 0.3  # luna 전체 마감 = 2 × 0.3 초
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=kit)
+    _run(sim)
+    first = sim.luna_results[0]
+    assert first["status"] == "unavailable" and first["reason_ko"] == "luna 미접근 — 시간 초과"
+    assert all(r["status"] == "ok" for r in sim.luna_results[1:])
