@@ -316,3 +316,158 @@ def test_no_trait_words_in_any_trace(seed1: tuple[DaySim, Events]) -> None:
     _, events = seed1
     blob = json.dumps(_traces(events), ensure_ascii=False)
     assert not any(word in blob for word in TRAIT_WORDS)
+
+
+# ── 1b: 안전 main · followup · 피드백 ──────────────────────────────────────────
+
+SAFETY_MAIN = ["sense", "classify", "floor", "first_alert", "phone"]
+FOLLOWUP = ["model", "severity", "followup", "ladder"]
+
+
+@pytest.fixture(scope="module")
+def seed7() -> tuple[DaySim, Events]:
+    sim = DaySim(seed=7, days=3, trace=True)
+    return sim, _run(sim)
+
+
+def test_safety_main_nodes_and_only_first_alert_is_timed(seed7: tuple[DaySim, Events]) -> None:
+    sim, events = seed7
+    mains = [t for t in _traces(events) if t["kind"] == "safety" and t["part"] == "main"]
+    firsts = [s for s in sim.safety_events if s["kind"] == "first_alert"]
+    assert len(mains) == len(firsts) == 3
+    for t, alert in zip(mains, firsts, strict=True):
+        assert [n["id"] for n in t["nodes"]] == SAFETY_MAIN
+        assert t["proposal_id"] == alert["id"]
+        timed = {n["id"]: n["real_ms"] for n in t["nodes"]}
+        assert isinstance(timed["first_alert"], float) and timed["first_alert"] >= 0
+        assert all(v is None for k, v in timed.items() if k != "first_alert")
+        assert "읽기부터 첫 경보 전송까지" in t["nodes"][3]["detail_ko"]
+        assert not any("binary_sensor." in n["detail_ko"] for n in t["nodes"])
+
+
+def test_safety_main_comes_right_after_its_first_alert_event(seed7: tuple[DaySim, Events]) -> None:
+    _, events = seed7
+    for i, (st, d) in enumerate(events):
+        if st == "trace" and d["kind"] == "safety" and d["part"] == "main":
+            prev_st, prev = events[i - 1]
+            assert prev_st == "safety" and prev["kind"] == "first_alert"
+            assert prev["id"] == d["proposal_id"]
+
+
+def test_safety_main_follows_the_first_send(seed7: tuple[DaySim, Events]) -> None:
+    sim, _ = seed7
+    # 첫 경보 전송이 handle_reading 안에서 끝난 뒤에야 trace 가 나간다 — 전송 기록에 그 제안이 있다.
+    for alert in (s for s in sim.safety_events if s["kind"] == "first_alert"):
+        assert ("send", sim._tracked[alert["id"]].pid) in sim.log
+
+
+def test_followup_nodes_and_phase2_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[int, str, bool, float]] = []
+    real = _TraceRecorder.judge_call
+
+    def spy(self: _TraceRecorder, step_no: int, entity_id: str, phase2: bool,
+            seconds: float) -> None:
+        calls.append((step_no, entity_id, phase2, seconds))
+        real(self, step_no, entity_id, phase2, seconds)
+
+    monkeypatch.setattr(_TraceRecorder, "judge_call", spy)
+    sim = DaySim(seed=7, days=3, trace=True)
+    events = _run(sim)
+    follow = [t for t in _traces(events) if t["kind"] == "safety" and t["part"] == "followup"]
+    assert len(follow) == 3
+    for t in follow:
+        assert [n["id"] for n in t["nodes"]] == FOLLOWUP
+        model = t["nodes"][0]
+        phase2 = [round(s * 1000.0, 2) for _, _, p2, s in calls if p2]
+        assert model["real_ms"] in phase2 and model["model"] == "fake-llm-v1"
+        assert t["nodes"][1]["detail_ko"].startswith("파급도 ")
+        assert t["nodes"][3]["detail_ko"].startswith("재알림 예약")
+
+
+def test_followup_after_deadline_has_no_time_and_late_writes_do_not_leak(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+    import time as _time
+
+    class SlowSeverity(FakeJev):
+        """첫 2단계(파급도 질문이 있는) 요청만 마감보다 늦게 답한다."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.slowed = threading.Event()
+
+        def post(self, payload: dict[str, Any], *, timeout_s: float) -> dict[str, Any]:
+            if "severity" in payload["questions"] and not self.slowed.is_set():
+                self.slowed.set()
+                _time.sleep(0.6)
+            return super().post(payload, timeout_s=timeout_s)
+
+    monkeypatch.setattr(day_sim, "CLOUD_PHASE2_DEADLINE_S", 0.2)
+    kit = _kit(tmp_path)
+    kit.judge = JevBackend(transport=SlowSeverity())
+    sim = DaySim(seed=7, days=2, models="cloud", cloud=kit, trace=True)
+    events = _run(sim)
+    follow = [t for t in _traces(events) if t["kind"] == "safety" and t["part"] == "followup"]
+    assert len(follow) == 2
+    late, later = follow[0]["nodes"][0], follow[1]["nodes"][0]
+    assert late["real_ms"] is None and late["detail_ko"] == "마감 안에 답이 없어 하한 판정 유지"
+    # 늦게 끝난 첫 호출(≈600ms)이 다음 상황의 시간으로 섞이지 않는다.
+    assert isinstance(later["real_ms"], float) and later["real_ms"] < 500
+
+
+def test_feedback_traces_follow_the_applied_tap(seed7: tuple[DaySim, Events]) -> None:
+    _, events = seed7
+    fb = [(i, d) for i, (st, d) in enumerate(events) if st == "trace" and d["kind"] == "feedback"]
+    assert fb
+    for i, t in fb:
+        prev_st, prev = events[i - 1]
+        assert prev_st == "feedback" and prev["id"] == t["proposal_id"]
+        ids = [n["id"] for n in t["nodes"]]
+        if prev["kind"] == "safety":
+            assert ids == ["phone", "ack"] and prev["signal"] == "ok"
+        else:
+            assert ids == ["phone", "feedback", "prefs"]
+            prefs = t["nodes"][2]["detail_ko"]
+            expect = "이번 단계 판단부터 반영" if prev["signal"] == "expired" else "다음 판단부터 반영"
+            assert prefs == expect
+    kinds = {events[i - 1][1]["signal"] for i, _ in fb}
+    assert {"accepted", "dismissed", "expired", "ok"} <= kinds
+
+
+def test_viewer_tap_trace_lands_where_the_tap_applies() -> None:
+    def on_event(sim: DaySim, stage: str, data: dict[str, Any]) -> None:
+        if stage == "proposal" and data["id"] == "p1":
+            sim.enqueue_feedback("p1", "dismissed")
+
+    sim = DaySim(seed=7, days=1, trace=True)
+    events: Events = []
+
+    def emit(stage: str, data: dict[str, Any]) -> None:
+        events.append((stage, data))
+        on_event(sim, stage, data)
+
+    asyncio.run(sim.run(emit))
+    idx = next(i for i, (st, d) in enumerate(events)
+               if st == "feedback" and d["id"] == "p1" and d["source"] == "viewer")
+    st, t = events[idx + 1]
+    assert st == "trace" and t["kind"] == "feedback" and t["proposal_id"] == "p1"
+    assert "보는 사람" in t["nodes"][0]["detail_ko"] and "그만해" in t["nodes"][0]["detail_ko"]
+
+
+def test_recording_errors_still_send_the_first_alert(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*a: Any, **kw: Any) -> Any:
+        raise RuntimeError("recorder broke")
+
+    for name in ("note", "judge_call", "take", "take_judge", "next_id"):
+        monkeypatch.setattr(_TraceRecorder, name, boom)
+    sim = DaySim(seed=7, days=3, trace=True)
+    _run(sim)
+    firsts = [s for s in sim.safety_events if s["kind"] == "first_alert"]
+    assert len(firsts) == 3 and all(f["sent"] and f["decision"] == "IMMEDIATE" for f in firsts)
+
+
+def test_no_trait_words_in_safety_and_feedback_traces(seed7: tuple[DaySim, Events]) -> None:
+    _, events = seed7
+    blob = json.dumps(_traces(events), ensure_ascii=False)
+    assert not any(word in blob for word in TRAIT_WORDS)
