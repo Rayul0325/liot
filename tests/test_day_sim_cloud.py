@@ -1148,3 +1148,75 @@ def test_luna_comparison_has_an_overall_deadline(tmp_path: Path) -> None:
     first = sim.luna_results[0]
     assert first["status"] == "unavailable" and first["reason_ko"] == "luna 미접근 — 시간 초과"
     assert all(r["status"] == "ok" for r in sim.luna_results[1:])
+
+
+# ── 재리뷰: 외부 호출의 예상 밖 예외에도 실행·안전 경보는 계속된다 ────────────────
+
+
+class _Boom:
+    """reason·choose 가 예외를 내는 싼 모델(규약 위반 흉내)."""
+
+    cfg = CheapModelConfig("anthropic", "claude-haiku-5-5", 1.0, 64)
+
+    def reason(self, facts: Any, *, fallback: str, trace_id: str = "x") -> Any:
+        raise RuntimeError("boom")
+
+    def choose(self, facts: Any, options: Any, *, fallback: str, trace_id: str = "x") -> Any:
+        raise TypeError("boom")
+
+
+def test_raising_cheap_call_does_not_abort_the_day_and_safety_still_alerts(tmp_path: Path) -> None:
+    kit = _kit(tmp_path)
+    kit.cheap = _Boom()  # type: ignore[assignment]
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=kit)
+    events = _run(sim)
+    assert [d["day"] for st, d in events if st == "day.end"] == [1]
+    first = [s for s in sim.safety_events if s["kind"] == "first_alert"]
+    assert len(first) == 1 and first[0]["sent"] is True and first[0]["decision"] == "IMMEDIATE"
+    assert sim.proposals and all(p["reason_fallback"] == "error" for p in sim.proposals)
+    assert all(p["reason_fallback_ko"] == "외부 호출 오류" for p in sim.proposals)
+    errors = [e for e in sim.log if e[0] == "ext_error"]
+    assert ("ext_error", ("reason", "RuntimeError")) in errors
+    decided = [p for p in sim.proposals if "decided_by" in p]
+    assert decided and all(p["reaction_fallback"] == "error" for p in decided)
+
+
+def test_ext_turns_unexpected_errors_into_none(tmp_path: Path) -> None:
+    kit = _kit(tmp_path)
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=kit)
+
+    def broken() -> str:
+        raise ValueError("bad")
+
+    assert asyncio.run(sim._ext(kit, "memory", broken)) is None
+    assert sim._ext_miss == "error" and sim.log[-1] == ("ext_error", ("memory", "ValueError"))
+    assert kit.meter.summary()["by_kind"]["memory"]["calls"] == 1
+
+
+def test_raising_jev_degrades_instead_of_aborting(tmp_path: Path) -> None:
+    class Broken:
+        def post(self, payload: dict[str, Any], *, timeout_s: float) -> dict[str, Any]:
+            raise RuntimeError("jev boom")
+
+    kit = _kit(tmp_path)
+    kit.judge = JevBackend(transport=Broken())
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=kit)
+    events = _run(sim)
+    assert [d["day"] for st, d in events if st == "day.end"] == [1]
+    first = [s for s in sim.safety_events if s["kind"] == "first_alert"]
+    assert len(first) == 1 and first[0]["sent"] is True and first[0]["tier"] == "ember"
+    assert ("ext_error", ("judge", "RuntimeError")) in sim.log
+
+
+def test_raising_luna_compare_is_recorded_and_the_day_continues(tmp_path: Path) -> None:
+    class BadLuna(LunaShadow):
+        def compare(self, *a: Any, **kw: Any) -> Any:
+            raise RuntimeError("luna boom")
+
+    kit = _kit(tmp_path)
+    kit.luna = BadLuna(LunaConfig("logprobs", "gpt-6-luna", 1.0), KEY, transport=FakeLuna())
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=kit)
+    events = _run(sim)
+    assert [d["day"] for st, d in events if st == "day.end"] == [1]
+    assert sim.luna_results and all(r["reason_ko"] == "luna 미접근 — 비교 중 오류"
+                                    for r in sim.luna_results)

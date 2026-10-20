@@ -382,16 +382,32 @@ def reply_truncated(provider: Provider, data: Mapping[str, Any]) -> bool:
     세 회사 모두 **끝났다는 표시가 있을 때만** 끝난 답으로 친다(표시가 없거나 목록에 없는 값이면 끊긴 것).
       - anthropic: ``stop_reason`` 이 ``end_turn``·``stop_sequence`` 가 아니면 끊김
         (``max_tokens``·``pause_turn``·``refusal``·없음 …)
-      - openai(Responses): ``status`` 가 ``completed`` 가 아니면 끊김(``incomplete``·없음 …)
+      - openai(Responses): ``status`` 가 ``completed`` 가 아니면 끊김(``incomplete``·없음 …).
+        ``completed`` 여도 ``incomplete_details`` 가 null 이 아니거나, 출력 메시지 항목 중 하나라도
+        ``status: "incomplete"`` 면 끊김.
       - gemini: ``candidates[0].finishReason`` 이 ``STOP`` 이 아니면 끊김(없음 포함)
+    표시는 **문자열일 때만** 센다 — 목록·객체 같은 다른 형은 '표시 없음'(끊김)이고 예외를 내지 않는다.
     """
     if provider == "anthropic":
-        return data.get("stop_reason") not in _ANTHROPIC_DONE
+        stop = data.get("stop_reason")
+        return not (isinstance(stop, str) and stop in _ANTHROPIC_DONE)
     if provider == "openai":
-        return data.get("status") != "completed"
+        status = data.get("status")
+        if not (isinstance(status, str) and status == "completed"):
+            return True
+        if data.get("incomplete_details") is not None:
+            return True
+        output = data.get("output")
+        items = output if isinstance(output, list) else []
+        return any(
+            isinstance(item, Mapping) and item.get("type") == "message"
+            and item.get("status") == "incomplete"
+            for item in items
+        )
     candidates = data.get("candidates")
     first = candidates[0] if isinstance(candidates, list) and candidates else None
-    return not (isinstance(first, Mapping) and first.get("finishReason") == "STOP")
+    finish = first.get("finishReason") if isinstance(first, Mapping) else None
+    return not (isinstance(finish, str) and finish == "STOP")
 
 
 def parse_reply(provider: Provider, data: Mapping[str, Any]) -> tuple[str, int | None, int | None]:
@@ -475,7 +491,9 @@ class HTTPCheapTransport:
 
 # ── 클라이언트 ────────────────────────────────────────────────────────
 
-FallbackReason = Literal["trait_in_input", "egress", "transport", "bad_response", "invalid_output"]
+FallbackReason = Literal[
+    "trait_in_input", "egress", "transport", "bad_response", "invalid_output", "error"
+]
 
 
 @dataclass(frozen=True)
@@ -569,6 +587,26 @@ class CheapLLM:
                          fallback=fallback, trace_id=trace_id)
 
     def _ask(
+        self,
+        facts: Mapping[str, Any],
+        *,
+        system: str,
+        validate: Callable[[object], str | None],
+        fallback: str,
+        trace_id: str,
+    ) -> ReasonResult:
+        """``reason``·``choose`` 의 본체. **예외를 내지 않는다**: 예상 밖 오류(이상한 응답 형·
+        전송기의 다른 예외 …)는 ``fallback_reason="error"`` 대체로 끝난다."""
+        try:
+            return self._ask_once(facts, system=system, validate=validate, fallback=fallback,
+                                  trace_id=trace_id)
+        except Exception as exc:  # noqa: BLE001 — 이유·보기 고르기는 실행을 멈추지 않는다
+            self.calls.append({"provider": self.cfg.provider, "model": self.cfg.model,
+                               "ok": False, "input_tokens": None, "output_tokens": None,
+                               "fallback_reason": "error", "error": type(exc).__name__})
+            return self._fallback(fallback, "error")
+
+    def _ask_once(
         self,
         facts: Mapping[str, Any],
         *,

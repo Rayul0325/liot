@@ -591,3 +591,81 @@ def test_listed_done_markers_are_not_truncated() -> None:
     assert not reply_truncated("anthropic", {"stop_reason": "stop_sequence"})
     assert not reply_truncated("openai", {"status": "completed"})
     assert not reply_truncated("gemini", {"candidates": [{"finishReason": "STOP"}]})
+
+
+# ── 재리뷰: 표시 형이 이상해도 예외 없이 끊김 · reason/choose 는 예외를 내지 않는다 ────────
+
+
+@pytest.mark.parametrize(("provider", "marker"), [
+    ("anthropic", {"stop_reason": ["end_turn"]}), ("anthropic", {"stop_reason": {"a": 1}}),
+    ("anthropic", {"stop_reason": 1}),
+    ("openai", {"status": ["completed"]}), ("openai", {"status": {"s": "completed"}}),
+    ("gemini", {"finishReason": ["STOP"]}), ("gemini", {"finishReason": {"r": "STOP"}}),
+])
+def test_non_string_stop_markers_are_truncated_without_raising(
+    provider: str, marker: dict[str, Any],
+) -> None:
+    from liot.cheap_llm import reply_truncated
+
+    reply = _reply(provider, GOOD)
+    if provider == "gemini":
+        reply["candidates"][0].update(marker)  # 본문은 그대로, 끝 표시만 이상한 형
+    else:
+        reply.update(marker)
+    assert reply_truncated(provider, reply) is True  # type: ignore[arg-type]
+    llm = CheapLLM(_cfg(provider), KEY, transport=FakeTransport(reply))
+    assert llm.reason(FACTS, fallback=FALLBACK).fallback_reason == "invalid_output"
+    assert llm.choose(FACTS, OPTIONS, fallback="accepted").fallback_reason == "invalid_output"
+
+
+@pytest.mark.parametrize("extra", [
+    {"incomplete_details": {"reason": "max_output_tokens"}},
+    {"incomplete_details": "max_output_tokens"},
+    {"output": [{"type": "message", "status": "incomplete",
+                 "content": [{"type": "output_text", "text": GOOD}]}]},
+])
+def test_openai_completed_but_incomplete_is_truncated(extra: dict[str, Any]) -> None:
+    from liot.cheap_llm import reply_truncated
+
+    reply = {**_reply("openai", GOOD), **extra}
+    assert reply["status"] == "completed" and reply_truncated("openai", reply)
+    ok = {**_reply("openai", GOOD), "incomplete_details": None}
+    assert not reply_truncated("openai", ok)
+
+
+class _Weird(FakeTransport):
+    def __init__(self, reply: Any = None, *, exc: Exception | None = None) -> None:
+        super().__init__({})
+        self.weird = reply
+        self.exc = exc
+
+    def post(self, request: ProviderRequest, *, timeout_s: float) -> Any:
+        self.requests.append(request)
+        if self.exc is not None:
+            raise self.exc
+        return self.weird
+
+
+@pytest.mark.parametrize("provider", PROVIDERS)
+@pytest.mark.parametrize("reply", [
+    {"content": "x", "candidates": "y", "output": "z", "usage": [1], "usageMetadata": 3},
+    {"content": [{"type": "text", "text": ["a"]}], "stop_reason": ["end_turn"]},
+    {"candidates": [{"content": {"parts": [{"text": {"t": 1}}]}, "finishReason": None}]},
+    {"output": [{"type": "message", "content": [{"type": "output_text", "text": 3}]}],
+     "status": {"x": 1}, "incomplete_details": []},
+    [], "not a dict", None,
+])
+def test_reason_and_choose_never_raise_on_odd_replies(provider: str, reply: Any) -> None:
+    llm = CheapLLM(_cfg(provider), KEY, transport=_Weird(reply))
+    res = llm.reason(FACTS, fallback=FALLBACK)
+    assert res.source == "fallback" and res.text == FALLBACK
+    pick = llm.choose(FACTS, OPTIONS, fallback="accepted")
+    assert pick.source == "fallback" and pick.text == "accepted"
+
+
+@pytest.mark.parametrize("exc", [RuntimeError("boom"), TypeError("t"), KeyError("k")])
+def test_reason_never_raises_on_unexpected_transport_errors(exc: Exception) -> None:
+    llm = CheapLLM(_cfg(), KEY, transport=_Weird(exc=exc))
+    res = llm.reason(FACTS, fallback=FALLBACK)
+    assert (res.source, res.fallback_reason) == ("fallback", "error")
+    assert llm.calls[-1]["error"] == type(exc).__name__

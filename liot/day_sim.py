@@ -195,6 +195,7 @@ _FALLBACK_KO = {
     "refused": "보내기 전에 막힘",
     "no_kit": "키가 없음",
     "no_template": "규칙 문장이 없음",
+    "error": "외부 호출 오류",
 }
 _PART_KO = {"judge": "판정", "reason": "이유", "resident": "거주자", "luna": "luna 비교",
             "memory": "기억"}
@@ -511,6 +512,11 @@ class _RecordingJudge:
                 else:
                     result = cloud.judge_raw(candidate, ctx, gate1_floor,
                                              severity_floor=severity_floor)
+            except LLMUnavailable:
+                raise
+            except Exception as exc:  # noqa: BLE001 — 예상 밖 오류도 degraded(하한 유지)로 보낸다
+                self.log.append(("ext_error", ("judge", type(exc).__name__)))
+                raise LLMUnavailable(f"cloud judge failed: {type(exc).__name__}") from None
             finally:
                 usage = getattr(cloud, "last_usage", None) or {}
                 kit.meter.record(
@@ -1324,7 +1330,8 @@ class DaySim:
         """외부 호출 하나: 계량기 자리 → 스레드에서 실행(제한시간) → 사용량 기록.
 
         상한에 닿았거나 시간이 넘으면 None(호출자는 가짜로 대체한다). 기억 쪽의 송신 전 거부
-        (MemoryRefused)도 None 이다. None 의 까닭은 ``self._ext_miss``(cap·timeout·refused).
+        (MemoryRefused)도 None 이다. 그 밖의 예상 밖 예외도 None 이고 ``("ext_error", (종류, 예외형))``
+        을 기록에 남긴다 — 실행은 계속된다. None 의 까닭은 ``self._ext_miss``(cap·timeout·refused·error).
         """
         self._ext_miss = None
         if not kit.meter.allow():
@@ -1339,6 +1346,9 @@ class DaySim:
             self._ext_miss = "timeout"
         except MemoryRefused:
             self._ext_miss = "refused"
+        except Exception as exc:  # noqa: BLE001 — 외부 호출 하나의 오류로 실행을 멈추지 않는다
+            self._ext_miss = "error"
+            self.log.append(("ext_error", (kind, type(exc).__name__)))
         finally:
             model, tokens_in, tokens_out = (None, None, None)
             if result is not None and usage is not None:
@@ -1590,6 +1600,7 @@ class DaySim:
 
         for evidence, probs, model_id, served, entity_id in due:
             res: ShadowResult | None
+            miss_ko = "luna 미접근 — 시간 초과"
             if luna.cfg.mode == "logprobs":
                 def compare(ev: str = evidence,
                             pr: dict[str, dict[str, float]] = probs) -> ShadowResult:
@@ -1600,6 +1611,10 @@ class DaySim:
                                                  timeout=2 * kit.call_timeout_s)
                 except TimeoutError:
                     res = None
+                except Exception as exc:  # noqa: BLE001 — 그림자는 판정·실행을 멈추지 않는다
+                    self.log.append(("ext_error", ("luna", type(exc).__name__)))
+                    miss_ko = "luna 미접근 — 비교 중 오류"
+                    res = None
             else:
                 res = luna.compare(evidence, probs)  # 부르지 않는 방식 — 외부 호출 없음
             rec: dict[str, Any] = {
@@ -1608,7 +1623,7 @@ class DaySim:
                 "jev": probs, "status": "unavailable" if res is None else res.status,
                 "luna": {} if res is None else res.probs,
                 "agree": {} if res is None else res.agree,
-                "reason_ko": ("luna 미접근 — 시간 초과" if res is None else res.reason_ko),
+                "reason_ko": (miss_ko if res is None else res.reason_ko),
             }
             self.luna_results.append(rec)
             await self._attach_judge(step, entity_id, rec, out)
