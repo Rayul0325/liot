@@ -1339,13 +1339,7 @@ class DaySim:
             if ready:
                 self._house = HouseMemory(memory, self.house_id)
                 self._resident = ResidentMemory(memory)
-                resident = self._resident
-                planted = await self._ext(
-                    kit, "memory",
-                    lambda: resident.seed(RESIDENT_PREFERENCES, reason="하루 시뮬레이션 가상 거주자 취향"),
-                )
-                for sentence in RESIDENT_PREFERENCES[: planted or 0]:
-                    self._memory_event("seed", "resident", sentence)
+                await self._seed_resident(kit, self._resident)
             if status is not None:
                 status.update(state="cloud" if ready else "fake",
                               reason_ko=None if ready else memory.disabled_reason_ko)
@@ -1353,6 +1347,22 @@ class DaySim:
                                     "line_ko": "실제 모델·기억으로 시작해요",
                                     "usage": kit.meter.summary()})
         await self._announce_trip(kit, out)
+
+    async def _seed_resident(self, kit: CloudKit, resident: ResidentMemory) -> None:
+        """거주자 취향 심기. CLI 호출(있나 보기·심기) 하나하나가 계량기 자리 하나다."""
+        reason = "하루 시뮬레이션 가상 거주자 취향"
+        for sentence in RESIDENT_PREFERENCES:
+            def look(s: str = sentence) -> bool:
+                return resident.exists(s)
+
+            def plant(s: str = sentence) -> str | None:
+                return resident.plant(s, reason=reason)
+
+            found = await self._ext(kit, "memory", look)
+            if found is None or found:
+                continue  # 상한·시간 초과이거나 이미 있다
+            if await self._ext(kit, "memory", plant) is not None:
+                self._memory_event("seed", "resident", sentence)
 
     async def _recall(self, kit: CloudKit, view: HouseMemory | ResidentMemory | None,
                       query: str, who: str) -> list[MemoryCard]:

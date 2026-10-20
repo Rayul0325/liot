@@ -806,3 +806,42 @@ def test_cloud_run_continues_when_the_cli_breaks(tmp_path: Path, verb: str) -> N
     status = next(d for st, d in events if st == "models.status")["status"]
     mem = next(s for s in status if s["part"] == "memory")
     assert mem["state"] == ("fake" if verb == "use" else "cloud")
+
+
+# ── 강화: 특성 낱말 카드 · 심기 계량 ──────────────────────────────────────────
+
+
+def test_trait_cards_never_reach_memory_events_or_reason_input(tmp_path: Path) -> None:
+    from liot.core.traits import TRAIT_WORDS
+
+    brain = FakeBrain(leaky=True)
+    brain.notes.append({"title": f"{TRAIT_WORDS[1]} 거주자", "summary": "x", "scope": "house-t",
+                        "binding": False, "kind": None, "handle": "h", "path": "p"})
+    brain.notes.append({"title": "평범한 기억", "summary": f"{TRAIT_WORDS[4]} 이야기",
+                        "scope": RESIDENT_SCOPE, "binding": False, "kind": None,
+                        "handle": "h", "path": "p"})
+    cheap = FakeCheap()
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=_kit(tmp_path, brain=brain, cheap=cheap),
+                 house_id="t")
+    _run(sim)
+    sent = json.dumps([r.body for r in cheap.requests], ensure_ascii=False)
+    shown = json.dumps(sim.memory_events, ensure_ascii=False)
+    for word in TRAIT_WORDS:
+        assert word not in sent and word not in shown
+
+
+def test_every_memory_cli_call_is_its_own_metered_call(
+    cloud7: tuple[DaySim, Events, FakeCheap, FakeBrain],
+) -> None:
+    sim, _, _, brain = cloud7
+    assert sum(1 for e in sim.log if e == ("ext", "memory")) == len(brain.argvs)
+    assert sim.summary()["models"]["usage"]["by_kind"]["memory"]["calls"] == len(brain.argvs)
+
+
+def test_seeding_stops_at_the_call_cap(tmp_path: Path) -> None:
+    brain = FakeBrain()
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=_kit(tmp_path, brain=brain, call_cap=3))
+    _run(sim)
+    # use(1) + 심기 첫 문장의 있나 보기(1) + 심기(1) = 3. 그 뒤로는 CLI 가 불리지 않는다.
+    assert [a[1] for a in brain.argvs] == ["use", "recall", "remember"]
+    assert sim.summary()["models"]["usage"]["calls"] == 3

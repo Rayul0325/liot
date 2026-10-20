@@ -431,3 +431,41 @@ def test_deeply_nested_json_is_not_a_recursion_error() -> None:
     assert parse_cli_json("[" * 100_000 + "]" * 100_000) is None
     deep = "{\"a\": " * 100_000 + "1" + "}" * 100_000
     assert parse_cli_json(deep) is None  # RecursionError 를 형식 오류로 친다
+
+
+# ── 강화: 부모 환경 · 특성 낱말 카드 ───────────────────────────────────────────
+
+
+def test_env_overrides_parent_home_and_drops_server_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEMGINEERING_HOME", "/somewhere/else")
+    monkeypatch.setenv("MEMGINEERING_NO_UPDATE", "0")
+    monkeypatch.setenv("MEMGINEERING_API_URL", "https://evil.example")
+    monkeypatch.setenv("KORDIS_API_URL", "https://evil.example")
+    client, fake = _ready()
+    env = fake.calls[0][1]
+    assert env["MEMGINEERING_HOME"] == str(HOME) and env["MEMGINEERING_NO_UPDATE"] == "1"
+    assert "MEMGINEERING_API_URL" not in env and "KORDIS_API_URL" not in env
+    assert env.get("PATH") == os.environ.get("PATH")
+
+
+def test_env_sets_demo_home_when_parent_has_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("MEMGINEERING_HOME", "MEMGINEERING_NO_UPDATE", "MEMGINEERING_API_URL",
+                 "KORDIS_API_URL"):
+        monkeypatch.delenv(name, raising=False)
+    client, fake = _ready()
+    env = fake.calls[0][1]
+    assert env["MEMGINEERING_HOME"] == str(HOME) and env["MEMGINEERING_NO_UPDATE"] == "1"
+    assert "MEMGINEERING_API_URL" not in env
+
+
+def test_cards_with_trait_words_are_dropped() -> None:
+    client, fake = _ready()
+    fake.cards = [
+        _card("환기 도움", "house-r1"),
+        _card(f"{TRAIT_WORDS[0]} 거주자 메모", "house-r1"),
+        {**_card("평범한 제목", "house-r1"), "summary": f"요약에 {TRAIT_WORDS[3]}"},
+    ]
+    cards = HouseMemory(client, "r1").recall("환기")
+    assert [c.title for c in cards] == ["환기 도움"]

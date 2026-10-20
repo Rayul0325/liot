@@ -246,9 +246,14 @@ def _raw_texts(obj: Any) -> Iterator[str]:
             yield from _raw_texts(value)
     elif obj is None or isinstance(obj, (bool, float)):
         return
-    elif isinstance(obj, str):
-        yield obj
+    elif isinstance(obj, int):
+        # 정수는 JSON 숫자로 나간다(json 은 int.__repr__ 로 쓴다). 하위 형의 __str__ 이 다를 수 있어 둘 다 본다.
+        yield str(obj)
+        if int.__repr__(obj) != str(obj):
+            yield int.__repr__(obj)
     else:
+        # 문자열(하위 형 포함)과 그 밖의 형: 정리기는 ``str(obj)`` 를 보낸다 — 같은 글을 본다.
+        # str 하위 형이 __str__ 을 바꾸면 값과 보내는 글이 다르다(값만 보면 PII 가 샌다).
         yield str(obj)
 
 

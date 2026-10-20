@@ -475,3 +475,25 @@ def test_raw_scan_walks_every_text_the_sanitizer_makes() -> None:
     assert sorted(_raw_texts(facts)) == sorted(
         ["a", "b'x'", "b", "메일 someone@example.com", "c", "{'s'}", "d", "9", "e", "f", "g",
          "h", "t", "u", "7", "k"])
+
+
+# ── 강화: str 하위 형의 __str__ ──────────────────────────────────────────────
+
+
+class _Sneaky(str):
+    """값은 평범한데 str() 로 바꾸면 이메일이 되는 문자열(정리기는 str(obj) 를 보낸다)."""
+
+    def __str__(self) -> str:
+        return "메일 someone@example.com"
+
+
+def test_str_subclass_is_scanned_as_what_the_sanitizer_sends() -> None:
+    from liot.cheap_llm import raw_pii
+
+    sneaky = _Sneaky("평범한 메모")
+    assert sanitize_for_llm({"memo": sneaky}) == {"memo": "메일 someone@기기"}  # 이게 나갈 뻔했다
+    assert raw_pii({"memo": sneaky}) == "email"
+    assert raw_pii({sneaky: "키로 들어온 경우"}) == "email"
+    llm, fake = _client()
+    res = llm.reason({**FACTS, "memo": sneaky}, fallback=FALLBACK)
+    assert (res.source, res.fallback_reason) == ("fallback", "egress") and fake.requests == []

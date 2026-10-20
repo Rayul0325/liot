@@ -55,6 +55,8 @@ ALLOWED_VERBS = frozenset({"recall", "remember", "use", "whoami"})
 DEFAULT_TIMEOUT_S = 10.0
 _SUMMARY_CHARS = 120
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+# 부모 환경에서 물려받지 않는 변수(서버 주소 덮어쓰기).
+_DROPPED_ENV = frozenset({"MEMGINEERING_API_URL", "KORDIS_API_URL"})
 _KINDS = frozenset({"episode", "fact", "decision", "preference", "goal", "procedure"})
 
 # (argv, env, timeout_s) → 끝난 프로세스. 시험은 가짜 CLI 를 넣는다.
@@ -150,8 +152,14 @@ class MemoryClient:
         self.home = home
 
     def env(self) -> dict[str, str]:
-        """``os.environ`` + 데모 home + 업데이트 끄기. HOME·PATH 는 그대로."""
-        return {**os.environ, "MEMGINEERING_HOME": str(self.home), "MEMGINEERING_NO_UPDATE": "1"}
+        """``os.environ`` + 데모 home + 업데이트 끄기. HOME·PATH 는 그대로.
+
+        부모 환경의 서버 주소 덮어쓰기(``MEMGINEERING_API_URL``·``KORDIS_API_URL``)는 뺀다 — 데모
+        home 이 가리키는 서버가 아닌 곳으로 쓰기가 가지 않게. 데모 home 값은 부모 값보다 뒤에 둬서
+        늘 이긴다.
+        """
+        base = {k: v for k, v in os.environ.items() if k not in _DROPPED_ENV}
+        return {**base, "MEMGINEERING_HOME": str(self.home), "MEMGINEERING_NO_UPDATE": "1"}
 
     def _call(self, verb: str, args: Sequence[str], *, scope: str | None = None) -> dict[str, Any] | None:
         if verb not in ALLOWED_VERBS:
@@ -263,11 +271,15 @@ class MemoryClient:
             title = _one_line(card.get("title"), 80)
             if not title:
                 continue
+            summary = _one_line(card.get("summary"))
+            # 특성 낱말이 든 카드는 버린다 — 화면 기록·이유 입력 어디에도 닿지 않게.
+            if any(word in title or word in summary for word in TRAIT_WORDS):
+                continue
             kind = card.get("kind")
             out.append(
                 MemoryCard(
                     title=title,
-                    summary=_one_line(card.get("summary")),
+                    summary=summary,
                     kind=kind if isinstance(kind, str) else None,
                     rule=card.get("binding") is True,
                 )
@@ -337,15 +349,21 @@ class ResidentMemory:
     def recall(self, query: str, *, limit: int = 3) -> list[MemoryCard]:
         return self.client.recall(query, scope=self.scope, reader="resident", limit=limit)
 
+    def exists(self, sentence: str) -> bool:
+        """이미 같은 제목·요약의 취향 카드가 있는가(CLI 호출 한 번)."""
+        found = self.recall(sentence, limit=5)
+        return any(card.title == sentence or card.summary == sentence for card in found)
+
+    def plant(self, sentence: str, *, reason: str) -> str | None:
+        """취향 문장 하나를 심는다(CLI 호출 한 번). 되돌리기 id 또는 None."""
+        return self.client.remember(sentence, scope=self.scope, reason=reason, kind="preference")
+
     def seed(self, sentences: Sequence[str], *, reason: str) -> int:
         """취향 문장을 처음 한 번만 심는다. 이미 같은 제목이 있으면 건너뛴다. 심은 수."""
         planted = 0
         for sentence in sentences:
-            found = self.recall(sentence, limit=5)
-            if any(card.title == sentence or card.summary == sentence for card in found):
+            if self.exists(sentence):
                 continue
-            if self.client.remember(
-                sentence, scope=self.scope, reason=reason, kind="preference"
-            ) is not None:
+            if self.plant(sentence, reason=reason) is not None:
                 planted += 1
         return planted
