@@ -923,3 +923,54 @@ def test_shipped_luna_is_cloud_only_with_an_openai_key(
                           today=lambda: TODAY, usage_path=tmp_path / "usage.json")
     luna = next(st for st in kit.status if st["part"] == "luna")
     assert luna["state"] == state and KEY not in json.dumps(kit.status)
+
+
+# ── 대체 사유가 기록에 남는다(cloud 모드만) ─────────────────────────────────────
+
+
+def test_reason_fallback_says_why_the_template_was_used(tmp_path: Path) -> None:
+    bad = DaySim(seed=7, days=1, models="cloud",
+                 cloud=_kit(tmp_path / "bad", cheap=FakeCheap(reason="Open the window.")))
+    _run(bad)
+    assert bad.proposals and all(p["reason_fallback"] == "invalid_output" for p in bad.proposals)
+    kit = _kit(tmp_path / "nokit")
+    kit.cheap = None
+    none = DaySim(seed=7, days=1, models="cloud", cloud=kit)
+    _run(none)
+    assert all(p["reason_fallback"] == "no_kit" for p in none.proposals)
+    capped = DaySim(seed=7, days=3, models="cloud", cloud=_kit(tmp_path / "cap", call_cap=12))
+    _run(capped)
+    assert any(p.get("reason_fallback") == "cap" for p in capped.proposals)
+    assert all(("reason_fallback" in p) == (p["reason_source"] == "template")
+               for p in capped.proposals)
+
+
+def test_model_reasons_and_decisions_carry_no_fallback_key(
+    cloud7: tuple[DaySim, Events, FakeCheap, FakeBrain],
+) -> None:
+    sim, events, _, _ = cloud7
+    assert all("reason_fallback" not in p for p in sim.proposals)
+    decided = [p for p in sim.proposals if "decided_by" in p]
+    assert decided and all(p["decided_by"] == "model" and "reaction_fallback" not in p
+                           for p in decided)
+    taps = [d for st, d in events if st == "feedback" and d.get("decided_by")]
+    assert taps and all("reaction_fallback" not in t for t in taps)
+
+
+def test_reaction_fallback_is_recorded_on_the_proposal_and_the_tap(tmp_path: Path) -> None:
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=_kit(tmp_path, cheap=FakeCheap(odd_choice=True)))
+    events = _run(sim)
+    decided = [p for p in sim.proposals if "decided_by" in p]
+    assert decided and all(p["decided_by"] == "persona_table"
+                           and p["reaction_fallback"] == "invalid_output" for p in decided)
+    taps = [d for st, d in events if st == "feedback" and d.get("decided_by")]
+    assert taps and all(t["reaction_fallback"] == "invalid_output" for t in taps)
+    proposals = [d for st, d in events if st == "proposal" and d["decision"] == "IMMEDIATE"]
+    assert proposals and all(p["reaction_fallback"] == "invalid_output" for p in proposals)
+
+
+def test_fake_mode_records_have_no_fallback_keys() -> None:
+    sim = DaySim(seed=7, days=1)
+    events = _run(sim)
+    for st, d in events:
+        assert not {"reason_fallback", "reaction_fallback", "decided_by"} & set(d), st

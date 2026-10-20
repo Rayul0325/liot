@@ -103,7 +103,8 @@ def test_anthropic_request_shape() -> None:
     assert req.headers == {"x-api-key": KEY, "anthropic-version": ANTHROPIC_VERSION,
                            "content-type": "application/json"}
     assert req.body == {"model": "anthropic-model-x", "max_tokens": 64, "system": "SYS",
-                        "messages": [{"role": "user", "content": "USER"}]}
+                        "messages": [{"role": "user", "content": "USER"}],
+                        "thinking": {"type": "disabled"}}
 
 
 def test_gemini_request_shape_key_in_header_not_url() -> None:
@@ -554,4 +555,4 @@ def test_requests_turn_thinking_down_per_provider() -> None:
     oai = build_request(_cfg("openai"), KEY, "S", "U").body
     assert oai["reasoning"] == {"effort": "none"}
     ant = build_request(_cfg("anthropic"), KEY, "S", "U").body
-    assert "thinking" not in ant and "reasoning" not in ant
+    assert ant["thinking"] == {"type": "disabled"} and "reasoning" not in ant

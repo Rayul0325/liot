@@ -603,6 +603,8 @@ class DaySim:
         self._house: HouseMemory | None = None
         self._resident: ResidentMemory | None = None
         self._decided_by: dict[str, str] = {}
+        self._reaction_fallback: dict[str, str] = {}
+        self._ext_miss: str | None = None
         self._trip_announced = False
         self._viewer: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
         self._rng = random.Random(f"{self.seed}:persona")
@@ -1126,6 +1128,8 @@ class DaySim:
         if self._kit is not None and source in ("persona", "tray") and sim_id in self._decided_by:
             decided = {"decided_by": self._decided_by[sim_id],
                        "decided_by_ko": _DECIDED_KO[self._decided_by[sim_id]]}
+            if sim_id in self._reaction_fallback:
+                decided["reaction_fallback"] = self._reaction_fallback[sim_id]
         line = (f"{actor} [{_SIGNAL_KO.get(signal, signal)}]를 눌렀어요 — {what}" if code == "200"
                 else f"{who}의 [{_SIGNAL_KO.get(signal, signal)}]가 반영되지 않았어요({code})")
         await out(
@@ -1291,17 +1295,21 @@ class DaySim:
         """외부 호출 하나: 계량기 자리 → 스레드에서 실행(제한시간) → 사용량 기록.
 
         상한에 닿았거나 시간이 넘으면 None(호출자는 가짜로 대체한다). 기억 쪽의 송신 전 거부
-        (MemoryRefused)도 None 이다.
+        (MemoryRefused)도 None 이다. None 의 까닭은 ``self._ext_miss``(cap·timeout·refused).
         """
+        self._ext_miss = None
         if not kit.meter.allow():
+            self._ext_miss = "cap"
             return None
         self.log.append(("ext", kind))
         t0 = time.perf_counter()
         result: _T | None = None
         try:
             result = await asyncio.wait_for(asyncio.to_thread(fn), timeout=kit.call_timeout_s)
-        except (TimeoutError, MemoryRefused):
-            result = None
+        except TimeoutError:
+            self._ext_miss = "timeout"
+        except MemoryRefused:
+            self._ext_miss = "refused"
         finally:
             model, tokens_in, tokens_out = (None, None, None)
             if result is not None and usage is not None:
@@ -1383,6 +1391,7 @@ class DaySim:
                                   "memory_used": [c.title for c in cards]}
         cheap = kit.cheap
         if cheap is None or not template:
+            fields["reason_fallback"] = "no_kit" if cheap is None else "no_template"
             return template, fields
         weather = step.weather
         facts = {
@@ -1399,6 +1408,8 @@ class DaySim:
         res = await self._ext(kit, "reason", lambda: cheap.reason(facts, fallback=template),
                               usage=_cheap_usage)
         if res is None or res.source != "model":
+            fields["reason_fallback"] = (self._ext_miss or "timeout") if res is None else (
+                res.fallback_reason or "invalid_output")
             return template, fields
         fields.update(reason_source="model", reason_model=f"{res.provider}:{res.model}")
         return res.text, fields
@@ -1419,6 +1430,7 @@ class DaySim:
         self._decided_by[sim_id] = "persona_table"
         cheap = kit.cheap
         if cheap is None:
+            self._note_reaction(sim_id, "no_kit")
             return None if fallback == "ignore" else fallback
         cards = await self._recall(kit, self._resident, title, "resident")
         facts = {
@@ -1437,7 +1449,26 @@ class DaySim:
         if res is not None and res.source == "model" and res.text in _RESIDENT_OPTIONS.values():
             choice = res.text
             self._decided_by[sim_id] = "model"
+            self._note_reaction(sim_id, None)
+        elif res is None:
+            self._note_reaction(sim_id, self._ext_miss or "timeout")
+        else:
+            self._note_reaction(sim_id, res.fallback_reason or "invalid_output")
         return None if choice == "ignore" else choice
+
+    def _note_reaction(self, sim_id: str, why: str | None) -> None:
+        """거주자 결정의 출처를 제안 기록에 붙인다(cloud 모드만). 성향 표면 그 까닭도."""
+        rec = self._records.get(sim_id)
+        if why is None:
+            self._reaction_fallback.pop(sim_id, None)
+        else:
+            self._reaction_fallback[sim_id] = why
+        if rec is not None:
+            rec["decided_by"] = self._decided_by[sim_id]
+            if why is None:
+                rec.pop("reaction_fallback", None)
+            else:
+                rec["reaction_fallback"] = why
 
     async def _remember_feedback(
         self,

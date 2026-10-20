@@ -317,6 +317,9 @@ def build_request(
                 "max_tokens": cfg.max_output_tokens,
                 "system": system,
                 "messages": [{"role": "user", "content": user}],
+                # haiku 5.5 는 기본으로 적응형 생각을 해 256 토큰을 다 쓰고 끊긴다("미세먼지(PM2.5").
+                # 끄면 end_turn·약 60 토큰으로 문장이 끝난다(2026-10-20 실측).
+                "thinking": {"type": "disabled"},
             },
         )
     if cfg.provider == "gemini":
