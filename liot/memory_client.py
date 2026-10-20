@@ -9,7 +9,7 @@
     기억을 끄고 이유를 남긴다(``check_ready``). 확인 전에는 어떤 recall·remember 도 나가지 않는다.
   - **범위**: 집은 ``house-<run_id>``, 거주자 성향은 ``resident-default``. recall 은 늘 ``--scope``
     를 붙이고(없으면 브레인 전체를 읽는다), 집은 ``resident-*`` 를 읽을 수 없다. 돌아온 카드 중
-    요청한 범위가 아닌 것은 버린다.
+    요청한 범위가 아닌 것은 버린다(카드에 scope 가 있을 때 — 실제 CLI 카드에는 없고 서버가 거른다).
   - **쓰기도 외부 송신**: remember 의 문장·이유와 recall 의 질의는 특성 낱말 검사와
     ``emit_external(Destination.MEMORY)`` 를 지난 것만 나간다.
   - **카드는 제목과 요약 한 줄만**: 경로·핸들·id 는 버린다.
@@ -265,8 +265,10 @@ class MemoryClient:
         for card in cards:
             if not isinstance(card, Mapping):
                 continue
-            # 서버가 다른 범위 카드를 섞어 보내도 쓰지 않는다(범위 없는 카드도 버린다).
-            if card.get("scope") != scope:
+            # 실제 CLI(0.27) 카드에는 scope 필드가 없다 — 서버가 --scope 로 이미 걸렀다(2026-10-20
+            # 데모 브레인 실측: 다른 범위로 물으면 0장). 그래서 필드가 없으면 받고, 있는데 다르면
+            # (서버가 다른 범위를 섞어 보낸 것) 버린다.
+            if "scope" in card and card["scope"] != scope:
                 continue
             title = _one_line(card.get("title"), 80)
             if not title:

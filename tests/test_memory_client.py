@@ -469,3 +469,45 @@ def test_cards_with_trait_words_are_dropped() -> None:
     ]
     cards = HouseMemory(client, "r1").recall("환기")
     assert [c.title for c in cards] == ["환기 도움"]
+
+
+# ── 실제 CLI 카드 모양: scope 필드가 없다(서버가 --scope 로 이미 거른다) ────────────
+
+REAL_CARD_KEYS = ("id", "title", "summary", "confidence", "freshness", "age_days", "binding",
+                  "kind", "type", "detail_handle", "matched", "handle", "path", "scaffolding")
+
+
+def _real_card(title: str, summary: str = "", **extra: Any) -> dict[str, Any]:
+    """2026-10-20 데모 브레인 실측 키 그대로(scope 없음)."""
+    card = {"id": "m-" + title, "title": title, "summary": summary or f"{title} 요약",
+            "confidence": "stated", "freshness": "fresh", "age_days": 0, "binding": False,
+            "kind": "episode", "type": "note", "detail_handle": "d-" + title,
+            "matched": ["title"], "handle": "h-" + title, "path": f"observations/{title}.md",
+            "scaffolding": False}
+    card.update(extra)
+    assert tuple(k for k in card if k in REAL_CARD_KEYS) == REAL_CARD_KEYS
+    return card
+
+
+def test_real_shape_cards_without_scope_are_kept() -> None:
+    client, fake = _ready()
+    fake.cards = [_real_card("환기 도움"), _real_card("규칙", binding=True)]
+    cards = HouseMemory(client, "r1").recall("환기")
+    assert [(c.title, c.rule) for c in cards] == [("환기 도움", False), ("규칙", True)]
+    assert all(set(vars(c)) == {"title", "summary", "kind", "rule"} for c in cards)
+
+
+def test_present_but_different_scope_is_still_dropped_next_to_real_cards() -> None:
+    client, fake = _ready()
+    fake.cards = [_real_card("실제 모양"), _card("다른 실행", "house-r2"),
+                  _card("거주자 것", RESIDENT_SCOPE), _card("같은 범위", "house-r1"),
+                  _card("빈 범위 값", None)]  # type: ignore[arg-type]
+    cards = HouseMemory(client, "r1").recall("환기")
+    assert [c.title for c in cards] == ["실제 모양", "같은 범위"]
+
+
+def test_trait_filter_applies_to_real_shape_cards() -> None:
+    client, fake = _ready()
+    fake.cards = [_real_card("괜찮음"), _real_card(f"{TRAIT_WORDS[0]} 메모"),
+                  _real_card("요약에 낱말", summary=f"{TRAIT_WORDS[2]} 이야기")]
+    assert [c.title for c in ResidentMemory(client).recall("취향")] == ["괜찮음"]

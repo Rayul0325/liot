@@ -845,3 +845,39 @@ def test_seeding_stops_at_the_call_cap(tmp_path: Path) -> None:
     # use(1) + 심기 첫 문장의 있나 보기(1) + 심기(1) = 3. 그 뒤로는 CLI 가 불리지 않는다.
     assert [a[1] for a in brain.argvs] == ["use", "recall", "remember"]
     assert sim.summary()["models"]["usage"]["calls"] == 3
+
+
+class RealShapeBrain(FakeBrain):
+    """실제 CLI 처럼: 서버가 --scope 로 거르고, 카드에는 scope 필드가 없다."""
+
+    def __call__(self, argv: Sequence[str], env: Mapping[str, str],
+                 timeout_s: float) -> subprocess.CompletedProcess[str]:
+        argv = list(argv)
+        if argv[1] != "recall":
+            return super().__call__(argv, env, timeout_s)
+        self.argvs.append(argv)
+        scope = argv[argv.index("--scope") + 1]
+        cards = [{k: v for k, v in n.items() if k != "scope"} for n in self.notes
+                 if n["scope"] == scope]
+        out = {"query": argv[2], "cards": cards}
+        return subprocess.CompletedProcess(argv, 0, json.dumps(out, ensure_ascii=False), "")
+
+
+def test_real_shape_recall_feeds_house_memory_into_the_next_reason(tmp_path: Path) -> None:
+    brain, cheap = RealShapeBrain(), FakeCheap()
+    sim = DaySim(seed=7, days=3, models="cloud", cloud=_kit(tmp_path, brain=brain, cheap=cheap),
+                 house_id="real")
+    _run(sim)
+    memories = [m for i in cheap.reason_inputs() for m in i["facts"].get("memories") or []]
+    assert memories and any("도움됐다" in m for m in memories)
+    assert all("(house-real)" in m for m in memories)  # 요약에 범위를 적어 둔 가짜 노트
+    recalls = [e for e in sim.memory_events if e["verb"] == "recall"]
+    assert {e["who"] for e in recalls} == {"house", "resident"}
+    # 취향 심기는 처음 한 번: 이미 있으면 다시 심지 않는다(실제 모양에서도 같은 카드로 찾는다).
+    seeds = [a for a in brain.remembers() if a[a.index("--scope") + 1] == RESIDENT_SCOPE]
+    assert len(seeds) == len(day_sim.RESIDENT_PREFERENCES)
+    again = DaySim(seed=7, days=1, models="cloud", cloud=_kit(tmp_path / "2", brain=brain),
+                   house_id="real2")
+    _run(again)
+    seeds = [a for a in brain.remembers() if a[a.index("--scope") + 1] == RESIDENT_SCOPE]
+    assert len(seeds) == len(day_sim.RESIDENT_PREFERENCES)
