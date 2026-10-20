@@ -165,7 +165,7 @@ DB 를 읽지도 쓰지도 않는 순수 계산이다. 실제 파급도 표·사
     - `safety`·`followup` — 2단계 뒤: `model, severity, followup, ladder`. 그 단계 끝에 상황마다 하나. `followup` 은 그 상황(situation_id)에 2단계가 올린 후속 제안이 실제로 송신됐는지, `ladder` 는 단계 끝의 사다리 상태(`재알림 예약 HH:MM` · `확인돼 재알림 멈춤` · `재알림 예약 없음`). 2단계가 마감을 넘기면 `model.real_ms` 는 null 이다.
     - `feedback`·`feedback` — 누름·만료가 적용된 자리 바로 뒤(그 `feedback` 사건 다음): 편의 `phone, feedback, prefs`, 안전 확인 `phone, ack`.
   - 노드 = `{id, label_ko, detail_ko, real_ms, model, state}`. `state` = done·end·skipped. `real_ms` 는 그 단계를 실제로 잰 시간(ms, 소수 둘째 자리)이고, 재지 않은 노드는 null 이다 — 화면의 딜레이는 `max(real_ms, 속도별 최소)` 로 화면만 늘린다. `model` 은 판정·이유 모델 id(없으면 null).
-  - 모든 `detail_ko` 는 한국어 문장이고 기기 id·영문 열거값·거주자 특성 낱말이 없다(`tests/test_day_trace.py`).
+  - 모든 `detail_ko` 는 한국어 문장이고 기기 id·거주자 특성 낱말이 없으며, 영문 열거값 없음(단, 모델 이름 provider:model·ms·luna 는 표시용으로 허용)(`tests/test_day_trace.py`).
   - 기록이 실패해도 실행은 그대로다(trace 만 빠진다) — 첫 경보는 기록을 기다리지 않는다.
   - `summary.luna[]` 의 `entity_id` 는 trace 실행에만 있다.
 - `GET /api/day/runs/<id>` → `{ok, run_id, status(running·stopping·done·stopped·failed), event_count, meta, summary{seed, days, persona, metrics[], proposals[], safety[]}, error}`. 날짜별 `metrics` = `{day, proposals, pushes(IMMEDIATE), digests, suppressed, accepted, dismissed, expired, accept_rate(= accepted / pushes, 폰 알림이 없으면 null), safety_alerts, scenes}` — 서버가 기록에서 센다.
