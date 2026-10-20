@@ -346,3 +346,25 @@ def test_oversized_probability_degrades_through_llm_judge(value: int) -> None:
     jd, floor = _judge(fake, LIGHT)
     assert jd.degraded and jd.risk_tier >= floor
     assert len(fake.calls) == 1
+
+
+# ── 0단계: 실제로 답한 판(응답 model)을 기록한다 ───────────────────────────────
+
+
+def test_served_model_goes_into_rationale_and_usage() -> None:
+    fake = FakeJev(response={"model": "jev-1.13.0", "answers": {"risk": _answer(2)}})
+    jev = JevBackend(KEY, transport=fake)
+    res = jev.judge_raw(LIGHT, _ctx(), RiskTier.AMBIENT)
+    assert res.model_id == "jev:jev-latest"  # 요청 이름(degraded 기록과 같다)
+    assert "응답 모델 jev-1.13.0" in res.rationale
+    assert jev.last_usage["model"] == "jev-1.13.0"
+    jd, _ = _judge(FakeJev(response={"model": "jev-1.13.0", "answers": {"risk": _answer(2)}}), LIGHT)
+    assert "jev-1.13.0" in jd.rationale
+
+
+@pytest.mark.parametrize("model", [None, 7, "", "x" * 65, "jev 1.13", "jev-1.13.0\n주입", "-lead"])
+def test_odd_response_model_is_not_recorded(model: Any) -> None:
+    fake = FakeJev(response={"model": model, "answers": {"risk": _answer(2)}})
+    jev = JevBackend(KEY, transport=fake)
+    res = jev.judge_raw(LIGHT, _ctx(), RiskTier.AMBIENT)
+    assert jev.last_usage["model"] is None and "응답 모델" not in res.rationale

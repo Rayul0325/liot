@@ -67,7 +67,8 @@ def _reply(provider: str, text: str, tokens_in: int = 31, tokens_out: int = 17) 
                 "usage": {"input_tokens": tokens_in, "output_tokens": tokens_out}}
     if provider == "gemini":
         return {"candidates": [{"content": {"role": "model", "parts": [
-                    {"text": "생각 중", "thought": True}, {"text": text}]}}],
+                    {"text": "생각 중", "thought": True}, {"text": text}]},
+                                "finishReason": "STOP"}],
                 "usageMetadata": {"promptTokenCount": tokens_in,
                                   "candidatesTokenCount": tokens_out}}
     return {"output": [{"type": "reasoning", "summary": []},
@@ -113,7 +114,8 @@ def test_gemini_request_shape_key_in_header_not_url() -> None:
     assert req.headers == {"x-goog-api-key": KEY, "content-type": "application/json"}
     assert req.body == {"systemInstruction": {"parts": [{"text": "SYS"}]},
                         "contents": [{"role": "user", "parts": [{"text": "USER"}]}],
-                        "generationConfig": {"maxOutputTokens": 64}}
+                        "generationConfig": {"maxOutputTokens": 64,
+                                             "thinkingConfig": {"thinkingLevel": "low"}}}
 
 
 def test_openai_responses_request_shape() -> None:
@@ -121,7 +123,7 @@ def test_openai_responses_request_shape() -> None:
     assert req.url == OPENAI_RESPONSES_URL
     assert req.headers == {"authorization": f"Bearer {KEY}", "content-type": "application/json"}
     assert req.body == {"model": "openai-model-x", "instructions": "SYS", "input": "USER",
-                        "max_output_tokens": 64}
+                        "max_output_tokens": 64, "reasoning": {"effort": "none"}}
 
 
 @pytest.mark.parametrize("provider", PROVIDERS)
@@ -497,3 +499,59 @@ def test_str_subclass_is_scanned_as_what_the_sanitizer_sends() -> None:
     llm, fake = _client()
     res = llm.reason({**FACTS, "memo": sneaky}, fallback=FALLBACK)
     assert (res.source, res.fallback_reason) == ("fallback", "egress") and fake.requests == []
+
+
+# ── 0단계: 끊긴 답은 쓰지 않는다 ─────────────────────────────────────────────
+
+TRUNCATED_REAL = "…외기온 14.2℃와 미세먼지"  # 2026-10-20 gpt-6-luna 가 출력 상한에서 끊긴 실제 답
+
+
+def _truncated(provider: str, text: str) -> dict[str, Any]:
+    reply = _reply(provider, text)
+    if provider == "anthropic":
+        reply["stop_reason"] = "max_tokens"
+    elif provider == "openai":
+        reply["status"] = "incomplete"
+        reply["incomplete_details"] = {"reason": "max_output_tokens"}
+    else:
+        reply["candidates"][0]["finishReason"] = "MAX_TOKENS"
+    return reply
+
+
+@pytest.mark.parametrize("provider", PROVIDERS)
+def test_truncated_reason_falls_back_even_if_it_looks_valid(provider: str) -> None:
+    assert validate_reason(TRUNCATED_REAL) == TRUNCATED_REAL  # 검증만으로는 통과했다
+    llm = CheapLLM(_cfg(provider), KEY, transport=FakeTransport(_truncated(provider, TRUNCATED_REAL)))
+    res = llm.reason(FACTS, fallback=FALLBACK)
+    assert (res.source, res.text, res.fallback_reason) == ("fallback", FALLBACK, "invalid_output")
+    assert llm.calls[0]["ok"] is False
+
+
+@pytest.mark.parametrize("provider", PROVIDERS)
+def test_truncated_choice_falls_back(provider: str) -> None:
+    llm = CheapLLM(_cfg(provider), KEY, transport=FakeTransport(_truncated(provider, "그만해")))
+    res = llm.choose(FACTS, OPTIONS, fallback="accepted")
+    assert (res.source, res.text, res.fallback_reason) == ("fallback", "accepted", "invalid_output")
+
+
+def test_reply_truncated_markers() -> None:
+    from liot.cheap_llm import reply_truncated
+
+    assert not reply_truncated("anthropic", {"stop_reason": "end_turn"})
+    assert reply_truncated("anthropic", {"stop_reason": "max_tokens"})
+    assert not reply_truncated("openai", {"status": "completed"})
+    assert reply_truncated("openai", {"status": "incomplete"})
+    assert not reply_truncated("gemini", {"candidates": [{"finishReason": "STOP"}]})
+    bads: list[dict[str, Any]] = [{"candidates": [{"finishReason": "MAX_TOKENS"}]},
+                                  {"candidates": [{}]}, {"candidates": []}, {}]
+    for bad in bads:
+        assert reply_truncated("gemini", bad)
+
+
+def test_requests_turn_thinking_down_per_provider() -> None:
+    gem = build_request(_cfg("gemini"), KEY, "S", "U").body
+    assert gem["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "low"}
+    oai = build_request(_cfg("openai"), KEY, "S", "U").body
+    assert oai["reasoning"] == {"effort": "none"}
+    ant = build_request(_cfg("anthropic"), KEY, "S", "U").body
+    assert "thinking" not in ant and "reasoning" not in ant

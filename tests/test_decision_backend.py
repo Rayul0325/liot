@@ -507,3 +507,14 @@ def test_oversized_logprob_is_unavailable_not_overflow(logprob: int) -> None:
     """리뷰 B2: 실수로 못 바꾸는 큰 정수 logprob 은 OverflowError 가 아니라 판독 불가다."""
     with pytest.raises(LLMUnavailable):
         read_option_probs([{"token": "A", "logprob": logprob}], ("a", "b", "c", "d"))
+
+
+def test_missing_zero_gives_absent_letters_zero_probability() -> None:
+    top = [{"token": "A", "logprob": -0.28}, {"token": "B", "logprob": -1.43}]  # 0단계 실측 모양
+    probs = read_option_probs(top, ("a", "b", "c", "d"), missing="zero")
+    assert probs["c"] == 0.0 and probs["d"] == 0.0
+    assert probs["a"] == pytest.approx(1 / (1 + math.exp(-1.43 + 0.28)))
+    gap = read_option_probs(top, ("a", "b", "c", "d"))  # 기본(결정 백엔드)은 그대로
+    assert gap["c"] > 0 and gap["d"] > 0
+    with pytest.raises(ValueError):
+        read_option_probs(top, ("a", "b"), missing="none")

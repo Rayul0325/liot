@@ -9,7 +9,7 @@
     1자리로 반올림하고(``geo_precise`` 오탐 방지), ``name`` 이 든 키를 뺀다(가명화 회피). 그 뒤
     ``emit_external(Destination.LLM)`` 를 지난 것만 보낸다. 특성 낱말이 있거나 egress 가 거부하면
     보내지 않고 대체한다.
-  - **출력 검증**: 한 줄 · 80자 이하 · 한글 포함 · 특성 낱말 0개. 못 지키면 호출자가 준 대체
+  - **출력 검증**: 끊기지 않은 답(``reply_truncated``)이고 한 줄 · 80자 이하 · 한글 포함 · 특성 낱말 0개. 못 지키면 호출자가 준 대체
     문장(규칙의 ``reason_ko`` 틀)을 ``source="fallback"`` 표시와 함께 돌려준다. 예외를 던지지 않는다.
   - **기록**: 호출마다 지연·토큰·성공 여부를 ``calls`` 에 남긴다(비용·지연 집계용).
   - **키**: 생성자로 받는다. 오류문·repr·기록에 넣지 않는다.
@@ -58,6 +58,7 @@ __all__ = [
     "match_option",
     "parse_reply",
     "raw_pii",
+    "reply_truncated",
     "sanitize_for_llm",
     "validate_reason",
 ]
@@ -325,7 +326,10 @@ def build_request(
             body={
                 "systemInstruction": {"parts": [{"text": system}]},
                 "contents": [{"role": "user", "parts": [{"text": user}]}],
-                "generationConfig": {"maxOutputTokens": cfg.max_output_tokens},
+                # 생각(thinking) 기본값은 256 토큰 중 ~245 를 쓴다 — "low" 로 줄인다("minimal" 은
+                # 400, thinkingBudget 0 은 무시됨 — 2026-10-20 실측).
+                "generationConfig": {"maxOutputTokens": cfg.max_output_tokens,
+                                     "thinkingConfig": {"thinkingLevel": "low"}},
             },
         )
     return ProviderRequest(
@@ -336,6 +340,8 @@ def build_request(
             "instructions": system,
             "input": user,
             "max_output_tokens": cfg.max_output_tokens,
+            # 기본 추론은 ~154 토큰·4~5초를 쓴다 — 이유 한 줄에는 추론을 끈다(2026-10-20 실측).
+            "reasoning": {"effort": "none"},
         },
     )
 
@@ -359,6 +365,24 @@ def _texts(items: object, *, kind_key: str, kind: str) -> list[str]:
         for item in items
         if isinstance(item, dict) and item.get(kind_key) == kind and isinstance(item.get("text"), str)
     ]
+
+
+def reply_truncated(provider: Provider, data: Mapping[str, Any]) -> bool:
+    """응답이 출력 상한 등으로 중간에 끊겼는가. 끊긴 글은 검증을 통과해도 쓰지 않는다.
+
+    실사례(2026-10-20): gpt-6-luna 가 max_output_tokens 에 닿아 "…외기온 14.2℃와 미세먼지" 를
+    돌려줬고 한 줄·80자·한글 검사를 다 통과했다.
+      - anthropic: ``stop_reason == "max_tokens"``
+      - openai(Responses): ``status == "incomplete"``
+      - gemini: ``candidates[0].finishReason != "STOP"`` (없어도 끊긴 것으로 본다)
+    """
+    if provider == "anthropic":
+        return data.get("stop_reason") == "max_tokens"
+    if provider == "openai":
+        return data.get("status") == "incomplete"
+    candidates = data.get("candidates")
+    first = candidates[0] if isinstance(candidates, list) and candidates else None
+    return not (isinstance(first, Mapping) and first.get("finishReason") == "STOP")
 
 
 def parse_reply(provider: Provider, data: Mapping[str, Any]) -> tuple[str, int | None, int | None]:
@@ -575,7 +599,8 @@ class CheapLLM:
             self.calls.append(record)
             return self._fallback(fallback, "bad_response", seconds=seconds)
         record.update(input_tokens=tokens_in, output_tokens=tokens_out)
-        line = validate(text)
+        # 끊긴 답은 검증을 통과해도 쓰지 않는다(이유·보기 고르기 모두).
+        line = None if reply_truncated(self.cfg.provider, data) else validate(text)
         if line is None:
             record["fallback_reason"] = "invalid_output"
             self.calls.append(record)

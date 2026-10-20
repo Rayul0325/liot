@@ -7,7 +7,7 @@
 - `llm_judge.py` — `LLMJudge` (Gate2 composition), `LLMResult`, `LLMUnavailable`, `FakeLLM`, `build_llm_backend`.
 - `decision_backend.py` — `DecisionBackend` for a llama.cpp server: two four-option questions, first-token letter probabilities, `read_option_probs`; `option_prompt`, `DECISION_SYSTEM` and `argmax_option` are shared with `liot/luna_shadow.py` so the shadow asks the same question.
 - `ollama_backend.py` — `OllamaBackend` (JSON generation) and the shared model payload builder.
-- `jev_backend.py` — `JevBackend` for the Jev (typesafe.ai systemone) remote judge, used only by the day simulator: one POST per judgment, `read_jev_probs`.
+- `jev_backend.py` — `JevBackend` for the Jev (typesafe.ai systemone) remote judge, used only by the day simulator: one POST per judgment, `read_jev_probs`. `model_id` is the requested name (`jev:jev-latest`, the same on the degraded path); the served version from the response `model` (e.g. `jev-1.13.0`, validated by `response_model`) goes into the rationale and `last_usage["model"]`.
 - `prompt_registry.py` — bundle manifests (`bundle_id`).
 
 Not this module's scope: severity table and abnormal rules (core), deciding to call the model in phase 2 or not (app/service), routing to proposals and confirmations (L4), notification.

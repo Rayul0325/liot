@@ -651,7 +651,7 @@ def test_bad_cloud_settings_are_rejected(tmp_path: Path, text: str) -> None:
 
 def test_shipped_cloud_settings_and_prices() -> None:
     limits, prices = load_cloud_settings()
-    assert limits.call_cap_per_run == 120
+    assert limits.call_cap_per_run == 216  # 0단계: 가짜 3일 실행 72회 × 3
     assert (limits.cost_cap_per_run_usd, limits.cost_cap_per_day_usd) == (0.5, 2.0)
     assert limits.usage_path == Path.home() / ".config" / "liot" / "usage.json"
     assert set(prices) == {"claude-haiku-5-5", "gemini-3.8-flash", "gpt-6-luna", "jev-latest"}
@@ -881,3 +881,45 @@ def test_real_shape_recall_feeds_house_memory_into_the_next_reason(tmp_path: Pat
     _run(again)
     seeds = [a for a in brain.remembers() if a[a.index("--scope") + 1] == RESIDENT_SCOPE]
     assert len(seeds) == len(day_sim.RESIDENT_PREFERENCES)
+
+
+# ── 0단계: luna 요청마다 계량 · 응답 모델 기록 · luna 상태 ─────────────────────
+
+
+def test_each_luna_request_is_its_own_metered_call(
+    cloud7: tuple[DaySim, Events, FakeCheap, FakeBrain],
+) -> None:
+    sim, _, _, _ = cloud7
+    severity_judges = sum(1 for e in sim.log if e[0] == "model" and e[1][1] is True)
+    judges = sum(1 for e in sim.log if e == ("ext", "judge"))
+    lunas = sum(1 for e in sim.log if e == ("ext", "luna"))
+    assert lunas == judges + severity_judges and severity_judges > 0
+    assert sim.summary()["models"]["usage"]["by_kind"]["luna"]["calls"] == lunas
+
+
+def test_luna_results_carry_the_served_jev_model(
+    cloud7: tuple[DaySim, Events, FakeCheap, FakeBrain],
+) -> None:
+    sim, _, _, _ = cloud7
+    assert sim.luna_results and all(r["judge_model"] == "jev-test" for r in sim.luna_results)
+    assert all(r["judge"] == "jev:jev-latest" for r in sim.luna_results)
+
+
+def test_luna_stops_at_the_cap_mid_comparison(tmp_path: Path) -> None:
+    sim = DaySim(seed=7, days=3, models="cloud", cloud=_kit(tmp_path, call_cap=40))
+    _run(sim)
+    usage = sim.summary()["models"]["usage"]
+    assert usage["calls"] == 40 == sum(1 for e in sim.log if e[0] == "ext")
+
+
+@pytest.mark.parametrize(("keys", "state"), [({"OPENAI_API_KEY": KEY}, "cloud"), ({}, "fake")])
+def test_shipped_luna_is_cloud_only_with_an_openai_key(
+    tmp_path: Path, keys: dict[str, str], state: str,
+) -> None:
+    from liot.day_cloud import build_cloud_kit
+    from liot.secrets_env import Secrets
+
+    kit = build_cloud_kit(Secrets(dict(keys)), memory=MemoryClient(home=HOME, runner=FakeBrain()),
+                          today=lambda: TODAY, usage_path=tmp_path / "usage.json")
+    luna = next(st for st in kit.status if st["part"] == "luna")
+    assert luna["state"] == state and KEY not in json.dumps(kit.status)

@@ -198,12 +198,15 @@ class _NoSendTransport:
         raise LLMUnavailable("payload builder must not send")
 
 
-def read_option_probs(top_logprobs: object, option_ids: Sequence[str]) -> dict[str, float]:
+def read_option_probs(
+    top_logprobs: object, option_ids: Sequence[str], *, missing: str = "gap"
+) -> dict[str, float]:
     """top_logprobs 에서 선택지 글자(A, B, …)만 골라 softmax 한 확률표를 만든다.
 
     - 토큰이 글자와 **정확히** 같을 때만 그 글자로 친다(측정과 같은 규칙).
     - 유한하지 않은 logprob 은 본 적 없는 것으로 친다.
-    - top-k 밖 글자는 ``min(본 logprob) - 2``.
+    - top-k 밖 글자: ``missing="gap"`` 이면 ``min(본 logprob) - 2``(llama.cpp, top 40),
+      ``missing="zero"`` 이면 확률 0(OpenAI top 5 — 아주 작은 글자는 아예 빠져 온다, 2026-10-20 측정).
     - 선택지 글자가 하나도 없거나 형식이 틀리면 ``LLMUnavailable``.
     반환: {선택지 id: 확률}, option_ids 순서.
     """
@@ -227,9 +230,17 @@ def read_option_probs(top_logprobs: object, option_ids: Sequence[str]) -> dict[s
             raise LLMUnavailable("top_logprobs entry logprob overflows a float") from None
         if math.isfinite(value):
             seen[token] = value
+    if missing not in ("gap", "zero"):
+        raise ValueError(f"missing must be 'gap' or 'zero': {missing!r}")
     letters = _LETTERS[: len(option_ids)]
     if not any(letter in seen for letter in letters):
         raise LLMUnavailable("no option letter in top_logprobs")
+    if missing == "zero":
+        present = [seen[letter] for letter in letters if letter in seen]
+        mz = max(present)
+        w = [math.exp(seen[letter] - mz) if letter in seen else 0.0 for letter in letters]
+        total = sum(w)
+        return {oid: x / total for oid, x in zip(option_ids, w, strict=True)}
     floor = min(seen.values()) - _MISSING_LOGPROB_GAP
     z = [seen.get(letter, floor) for letter in letters]
     mz = max(z)

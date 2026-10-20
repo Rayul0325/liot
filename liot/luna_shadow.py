@@ -5,8 +5,9 @@
     - ``decision_api``: 공개 문서가 없는 제한 프리뷰다. 0단계에서 엔드포인트·요청 형태를 확인하기
       전까지 요청을 만들지 않고 늘 '미접근'을 돌려준다(형태를 지어내지 않는다).
     - ``logprobs``: Chat Completions 에 결정 백엔드와 같은 4지선다를 묻고
-      (``logprobs: true``, ``top_logprobs: 20``) 첫 토큰의 보기 글자(A~D)만 softmax 한다
-      (``read_option_probs`` — 결정 백엔드와 같은 규칙).
+      (``logprobs: true``, ``top_logprobs: 5``, ``reasoning_effort: "none"``,
+      ``max_completion_tokens: 16``) 첫 토큰의 보기 글자(A~D)만 softmax 한다
+      (``read_option_probs(missing="zero")`` — top 에 없는 보기는 0).
     - ``unavailable``: 부르지 않고 '미접근'.
   - **같은 증거**: Jev 에 보낸 증거 문자열(``EvidenceBuilder`` 출력)을 받는다. 그래도 한 번 더
     ``emit_external(Destination.LLM)`` 을 지나게 해 PII·엔티티 모양이 남았으면 보내지 않는다.
@@ -19,7 +20,7 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -50,6 +51,8 @@ from liot.layers.l3_judgment.llm_judge import LLMUnavailable
 __all__ = [
     "MODES",
     "OPENAI_CHAT_URL",
+    "MAX_COMPLETION_TOKENS",
+    "REASONING_EFFORT",
     "TOP_LOGPROBS",
     "LunaConfig",
     "LunaShadow",
@@ -60,7 +63,12 @@ __all__ = [
 Mode = Literal["decision_api", "logprobs", "unavailable"]
 MODES: tuple[Mode, ...] = ("decision_api", "logprobs", "unavailable")
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
-TOP_LOGPROBS = 20
+# 2026-10-20 실측(gpt-6-luna): logprobs 는 reasoning_effort "none" 일 때만 받고, top_logprobs 는
+# 5 이하, max_completion_tokens 1 은 HTTP 400("max_tokens reached") — 16 이면 첫 토큰이 보기 글자다.
+# 아주 작은 글자는 top 에서 빠져 오므로(2개만 오기도 한다) 빠진 보기는 확률 0 으로 친다.
+TOP_LOGPROBS = 5
+MAX_COMPLETION_TOKENS = 16
+REASONING_EFFORT = "none"
 
 _QUESTIONS = {TIER_QUESTION.qid: TIER_QUESTION, SEVERITY_QUESTION.qid: SEVERITY_QUESTION}
 
@@ -165,8 +173,9 @@ class LunaShadow:
                 ],
                 "logprobs": True,
                 "top_logprobs": TOP_LOGPROBS,
-                # 첫 토큰(보기 글자)만 읽는다. 추론형 모델이 이 값을 거부하는지는 0단계에서 본다.
-                "max_completion_tokens": 1,
+                "reasoning_effort": REASONING_EFFORT,
+                # 첫 토큰(보기 글자)만 읽는다. 1 은 거부된다(0단계 실측) — 16 이면 첫 토큰이 글자다.
+                "max_completion_tokens": MAX_COMPLETION_TOKENS,
             },
         )
 
@@ -176,8 +185,14 @@ class LunaShadow:
         jev_probs: Mapping[str, Mapping[str, float]],
         *,
         trace_id: str = "luna",
+        allow: Callable[[], bool] | None = None,
+        on_request: Callable[[dict[str, Any]], None] | None = None,
     ) -> ShadowResult:
-        """tier 는 늘, severity 는 Jev 가 물었을 때만 묻는다. 어떤 실패도 '미접근'으로 끝난다."""
+        """tier 는 늘, severity 는 Jev 가 물었을 때만 묻는다. 어떤 실패도 '미접근'으로 끝난다.
+
+        ``allow`` 는 요청 하나마다 그 직전에 부른다(계량기 자리). False 면 보내지 않고 '미접근'.
+        ``on_request`` 는 보낸 요청 하나마다 그 기록(지연·토큰·성공)을 받는다.
+        """
         if self.cfg.mode == "unavailable":
             return self._unavailable("luna 미접근 — 설정에서 꺼져 있습니다.")
         if self.cfg.mode == "decision_api":
@@ -199,7 +214,14 @@ class LunaShadow:
         probs: dict[str, dict[str, float]] = {}
         seconds = 0.0
         tokens_in = tokens_out = 0
+        def done(record: dict[str, Any]) -> None:
+            self.calls.append(record)
+            if on_request is not None:
+                on_request(dict(record))
+
         for qid in qids:
+            if allow is not None and not allow():
+                return self._unavailable("luna 미접근 — 호출 상한에 닿았습니다.")
             t0 = time.perf_counter()
             record: dict[str, Any] = {"question": qid, "model": self.cfg.model, "ok": False}
             try:
@@ -208,7 +230,7 @@ class LunaShadow:
                 )
             except CheapLLMError as exc:
                 record["seconds"] = round(time.perf_counter() - t0, 4)
-                self.calls.append(record)
+                done(record)
                 return self._unavailable(f"luna 미접근 — 호출 실패({exc}).")
             elapsed = time.perf_counter() - t0
             seconds += elapsed
@@ -223,12 +245,12 @@ class LunaShadow:
                 )
             try:
                 top = data["choices"][0]["logprobs"]["content"][0]["top_logprobs"]
-                probs[qid] = read_option_probs(top, _QUESTIONS[qid].option_ids)
+                probs[qid] = read_option_probs(top, _QUESTIONS[qid].option_ids, missing="zero")
             except (KeyError, IndexError, TypeError, LLMUnavailable):
-                self.calls.append(record)
+                done(record)
                 return self._unavailable("luna 미접근 — 응답에서 보기 글자 확률을 읽지 못했습니다.")
             record["ok"] = True
-            self.calls.append(record)
+            done(record)
         choice = {qid: argmax_option(p) for qid, p in probs.items()}
         agree = {
             qid: choice[qid] == argmax_option(dict(jev_probs[qid]))

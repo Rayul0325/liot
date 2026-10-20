@@ -439,7 +439,7 @@ class _RecordingJudge:
         *,
         cloud: LLMBackend | None = None,
         kit: CloudKit | None = None,
-        shadow: list[tuple[str, dict[str, dict[str, float]], str]] | None = None,
+        shadow: list[tuple[str, dict[str, dict[str, float]], str, str | None]] | None = None,
     ) -> None:
         self.inner = inner
         self.log = log
@@ -501,12 +501,13 @@ class _RecordingJudge:
                     input_tokens=usage.get("input_tokens"),
                     output_tokens=usage.get("output_tokens"),
                 )
+        served = usage.get("model") if isinstance(usage.get("model"), str) else None
         if self.shadow is not None and self._evidence is not None and result.probs:
             try:
                 evidence = self._evidence.build(candidate, ctx, gate1_floor)
             except LLMUnavailable:
                 return result
-            self.shadow.append((evidence, dict(result.probs), result.model_id))
+            self.shadow.append((evidence, dict(result.probs), result.model_id, served))
         return result
 
 
@@ -598,7 +599,7 @@ class DaySim:
             raise ValueError(f"unknown models {self.models!r}")
         if self.models == "cloud" and self.cloud is None:
             raise ValueError("cloud 모드에는 CloudKit 이 필요합니다.")
-        self._shadow_due: list[tuple[str, dict[str, dict[str, float]], str]] = []
+        self._shadow_due: list[tuple[str, dict[str, dict[str, float]], str, str | None]] = []
         self._house: HouseMemory | None = None
         self._resident: ResidentMemory | None = None
         self._decided_by: dict[str, str] = {}
@@ -1467,30 +1468,48 @@ class DaySim:
     async def _luna_shadows(
         self, kit: CloudKit, step: StepPlan, out: Callable[[str, dict[str, Any]], Awaitable[None]]
     ) -> None:
-        """이번 단계의 Jev 판정마다 luna 확률을 나란히 남긴다(판정은 바꾸지 않는다)."""
+        """이번 단계의 Jev 판정마다 luna 확률을 나란히 남긴다(판정은 바꾸지 않는다).
+
+        luna 요청 하나하나(위험도 1 + 파급도 1)가 계량기 자리 하나다: ``allow`` 가 요청 직전에
+        자리를 잡고(외부 호출 기록), ``on_request`` 가 끝난 요청의 지연·토큰을 더한다.
+        """
         due, self._shadow_due[:] = list(self._shadow_due), []
         luna = kit.luna
         if luna is None:
             return
-        def usage(r: ShadowResult) -> tuple[str | None, int | None, int | None]:
-            return luna.cfg.model, r.input_tokens, r.output_tokens
 
-        for evidence, probs, model_id in due:
+        def gate() -> bool:
+            if not kit.meter.allow():
+                return False
+            self.log.append(("ext", "luna"))
+            return True
+
+        def spent(record: dict[str, Any]) -> None:
+            kit.meter.record("luna", luna.cfg.model, seconds=record.get("seconds"),
+                             input_tokens=record.get("input_tokens"),
+                             output_tokens=record.get("output_tokens"))
+
+        for evidence, probs, model_id, served in due:
             res: ShadowResult | None
             if luna.cfg.mode == "logprobs":
                 def compare(ev: str = evidence,
                             pr: dict[str, dict[str, float]] = probs) -> ShadowResult:
-                    return luna.compare(ev, pr)
+                    return luna.compare(ev, pr, allow=gate, on_request=spent)
 
-                res = await self._ext(kit, "luna", compare, usage=usage)
+                try:
+                    res = await asyncio.wait_for(asyncio.to_thread(compare),
+                                                 timeout=2 * kit.call_timeout_s)
+                except TimeoutError:
+                    res = None
             else:
                 res = luna.compare(evidence, probs)  # 부르지 않는 방식 — 외부 호출 없음
             rec: dict[str, Any] = {
                 "day": step.day, "hhmm": step.at_local.strftime("%H:%M"), "judge": model_id,
+                "judge_model": served,
                 "jev": probs, "status": "unavailable" if res is None else res.status,
                 "luna": {} if res is None else res.probs,
                 "agree": {} if res is None else res.agree,
-                "reason_ko": ("luna 미접근 — 상한 또는 시간 초과" if res is None else res.reason_ko),
+                "reason_ko": ("luna 미접근 — 시간 초과" if res is None else res.reason_ko),
             }
             self.luna_results.append(rec)
 

@@ -355,10 +355,14 @@ def build_cloud_kit(
         note("resident", "fake", "persona_table", reason)
 
     luna_cfg = load_luna_config(config_path)
-    luna = LunaShadow(luna_cfg, secrets.get("OPENAI_API_KEY") or "")
-    kit.luna = luna
-    note("luna", "cloud" if luna_cfg.mode == "logprobs" else "fake", luna_cfg.model,
-         None if luna_cfg.mode == "logprobs" else "luna 미접근 — 설정 방식이 logprobs 가 아닙니다.")
+    openai_key = secrets.get("OPENAI_API_KEY") or ""
+    kit.luna = LunaShadow(luna_cfg, openai_key)
+    if luna_cfg.mode != "logprobs":
+        note("luna", "fake", luna_cfg.model, "luna 미접근 — 설정 방식이 logprobs 가 아닙니다.")
+    elif not openai_key:
+        note("luna", "fake", luna_cfg.model, "luna 미접근 — OPENAI_API_KEY 가 없습니다.")
+    else:
+        note("luna", "cloud", luna_cfg.model, None)
 
     kit.memory = memory if memory is not None else MemoryClient()
     note("memory", "pending", "memgineering:liot-demo", "실행 시작 때 브레인을 확인합니다.")

@@ -20,6 +20,7 @@ from __future__ import annotations
 import http.client
 import json
 import math
+import re
 import time
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol, runtime_checkable
@@ -39,6 +40,7 @@ __all__ = [
     "JevBackend",
     "JevTransport",
     "read_jev_probs",
+    "response_model",
 ]
 
 JEV_URL = "https://api.typesafe.ai/v1/systemone"
@@ -93,6 +95,14 @@ class HTTPJevTransport:
         if not isinstance(data, dict):
             raise LLMUnavailable("jev response is not an object")
         return data
+
+
+_MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
+
+
+def response_model(value: object) -> str | None:
+    """응답의 ``model``(예: ``jev-1.13.0``). 짧은 이름 모양이 아니면 None(기록에 싣지 않는다)."""
+    return value if isinstance(value, str) and _MODEL_NAME_RE.fullmatch(value) else None
 
 
 def _question(question: Any) -> dict[str, Any]:
@@ -213,9 +223,10 @@ class JevBackend:
             probs["severity"] = sev_probs
             severity = SeverityLevel.from_str(_argmax(sev_probs))
         usage = data.get("usage")
+        served = response_model(data.get("model"))
         self.last_usage.update(
             {
-                "model": data.get("model") if isinstance(data.get("model"), str) else None,
+                "model": served,
                 "input_tokens": usage.get("input_tokens") if isinstance(usage, Mapping) else None,
                 "output_tokens": usage.get("output_tokens") if isinstance(usage, Mapping) else None,
             }
@@ -224,10 +235,13 @@ class JevBackend:
             f"{qid} " + "/".join(f"{oid} {p:.2f}" for oid, p in opts.items())
             for qid, opts in probs.items()
         )
+        # model_id 는 요청한 이름(jev:jev-latest — degraded 기록과 같은 이름)이고, 실제로 답한 판(예:
+        # jev-1.13.0)은 판정 근거에 남긴다(판단 기록·속 보기에서 보인다).
+        served_note = f" · 응답 모델 {served}" if served else ""
         return LLMResult(
             tier=RiskTier.from_str(tier_id),
             confidence=tier_probs[tier_id],
-            rationale=f"Jev 판정 ({summary})",
+            rationale=f"Jev 판정{served_note} ({summary})",
             model_id=self.model_id,
             severity=severity,
             probs=probs,

@@ -93,9 +93,10 @@ def test_logprobs_request_shape() -> None:
                      {"role": "user", "content": option_prompt(TIER_QUESTION, EVIDENCE)}],
         "logprobs": True,
         "top_logprobs": TOP_LOGPROBS,
-        "max_completion_tokens": 1,
+        "reasoning_effort": "none",
+        "max_completion_tokens": 16,
     }
-    assert TOP_LOGPROBS == 20
+    assert TOP_LOGPROBS == 5
 
 
 def test_softmax_over_letters_and_agreement() -> None:
@@ -105,9 +106,8 @@ def test_softmax_over_letters_and_agreement() -> None:
     assert res.status == "ok" and len(fake.requests) == 2
     assert fake.requests[1].body["messages"][1]["content"] == option_prompt(
         SEVERITY_QUESTION, EVIDENCE)
-    # 본 logprob 최솟값(-1.9) - 2 = -3.9 를 못 본 글자(A, B)에 준다 — 결정 백엔드와 같은 규칙.
-    z = [-3.9, -3.9, -1.9, -0.2]
-    w = [math.exp(v) for v in z]
+    # top 에 없는 글자(A, B)는 확률 0 — OpenAI top 5 는 아주 작은 글자를 빼고 보낸다(0단계 실측).
+    w = [0.0, 0.0, math.exp(-1.9), math.exp(-0.2)]
     expected = {oid: x / sum(w) for oid, x in zip(TIER_QUESTION.option_ids, w, strict=True)}
     assert res.probs["tier"] == pytest.approx(expected)
     assert res.choice == {"tier": "ember", "severity": "notice"}
@@ -199,3 +199,46 @@ def test_oversized_token_counts_are_ignored() -> None:
     shadow, _ = _shadow(replies=[reply])
     res = shadow.compare(EVIDENCE, {"tier": JEV_TIER})
     assert res.status == "ok" and (res.input_tokens, res.output_tokens) == (0, 0)
+
+
+# ── 0단계: 요청 조건 · 요청마다 계량 ─────────────────────────────────────────
+
+
+def test_two_entry_top_reads_missing_options_as_zero() -> None:
+    shadow, _ = _shadow(replies=[_completion({"A": -0.28, "B": -1.43})])  # 실측 모양: 둘만 온다
+    res = shadow.compare(EVIDENCE, {"tier": JEV_TIER})
+    assert res.status == "ok"
+    assert res.probs["tier"]["dusk"] == 0.0 and res.probs["tier"]["ember"] == 0.0
+    assert res.choice == {"tier": "ambient"}
+
+
+def test_allow_gate_is_asked_before_every_request() -> None:
+    asked: list[int] = []
+    budget = iter([True, False])
+
+    def allow() -> bool:
+        asked.append(1)
+        return next(budget)
+
+    seen: list[dict[str, Any]] = []
+    shadow, fake = _shadow(replies=[_completion({"D": -0.1}), _completion({"B": -0.1})])
+    res = shadow.compare(EVIDENCE, {"tier": JEV_TIER, "severity": JEV_SEV},
+                         allow=allow, on_request=seen.append)
+    assert len(asked) == 2 and len(fake.requests) == 1  # 파급도 요청은 자리가 없어 안 보냈다
+    assert res.status == "unavailable" and "상한" in (res.reason_ko or "")
+    assert [(r["question"], r["ok"], r["input_tokens"]) for r in seen] == [("tier", True, 120)]
+
+
+def test_on_request_sees_failed_requests_too() -> None:
+    seen: list[dict[str, Any]] = []
+    shadow, _ = _shadow(fail=True)
+    shadow.compare(EVIDENCE, {"tier": JEV_TIER}, allow=lambda: True, on_request=seen.append)
+    assert [(r["question"], r["ok"]) for r in seen] == [("tier", False)]
+
+
+def test_shipped_luna_mode_is_logprobs() -> None:
+    cfg = load_luna_config()
+    assert (cfg.mode, cfg.model) == ("logprobs", "gpt-6-luna")
+    from liot.luna_shadow import MAX_COMPLETION_TOKENS, REASONING_EFFORT
+
+    assert (TOP_LOGPROBS, MAX_COMPLETION_TOKENS, REASONING_EFFORT) == (5, 16, "none")
