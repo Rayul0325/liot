@@ -17,6 +17,10 @@
     "tray.review",
     "safety",
     "day.end",
+    "judge",
+    "memory",
+    "models.status",
+    "models.fallback",
     "error",
     "done",
   ];
@@ -30,7 +34,9 @@
    *   day: number, followDay: boolean, selected: string|null,
    *   proposals: Map<string, Object>, alerts: Map<string, Object>,
    *   timeline: Object[], metrics: Map<number, Object>,
-   *   clock: string, weather: string, queued: Set<string>, ignored: Set<string>
+   *   clock: string, weather: string, queued: Set<string>, ignored: Set<string>,
+   *   models: "fake"|"cloud", cloudRun: boolean, memory: Object[],
+   *   dayUsage: Map<number, Object>, fallback: string
    * }}
    */
   const S = {
@@ -52,6 +58,11 @@
     weather: "",
     queued: new Set(),
     ignored: new Set(),
+    models: "fake",
+    cloudRun: false,
+    memory: [],
+    dayUsage: new Map(),
+    fallback: "",
   };
 
   /**
@@ -145,6 +156,9 @@
     S.weather = "";
     S.queued.clear();
     S.ignored.clear();
+    S.memory = [];
+    S.dayUsage.clear();
+    S.fallback = "";
   }
 
   /**
@@ -161,10 +175,12 @@
         seed: Number.isFinite(seed) ? seed : 7,
         persona: "default",
         pace_ms: S.pace,
+        models: S.models,
       });
       closeStream();
       reset();
       S.runId = out.run_id;
+      S.cloudRun = out.models === "cloud";
       S.live = true;
       setStatus("running", "도는 중");
       setButtons();
@@ -261,8 +277,24 @@
         break;
       case "tray.review":
       case "day.start":
-      case "day.end":
+      case "models.status":
         pushLine(ev, "quiet");
+        break;
+      case "day.end":
+        if (ev.usage_day) S.dayUsage.set(ev.day, ev.usage_day);
+        pushLine(ev, "quiet");
+        break;
+      case "models.fallback":
+        S.fallback = ev.line_ko || "";
+        pushLine(ev, "safety");
+        break;
+      case "judge": {
+        const p = S.proposals.get(ev.id);
+        if (p) p.judge = ev.judge;
+        break;
+      }
+      case "memory":
+        S.memory.push(ev);
         break;
       case "error":
         showError(ev.error || "실행 중 오류가 났어요.");
@@ -319,6 +351,12 @@
         const cur = S.proposals.get(p.id);
         if (cur) Object.assign(cur, p);
       }
+      const models = view.summary && view.summary.models;
+      if (models) {
+        for (const d of models.days || []) S.dayUsage.set(d.day, d);
+        if (models.fallback_ko) S.fallback = models.fallback_ko;
+      }
+      if (view.summary && Array.isArray(view.summary.memory)) S.memory = view.summary.memory;
     } catch (err) {
       showError(err instanceof Error ? err.message : String(err));
     }
@@ -370,6 +408,7 @@
     renderMetrics();
     renderCompare();
     renderInspect();
+    renderMemory();
   }
 
   /** 날짜 탭. 누르면 그날을 고정해서 본다. */
@@ -461,6 +500,8 @@
     node.appendChild(head);
     node.appendChild(el("p", "notif-title", p.title_ko));
     if (p.reason_ko) node.appendChild(el("p", "notif-body", p.reason_ko));
+    const writer = writerLine(p);
+    if (writer) node.appendChild(el("p", "notif-writer", writer));
 
     const pending = p.state === "pending";
     let stateText = p.state_ko;
@@ -492,6 +533,19 @@
     return node;
   }
 
+  /**
+   * 이유를 쓴 쪽(cloud 실행만): 모델 id, 또는 '문장 틀 · 대체 사유'(서버의 한국어 그대로).
+   * @param {Object} p
+   * @returns {string|null}
+   */
+  function writerLine(p) {
+    if (p.reason_source === "model" && p.reason_model) return "작성 " + p.reason_model;
+    if (p.reason_source === "template") {
+      return "문장 틀" + (p.reason_fallback_ko ? " · " + p.reason_fallback_ko : "");
+    }
+    return null;
+  }
+
   /** 그날 지표(큰 숫자 넷 + 작은 줄). 값은 서버의 metrics 그대로. */
   function renderMetrics() {
     const box = $("metrics");
@@ -516,6 +570,24 @@
         " · 안전 경보 " + m.safety_alerts;
       box.appendChild(el("p", "dy-metric-foot tabnum", foot));
     }
+    const u = S.dayUsage.get(S.day);
+    if (u) {
+      const row = el("div", "dy-usage tabnum");
+      /** @type {[string, string][]} */
+      const cells = [
+        ["외부 호출", u.calls_ko],
+        ["평균 지연", u.avg_ko],
+        ["추정 비용", u.usd_ko],
+      ];
+      for (const [label, value] of cells) {
+        const cell = el("div", "dy-usage-cell");
+        cell.appendChild(el("p", "dy-usage-num", value));
+        cell.appendChild(el("p", "dy-metric-label", label));
+        row.appendChild(cell);
+      }
+      box.appendChild(row);
+    }
+    if (S.fallback) box.appendChild(el("p", "dy-fallback", S.fallback));
   }
 
   /** 날짜별 비교 표. */
@@ -580,7 +652,83 @@
     kv(dl, "확인 강도", p.tier_ko);
     kv(dl, "알림 게이트", p.decision_ko);
     kv(dl, "상태", p.state_ko);
+    if (p.reason_source) kv(dl, "이유 작성", writerLine(p) || "—");
+    if (p.decided_by_ko) {
+      kv(dl, "거주자 결정", p.decided_by_ko + (p.reaction_fallback_ko ? " · " + p.reaction_fallback_ko : ""));
+    }
+    if (p.memory_used && p.memory_used.length) kv(dl, "참고한 기억", p.memory_used.join(" / "));
     box.appendChild(dl);
+    if (p.judge) box.appendChild(judgeBars(p.judge));
+  }
+
+  /**
+   * Jev 와 luna 의 선택지별 확률 막대(질문마다). 퍼센트 글자·일치 여부는 서버 값 그대로.
+   * @param {Object} j
+   * @returns {HTMLElement}
+   */
+  function judgeBars(j) {
+    const wrap = el("div", "dy-judge");
+    const head = "Jev " + (j.served_model || j.model_id) + " · luna " +
+      (j.luna_status === "ok" ? "비교함" : (j.luna_reason_ko || "미접근"));
+    wrap.appendChild(el("p", "dy-judge-head", head));
+    for (const q of j.questions || []) {
+      const block = el("div", "dy-judge-q");
+      const title = el("p", "dy-judge-title");
+      title.appendChild(el("span", "", q.question_ko));
+      const badge = el("span", "dy-badge", q.agree_ko);
+      badge.dataset.agree = String(q.agree);
+      title.appendChild(badge);
+      block.appendChild(title);
+      for (const o of q.options || []) {
+        const row = el("div", "dy-bar-row tabnum");
+        row.appendChild(el("span", "dy-bar-label", o.label_ko));
+        row.appendChild(bar("jev", o.jev, "Jev " + o.jev_pct_ko));
+        row.appendChild(bar("luna", o.luna, "luna " + o.luna_pct_ko));
+        block.appendChild(row);
+      }
+      wrap.appendChild(block);
+    }
+    return wrap;
+  }
+
+  /**
+   * 막대 하나(너비 = 서버 확률). 확률이 없으면 빈 막대.
+   * @param {"jev"|"luna"} who
+   * @param {number|null} prob
+   * @param {string} text
+   * @returns {HTMLElement}
+   */
+  function bar(who, prob, text) {
+    const cell = el("span", "dy-bar");
+    cell.dataset.who = who;
+    const fill = el("span", "dy-bar-fill");
+    fill.style.width = typeof prob === "number" ? String(Math.max(0, Math.min(1, prob)) * 100) + "%" : "0%";
+    cell.appendChild(fill);
+    cell.appendChild(el("span", "dy-bar-text", text));
+    return cell;
+  }
+
+  /** '기억' 패널: memgineering 기억 사건을 받은 순서대로(cloud 실행만). */
+  function renderMemory() {
+    const block = $("memoryBlock");
+    block.hidden = !S.cloudRun;
+    const list = $("memory");
+    clear(list);
+    for (const m of S.memory) {
+      const li = el("li", "dy-mem-item");
+      li.dataset.ok = String(m.ok !== false);
+      li.appendChild(el("span", "dy-mem-time tabnum", m.clock_ko || ""));
+      const what = el("span", "dy-mem-what");
+      what.appendChild(el("span", "dy-mem-verb", m.who_ko + " · " + m.verb_ko));
+      if (m.rule) what.appendChild(el("span", "dy-badge", "규칙"));
+      if (m.ok === false) what.appendChild(el("span", "dy-badge", "실패"));
+      li.appendChild(what);
+      li.appendChild(el("span", "dy-mem-title", m.title_ko));
+      list.appendChild(li);
+    }
+    if (S.cloudRun && S.memory.length === 0) {
+      list.appendChild(el("li", "dy-muted", "아직 기억을 찾거나 남기지 않았어요."));
+    }
   }
 
   // ── 시작 ───────────────────────────────────────────────────────────
@@ -597,11 +745,42 @@
     }
   }
 
+  /** 모델 세그먼트: 가짜 모델(결정적) · 실제 모델(키·데모 브레인을 쓴다). */
+  function setupModels() {
+    const seg = $("models");
+    for (const b of seg.querySelectorAll("button")) {
+      b.addEventListener("click", () => {
+        for (const o of seg.querySelectorAll("button")) o.setAttribute("aria-checked", "false");
+        b.setAttribute("aria-checked", "true");
+        S.models = b.getAttribute("data-models") === "cloud" ? "cloud" : "fake";
+        $("cloudNote").hidden = S.models !== "cloud";
+        if (S.models === "cloud") loadKeys();
+      });
+    }
+  }
+
+  /** 키 상태 — 이름과 있음/없음만(서버가 값은 주지 않는다). */
+  async function loadKeys() {
+    const box = $("keys");
+    try {
+      const k = await api("/api/day/keys", null);
+      box.textContent = "키 " + k.present + "/" + k.total + "개";
+      const names = (k.keys || []).map((x) => x.name + (x.present ? " 있음" : " 없음"));
+      box.title = (k.reason_ko ? k.reason_ko + " · " : "") + names.join(" · ");
+      box.dataset.status = k.status;
+    } catch (err) {
+      box.textContent = "키 상태를 읽지 못했어요";
+      box.title = err instanceof Error ? err.message : String(err);
+    }
+  }
+
   /** 화면을 준비한다. */
   function init() {
     $("controls").addEventListener("submit", onRun);
     $("stopBtn").addEventListener("click", onStop);
     setupSpeed();
+    setupModels();
+    loadKeys();
     setButtons();
     render();
   }

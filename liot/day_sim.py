@@ -183,6 +183,24 @@ RESIDENT_PREFERENCES = (
 # 가상 거주자가 고르는 보기(한국어 보기 → 반응). 무시 = 누르지 않음.
 _RESIDENT_OPTIONS = {"도움됐어요": "accepted", "그만해": "dismissed", "무시": "ignore"}
 _DECIDED_KO = {"model": "모델이 고름", "persona_table": "성향 표"}
+# 모델 대신 규칙 문장·성향 표를 쓴 까닭(화면용 한국어).
+_FALLBACK_KO = {
+    "invalid_output": "모델 답이 형식에 맞지 않음",
+    "transport": "모델 호출 실패",
+    "bad_response": "모델 응답을 읽지 못함",
+    "egress": "송신 검사에서 막힘",
+    "trait_in_input": "특성 낱말이 있어 보내지 않음",
+    "cap": "호출·비용 상한에 닿음",
+    "timeout": "시간 초과",
+    "refused": "보내기 전에 막힘",
+    "no_kit": "키가 없음",
+    "no_template": "규칙 문장이 없음",
+}
+_PART_KO = {"judge": "판정", "reason": "이유", "resident": "거주자", "luna": "luna 비교",
+            "memory": "기억"}
+_MEMORY_VERB_KO = {"recall": "찾음", "remember": "기억함", "seed": "취향 심음"}
+_MEMORY_WHO_KO = {"house": "집", "resident": "거주자"}
+_QUESTION_KO = {"tier": "확인 강도", "severity": "파급도"}
 
 
 def pm25_band_ko(pm25: float) -> str:
@@ -439,7 +457,7 @@ class _RecordingJudge:
         *,
         cloud: LLMBackend | None = None,
         kit: CloudKit | None = None,
-        shadow: list[tuple[str, dict[str, dict[str, float]], str, str | None]] | None = None,
+        shadow: list[tuple[str, dict[str, dict[str, float]], str, str | None, str]] | None = None,
     ) -> None:
         self.inner = inner
         self.log = log
@@ -507,7 +525,8 @@ class _RecordingJudge:
                 evidence = self._evidence.build(candidate, ctx, gate1_floor)
             except LLMUnavailable:
                 return result
-            self.shadow.append((evidence, dict(result.probs), result.model_id, served))
+            self.shadow.append((evidence, dict(result.probs), result.model_id, served,
+                                candidate.entity_id))
         return result
 
 
@@ -599,11 +618,14 @@ class DaySim:
             raise ValueError(f"unknown models {self.models!r}")
         if self.models == "cloud" and self.cloud is None:
             raise ValueError("cloud 모드에는 CloudKit 이 필요합니다.")
-        self._shadow_due: list[tuple[str, dict[str, dict[str, float]], str, str | None]] = []
+        self._shadow_due: list[tuple[str, dict[str, dict[str, float]], str, str | None, str]] = []
         self._house: HouseMemory | None = None
         self._resident: ResidentMemory | None = None
         self._decided_by: dict[str, str] = {}
         self._reaction_fallback: dict[str, str] = {}
+        self._memory_unsent: list[dict[str, Any]] = []
+        self._usage_mark: dict[str, float] = {}
+        self.day_usage: list[dict[str, Any]] = []
         self._ext_miss: str | None = None
         self._trip_announced = False
         self._viewer: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
@@ -671,6 +693,7 @@ class DaySim:
             "status": [dict(st) for st in kit.status],
             "usage": kit.meter.summary(),
             "fallback_ko": kit.meter.trip_reason_ko(),
+            "days": [dict(d) for d in self.day_usage],
             "luna_compared": len(compared),
             "luna_tier_agree_rate": (None if not agree else
                                      round(sum(bool(r["agree"]["tier"]) for r in agree) / len(agree), 3)),
@@ -740,6 +763,8 @@ class DaySim:
                         "metrics": dict(metrics),
                     },
                 )
+                if self._kit is not None:
+                    self._usage_mark = self._usage_totals(self._kit.meter.summary())
                 if self._kit is not None and plan is plans[0]:
                     await self._cloud_start(self._kit, out)
                 stopped = False
@@ -755,6 +780,7 @@ class DaySim:
                                        "line_ko": f"{plan.day}일차가 끝났어요"}
                 if self._kit is not None:
                     end["usage"] = self._kit.meter.summary()
+                    end["usage_day"] = self._close_day_usage(plan.day, end["usage"])
                 await out("day.end", end)
                 if on_summary is not None:
                     on_summary(self.summary())
@@ -845,6 +871,7 @@ class DaySim:
         if self._kit is not None:
             await self._luna_shadows(self._kit, step, out)
             await self._announce_trip(self._kit, out)
+            await self._flush_memory(out)
 
         if changed or weather_changed or silence or at.minute == 0:
             data: dict[str, Any] = {
@@ -1130,6 +1157,8 @@ class DaySim:
                        "decided_by_ko": _DECIDED_KO[self._decided_by[sim_id]]}
             if sim_id in self._reaction_fallback:
                 decided["reaction_fallback"] = self._reaction_fallback[sim_id]
+                decided["reaction_fallback_ko"] = _FALLBACK_KO.get(
+                    self._reaction_fallback[sim_id], self._reaction_fallback[sim_id])
         line = (f"{actor} [{_SIGNAL_KO.get(signal, signal)}]를 눌렀어요 — {what}" if code == "200"
                 else f"{who}의 [{_SIGNAL_KO.get(signal, signal)}]가 반영되지 않았어요({code})")
         await out(
@@ -1329,13 +1358,44 @@ class DaySim:
                                       "line_ko": kit.meter.trip_reason_ko() or "",
                                       "usage": kit.meter.summary()})
 
+    @staticmethod
+    def _usage_totals(usage: dict[str, Any]) -> dict[str, float]:
+        kinds = usage["by_kind"].values()
+        return {"calls": float(usage["calls"]), "usd": float(usage["run_usd"]),
+                "seconds": float(sum(k["seconds"] for k in kinds)),
+                "done": float(sum(k["calls"] for k in kinds))}
+
+    def _close_day_usage(self, day: int, usage: dict[str, Any]) -> dict[str, Any]:
+        """그날 쓴 만큼(호출 수·평균 지연·추정 비용) — 하루 시작 때 잡아 둔 값과의 차이."""
+        now, start = self._usage_totals(usage), self._usage_mark
+        calls = int(now["calls"] - start.get("calls", 0.0))
+        done = now["done"] - start.get("done", 0.0)
+        avg = None if done <= 0 else round((now["seconds"] - start.get("seconds", 0.0)) / done, 3)
+        usd = round(now["usd"] - start.get("usd", 0.0), 6)
+        row = {"day": day, "calls": calls, "avg_seconds": avg, "usd": usd,
+               "calls_ko": f"{calls}회",
+               "avg_ko": "—" if avg is None else f"{avg:.2f}초",
+               "usd_ko": f"${usd:.4f}"}
+        self.day_usage.append(row)
+        return row
+
     def _memory_event(self, verb: str, who: str, title: str, *, rule: bool = False,
                       ok: bool = True) -> dict[str, Any]:
-        rec = {"day": self._day, "clock_ko": self._clock_ko, "verb": verb, "who": who,
-               "title_ko": title, "rule": rule, "ok": ok,
-               "source_ko": "memgineering · liot-demo"}
+        """기억 패널 한 줄. 남기고(요약) 다음 사건 경계에서 ``memory`` 사건으로 내보낸다."""
+        verb_ko, who_ko = _MEMORY_VERB_KO[verb], _MEMORY_WHO_KO[who]
+        rec = {"day": self._day, "clock_ko": self._clock_ko, "verb": verb, "verb_ko": verb_ko,
+               "who": who, "who_ko": who_ko, "title_ko": title, "rule": rule, "ok": ok,
+               "source_ko": "memgineering · liot-demo",
+               "line_ko": f"{who_ko} 기억 {verb_ko}{' (규칙)' if rule else ''}"
+                          f"{'' if ok else ' — 실패'} — {title}"}
         self.memory_events.append(rec)
+        self._memory_unsent.append(rec)
         return rec
+
+    async def _flush_memory(self, out: Callable[[str, dict[str, Any]], Awaitable[None]]) -> None:
+        unsent, self._memory_unsent = self._memory_unsent, []
+        for rec in unsent:
+            await out("memory", dict(rec))
 
     async def _cloud_start(
         self, kit: CloudKit, out: Callable[[str, dict[str, Any]], Awaitable[None]]
@@ -1352,8 +1412,11 @@ class DaySim:
             if status is not None:
                 status.update(state="cloud" if ready else "fake",
                               reason_ko=None if ready else memory.disabled_reason_ko)
-        await out("models.status", {"status": [dict(st) for st in kit.status],
+        await self._flush_memory(out)
+        await out("models.status", {"status": [{**st, "part_ko": _PART_KO.get(st["part"], st["part"])}
+                                               for st in kit.status],
                                     "line_ko": "실제 모델·기억으로 시작해요",
+                                    "note_ko": "실제 모델은 같은 씨앗이어도 결과가 매번 달라요.",
                                     "usage": kit.meter.summary()})
         await self._announce_trip(kit, out)
 
@@ -1392,6 +1455,7 @@ class DaySim:
         cheap = kit.cheap
         if cheap is None or not template:
             fields["reason_fallback"] = "no_kit" if cheap is None else "no_template"
+            fields["reason_fallback_ko"] = _FALLBACK_KO[fields["reason_fallback"]]
             return template, fields
         weather = step.weather
         facts = {
@@ -1410,6 +1474,8 @@ class DaySim:
         if res is None or res.source != "model":
             fields["reason_fallback"] = (self._ext_miss or "timeout") if res is None else (
                 res.fallback_reason or "invalid_output")
+            fields["reason_fallback_ko"] = _FALLBACK_KO.get(fields["reason_fallback"],
+                                                            fields["reason_fallback"])
             return template, fields
         fields.update(reason_source="model", reason_model=f"{res.provider}:{res.model}")
         return res.text, fields
@@ -1465,10 +1531,13 @@ class DaySim:
             self._reaction_fallback[sim_id] = why
         if rec is not None:
             rec["decided_by"] = self._decided_by[sim_id]
+            rec["decided_by_ko"] = _DECIDED_KO[self._decided_by[sim_id]]
             if why is None:
                 rec.pop("reaction_fallback", None)
+                rec.pop("reaction_fallback_ko", None)
             else:
                 rec["reaction_fallback"] = why
+                rec["reaction_fallback_ko"] = _FALLBACK_KO.get(why, why)
 
     async def _remember_feedback(
         self,
@@ -1492,9 +1561,8 @@ class DaySim:
             text, rule, kind = f"{step.day}일차 '{title}' 제안은 아무도 누르지 않아 만료됐다", False, "episode"
         op = await self._ext(kit, "memory", lambda: house.remember(
             text, reason=f"하루 시뮬레이션 [{_SIGNAL_KO.get(state, state)}]", rule=rule, kind=kind))
-        rec = self._memory_event("remember", "house", text, rule=rule, ok=op is not None)
-        await out("memory", {**rec, "line_ko": ("규칙으로 기억했어요 — " if rule else "기억했어요 — ")
-                             + text})
+        self._memory_event("remember", "house", text, rule=rule, ok=op is not None)
+        await self._flush_memory(out)
 
     async def _luna_shadows(
         self, kit: CloudKit, step: StepPlan, out: Callable[[str, dict[str, Any]], Awaitable[None]]
@@ -1520,7 +1588,7 @@ class DaySim:
                              input_tokens=record.get("input_tokens"),
                              output_tokens=record.get("output_tokens"))
 
-        for evidence, probs, model_id, served in due:
+        for evidence, probs, model_id, served, entity_id in due:
             res: ShadowResult | None
             if luna.cfg.mode == "logprobs":
                 def compare(ev: str = evidence,
@@ -1543,6 +1611,50 @@ class DaySim:
                 "reason_ko": ("luna 미접근 — 시간 초과" if res is None else res.reason_ko),
             }
             self.luna_results.append(rec)
+            await self._attach_judge(step, entity_id, rec, out)
+
+    async def _attach_judge(
+        self,
+        step: StepPlan,
+        entity_id: str,
+        rec: dict[str, Any],
+        out: Callable[[str, dict[str, Any]], Awaitable[None]],
+    ) -> None:
+        """같은 단계·같은 기기의 컴포트 제안에 Jev·luna 확률을 붙인다('속 보기'용, 계산은 여기서)."""
+        hhmm = step.at_local.strftime("%H:%M")
+        target = next((r for r in self._records.values()
+                       if r["day"] == step.day and r["hhmm"] == hhmm
+                       and r["entity_id"] == entity_id and "judge" not in r), None)
+        if target is None:
+            return
+        questions: list[dict[str, Any]] = []
+        for qid, jev in rec["jev"].items():
+            luna = rec["luna"].get(qid, {})
+            labels = (RiskTier.from_str if qid == "tier" else SeverityLevel.from_str)
+            jev_choice = max(jev, key=lambda k: jev[k]) if jev else None
+            luna_choice = max(luna, key=lambda k: luna[k]) if luna else None
+            agree = rec["agree"].get(qid)
+            questions.append({
+                "question": qid,
+                "question_ko": _QUESTION_KO.get(qid, qid),
+                "options": [
+                    {"id": oid, "label_ko": labels(oid).label_ko,
+                     "jev": round(float(jev[oid]), 3),
+                     "luna": None if oid not in luna else round(float(luna[oid]), 3),
+                     "jev_pct_ko": f"{float(jev[oid]) * 100:.0f}%",
+                     "luna_pct_ko": "—" if oid not in luna else f"{float(luna[oid]) * 100:.0f}%"}
+                    for oid in jev
+                ],
+                "jev_choice": jev_choice,
+                "luna_choice": luna_choice,
+                "agree": agree,
+                "agree_ko": "—" if agree is None else ("일치" if agree else "불일치"),
+            })
+        view = {"model_id": rec["judge"], "served_model": rec["judge_model"],
+                "luna_status": rec["status"], "luna_reason_ko": rec["reason_ko"],
+                "questions": questions}
+        target["judge"] = view
+        await out("judge", {"id": target["id"], "judge": view})
 
 
 def _cheap_usage(res: ReasonResult) -> tuple[str | None, int | None, int | None]:

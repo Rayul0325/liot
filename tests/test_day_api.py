@@ -287,4 +287,5 @@ def test_day_page_loads_nothing_from_other_origins_and_never_uses_inner_html() -
     # 화면은 /api/day/* 만 부른다.
     assert set(re.findall(r'"(/api/[a-z/]+)', js)) <= {
         "/api/day/run", "/api/day/stop", "/api/day/stream", "/api/day/runs/", "/api/day/feedback",
+        "/api/day/keys",
     }

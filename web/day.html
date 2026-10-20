@@ -35,6 +35,7 @@
         <div>
           <h1 class="dy-title">하루 시뮬레이션</h1>
           <p class="dy-sub">실제 LIOT 서비스가 가상 시계로 사흘을 보내요. 숫자와 문구는 모두 서버가 만든 그대로예요.</p>
+          <p class="dy-note" id="cloudNote" hidden>실제 모델은 같은 씨앗이어도 결과가 매번 달라요. 키는 이름만 확인하고 값은 보이지 않아요.</p>
         </div>
         <form class="dy-controls" id="controls" aria-label="실행 설정">
           <label class="dy-field">
@@ -48,6 +49,14 @@
               <button type="button" class="dy-seg-btn" role="radio" aria-checked="false" data-pace="60">보통</button>
               <button type="button" class="dy-seg-btn" role="radio" aria-checked="false" data-pace="200">천천히</button>
             </div>
+          </div>
+          <div class="dy-field">
+            <span class="dy-field-label" id="modelsLabel">모델</span>
+            <div class="dy-seg" role="radiogroup" aria-labelledby="modelsLabel" id="models">
+              <button type="button" class="dy-seg-btn" role="radio" aria-checked="true" data-models="fake">가짜 모델</button>
+              <button type="button" class="dy-seg-btn" role="radio" aria-checked="false" data-models="cloud">실제 모델</button>
+            </div>
+            <span class="dy-keys tabnum" id="keys" title="">키 확인 중</span>
           </div>
           <button type="submit" class="dy-btn dy-btn-primary" id="runBtn">3일 돌리기</button>
           <button type="button" class="dy-btn dy-btn-quiet" id="stopBtn" disabled>멈추기</button>
@@ -107,6 +116,11 @@
           <div class="dy-inspect" id="inspect">
             <p class="dy-muted">폰 알림이나 모아보기 항목을 누르면 왜 그렇게 판단했는지 보여 드려요.</p>
           </div>
+        </div>
+        <div class="dy-block" id="memoryBlock" hidden>
+          <h2 class="dy-block-title">기억</h2>
+          <p class="dy-mem-source">memgineering · liot-demo</p>
+          <ol class="dy-mem" id="memory"></ol>
         </div>
       </section>
     </main>

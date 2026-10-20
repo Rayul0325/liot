@@ -974,3 +974,101 @@ def test_fake_mode_records_have_no_fallback_keys() -> None:
     events = _run(sim)
     for st, d in events:
         assert not {"reason_fallback", "reaction_fallback", "decided_by"} & set(d), st
+
+
+# ── 5단계 화면용 서버 값 ────────────────────────────────────────────────────
+
+
+def test_proposals_carry_jev_and_luna_bars_for_inspect(
+    cloud7: tuple[DaySim, Events, FakeCheap, FakeBrain],
+) -> None:
+    sim, events, _, _ = cloud7
+    judged = [p for p in sim.proposals if "judge" in p]
+    assert judged and len(judged) == len(sim.proposals)  # 컴포트 제안마다 Jev 판정이 하나
+    view = judged[0]["judge"]
+    assert view["model_id"] == "jev:jev-latest" and view["served_model"] == "jev-test"
+    tier = next(q for q in view["questions"] if q["question"] == "tier")
+    assert tier["question_ko"] == "확인 강도"
+    assert [o["id"] for o in tier["options"]] == ["ambient", "breath", "dusk", "ember"]
+    assert all(o["label_ko"] and o["jev_pct_ko"].endswith("%") for o in tier["options"])
+    assert tier["agree_ko"] in ("일치", "불일치")
+    live = {d["id"]: d["judge"] for st, d in events if st == "judge"}
+    assert set(live) == {p["id"] for p in judged}
+
+
+def test_memory_events_are_streamed_with_korean_labels(
+    cloud7: tuple[DaySim, Events, FakeCheap, FakeBrain],
+) -> None:
+    sim, events, _, _ = cloud7
+    streamed = [d for st, d in events if st == "memory"]
+    assert len(streamed) == len(sim.memory_events)
+    assert {d["verb"] for d in streamed} == {"seed", "recall", "remember"}
+    for d in streamed:
+        assert d["verb_ko"] and d["who_ko"] and d["line_ko"] and d["clock_ko"]
+        assert d["source_ko"] == "memgineering · liot-demo"
+    assert any(d["rule"] and "(규칙)" in d["line_ko"] for d in streamed)
+
+
+def test_day_usage_rows_add_up_to_the_run(
+    cloud7: tuple[DaySim, Events, FakeCheap, FakeBrain],
+) -> None:
+    sim, events, _, _ = cloud7
+    rows = sim.summary()["models"]["days"]
+    assert [r["day"] for r in rows] == [1, 2, 3]
+    usage = sim.summary()["models"]["usage"]
+    assert sum(r["calls"] for r in rows) == usage["calls"]
+    assert sum(r["usd"] for r in rows) == pytest.approx(usage["run_usd"], abs=1e-5)
+    assert all(r["calls_ko"].endswith("회") and r["usd_ko"].startswith("$") for r in rows)
+    ends = [d["usage_day"] for st, d in events if st == "day.end"]
+    assert ends == rows
+
+
+def test_status_event_has_part_labels_and_nondeterminism_note(
+    cloud7: tuple[DaySim, Events, FakeCheap, FakeBrain],
+) -> None:
+    _, events, _, _ = cloud7
+    status = next(d for st, d in events if st == "models.status")
+    assert status["note_ko"] and all(s["part_ko"] for s in status["status"])
+
+
+def test_fallback_reasons_have_korean_labels(tmp_path: Path) -> None:
+    sim = DaySim(seed=7, days=1, models="cloud",
+                 cloud=_kit(tmp_path, cheap=FakeCheap(reason="Open the window.", odd_choice=True)))
+    events = _run(sim)
+    assert all(p["reason_fallback_ko"] == "모델 답이 형식에 맞지 않음" for p in sim.proposals)
+    decided = [p for p in sim.proposals if "decided_by" in p]
+    assert decided and all(p["decided_by_ko"] == "성향 표" and p["reaction_fallback_ko"]
+                           for p in decided)
+    taps = [d for st, d in events if st == "feedback" and d.get("reaction_fallback")]
+    assert taps and all(t["reaction_fallback_ko"] for t in taps)
+
+
+def test_fake_mode_has_none_of_the_display_fields() -> None:
+    sim = DaySim(seed=7, days=1)
+    events = _run(sim)
+    assert not any(st in ("judge", "memory", "models.status") for st, _ in events)
+    assert all("usage_day" not in d for st, d in events if st == "day.end")
+    assert all("judge" not in p for p in sim.proposals)
+
+
+def test_memory_events_stream_within_their_own_step(
+    cloud7: tuple[DaySim, Events, FakeCheap, FakeBrain],
+) -> None:
+    """기억 사건은 생긴 단계가 끝나기 전에 나간다(뒤 단계 사건보다 늦게 나가지 않는다)."""
+    _, events, _, _ = cloud7
+
+    def when(d: dict[str, Any]) -> tuple[int, str]:
+        day, _, hhmm = d["clock_ko"].partition("일차 ")
+        return (int(day), hhmm) if day.isdigit() else (0, "")
+
+    # 'step' 사건은 단계의 맨 끝에 나간다. 그 뒤에 같은 단계(또는 앞 단계)의 기억 사건이 나오면
+    # 그 단계 안에서 내보내지 못하고 다음 단계로 밀린 것이다.
+    closed = (0, "")
+    checked = 0
+    for st, d in events:
+        if st == "memory":
+            assert when(d) > closed, (d["clock_ko"], closed)
+            checked += 1
+        elif st == "step":
+            closed = max(closed, when(d))
+    assert checked > 10
