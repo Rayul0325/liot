@@ -27,6 +27,7 @@ uuid 대신 실행 안 순번(``p1``, ``p2``…)으로 내보낸다.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import queue
 import random
 import re
@@ -50,24 +51,28 @@ from liot.core.contracts import (
     PM25_GOOD_MAX,
     CandidateAction,
     ContextSnapshot,
+    EvaluationResult,
     ExternalContext,
     SensorReading,
     is_noop,
 )
-from liot.core.risk import RiskTier
+from liot.core.risk import RiskTier, is_safety_category
 from liot.core.severity import SeverityLevel
 from liot.day_cloud import CloudKit, build_cloud_kit
 from liot.db.database import init_db
 from liot.layers.l1_sensing.normalizer import normalize
+from liot.layers.l2_context.evaluator import CandidateEvaluator
 from liot.layers.l2_context.external_provider import FakeExternalProvider
 from liot.layers.l2_context.feedback_store import InMemoryFeedbackStore, candidate_key
 from liot.layers.l2_context.proactive import (
+    PROACTIVE_TIER_CEILING,
     ProactiveDecision,
     ProactiveGenerator,
     validate_proactive_candidate,
 )
 from liot.layers.l2_context.proactive_rules import ProactiveRule
 from liot.layers.l3_judgment.decision_backend import EvidenceBuilder
+from liot.layers.l3_judgment.guardrail import Gate1Result, Guardrail
 from liot.layers.l3_judgment.llm_judge import FakeLLM, LLMBackend, LLMResult, LLMUnavailable
 from liot.layers.l4_execution import escalation
 from liot.layers.l4_execution.escalation import GUIDANCE_119_TEXT
@@ -251,7 +256,7 @@ def _rule_of(params: dict[str, Any]) -> str | None:
     """후보 params 의 출처(__origin__)에서 능동 규칙 id. 규칙 출처가 아니면 None."""
     m = _ORIGIN_RULE.search(str(params.get("__origin__", "")))
     return m.group(1) if m else None
-_RUN_KEYS = frozenset({"days", "seed", "persona", "pace_ms", "models"})
+_RUN_KEYS = frozenset({"days", "seed", "persona", "pace_ms", "models", "trace"})
 _SIGNALS = ("accepted", "dismissed")
 
 
@@ -265,6 +270,7 @@ class DayRequest:
     persona: str
     pace_ms: int
     models: str = "fake"
+    trace: bool = False
 
 
 def _int(body: dict[str, Any], key: str, default: int, lo: int, hi: int) -> int:
@@ -277,7 +283,7 @@ def _int(body: dict[str, Any], key: str, default: int, lo: int, hi: int) -> int:
 
 
 def parse_day_request(body: dict[str, Any]) -> DayRequest:
-    """``{days:1-7, seed:int, persona:"default", pace_ms?:0-500, models?:fake|cloud}``.
+    """``{days:1-7, seed:int, persona:"default", pace_ms?:0-500, models?:fake|cloud, trace?:bool}``.
 
     모르는 항목·값은 400.
     """
@@ -295,12 +301,16 @@ def parse_day_request(body: dict[str, Any]) -> DayRequest:
     models = body.get("models", "fake")
     if models not in MODELS:
         raise LiveRequestError("models 는 fake·cloud 중 하나여야 합니다.", field="models")
+    trace = body.get("trace", False)
+    if not isinstance(trace, bool):
+        raise LiveRequestError("trace 는 true·false 여야 합니다.", field="trace")
     return DayRequest(
         days=_int(body, "days", 3, 1, MAX_DAYS),
         seed=seed,
         persona=str(persona),
         pace_ms=_int(body, "pace_ms", 0, 0, MAX_PACE_MS),
         models=str(models),
+        trace=trace,
     )
 
 
@@ -441,6 +451,100 @@ class _SimTransport:
         self.log.append(("send", sanitized.get("proposal_id") or sanitized.get("label")))
 
 
+class _TraceRecorder:
+    """시연용 단계 기록기(``trace`` 를 켠 실행에만 만든다). 결과를 바꾸지 않고, 예외를 내지 않는다.
+
+    - 기록은 ``(entity_id, phase)`` 열쇠로 묶는다(phase: comfort·safety1·safety2). 사건을 낼 때 같은
+      열쇠의 것만 꺼내고, 단계가 끝나면 남은 것은 버린다 — 늦게 온 기록이 다음 사건에 섞이지 않는다.
+    - 판정 호출 시간은 호출마다 ``(단계 번호, entity_id, 2단계 여부, 초)`` 한 줄로 별도 잠금 아래 목록에
+      붙인다. 2단계는 작업 스레드에서 쓴다. 꺼내기는 시뮬레이터 스레드에서, 지금 단계 번호의 것만.
+    - 점수(평가기)는 그 틱의 것만 둔다(틱 시작에 지운다).
+    """
+
+    def __init__(self) -> None:
+        self.step_no = 0
+        self._lock = threading.Lock()
+        self._judge_calls: list[tuple[int, str, bool, float]] = []
+        self._keyed: dict[tuple[str, str], dict[str, Any]] = {}
+        self.evaluation: EvaluationResult | None = None
+        self.evaluation_s: float | None = None
+        self.rules_s: float | None = None
+        self.count = 0
+
+    def begin_step(self) -> None:
+        self.step_no += 1
+
+    def begin_tick(self) -> None:
+        self.evaluation = None
+        self.evaluation_s = None
+        self.rules_s = None
+
+    def note(self, key: tuple[str, str], **fields: Any) -> None:
+        with contextlib.suppress(Exception):
+            self._keyed.setdefault(key, {}).update(fields)
+
+    def take(self, key: tuple[str, str]) -> dict[str, Any]:
+        return self._keyed.pop(key, {})
+
+    def judge_call(self, step_no: int, entity_id: str, phase2: bool, seconds: float) -> None:
+        with contextlib.suppress(Exception), self._lock:
+            self._judge_calls.append((step_no, entity_id, phase2, seconds))
+
+    def take_judge(self, entity_id: str, phase2: bool) -> float | None:
+        """지금 단계에서 그 entity·단계의 판정 호출 시간(초). 없으면 None. 꺼낸 것은 지운다."""
+        with self._lock:
+            hits = [c for c in self._judge_calls
+                    if c[0] == self.step_no and c[1] == entity_id and c[2] is phase2]
+            for c in hits:
+                self._judge_calls.remove(c)
+        return hits[-1][3] if hits else None
+
+    def end_step(self) -> None:
+        self._keyed.clear()
+        with self._lock:
+            self._judge_calls.clear()
+
+    def next_id(self) -> str:
+        self.count += 1
+        return f"t{self.count}"
+
+
+def _phase_of(category: str | None) -> str:
+    return "safety1" if is_safety_category(category or "") else "comfort"
+
+
+class _TimedGuardrail(Guardrail):
+    """출하 Gate1 그대로 + 그 결과와 걸린 시간을 기록기에 남긴다(결과는 손대지 않는다)."""
+
+    def __init__(self, recorder: _TraceRecorder) -> None:
+        super().__init__()
+        self.recorder = recorder
+
+    def evaluate(self, candidate: CandidateAction, ctx: ContextSnapshot | None = None) -> Gate1Result:
+        t0 = time.perf_counter()
+        result = super().evaluate(candidate, ctx)
+        with contextlib.suppress(Exception):
+            self.recorder.note((candidate.entity_id, _phase_of(candidate.category)),
+                               gate1=result, gate1_s=time.perf_counter() - t0)
+        return result
+
+
+class _TimedEvaluator(CandidateEvaluator):
+    """출하 평가기 그대로 + 이번 틱의 평가 결과와 걸린 시간을 기록기에 남긴다."""
+
+    def __init__(self, recorder: _TraceRecorder, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.recorder = recorder
+
+    def evaluate(self, candidate_set: Any, **kwargs: Any) -> EvaluationResult:
+        t0 = time.perf_counter()
+        result = super().evaluate(candidate_set, **kwargs)
+        with contextlib.suppress(Exception):
+            self.recorder.evaluation = result
+            self.recorder.evaluation_s = time.perf_counter() - t0
+        return result
+
+
 class _RecordingJudge:
     """판정기를 감싸 모델 호출 순서를 남긴다(안전 2단계는 severity_floor 가 있다).
 
@@ -459,7 +563,9 @@ class _RecordingJudge:
         cloud: LLMBackend | None = None,
         kit: CloudKit | None = None,
         shadow: list[tuple[str, dict[str, dict[str, float]], str, str | None, str]] | None = None,
+        recorder: _TraceRecorder | None = None,
     ) -> None:
+        self.recorder = recorder
         self.inner = inner
         self.log = log
         self.cloud = cloud
@@ -490,9 +596,24 @@ class _RecordingJudge:
         if self.cloud is not None and self.kit is not None and self.kit.meter.allow():
             return self._cloud_judge(self.cloud, self.kit, candidate, ctx, gate1_floor,
                                      severity_floor)
-        if severity_floor is None:
-            return self.inner.judge_raw(candidate, ctx, gate1_floor)
-        return self.inner.judge_raw(candidate, ctx, gate1_floor, severity_floor=severity_floor)
+        rec = self.recorder
+        if rec is None:
+            if severity_floor is None:
+                return self.inner.judge_raw(candidate, ctx, gate1_floor)
+            return self.inner.judge_raw(candidate, ctx, gate1_floor, severity_floor=severity_floor)
+        # 가짜 경로: 잠금 없이(예전과 같은 순서·대기) 그 호출만 직접 잰다.
+        step_no = 0
+        with contextlib.suppress(Exception):
+            step_no = rec.step_no
+        t0 = time.perf_counter()
+        try:
+            if severity_floor is None:
+                return self.inner.judge_raw(candidate, ctx, gate1_floor)
+            return self.inner.judge_raw(candidate, ctx, gate1_floor, severity_floor=severity_floor)
+        finally:
+            with contextlib.suppress(Exception):  # 기록은 판정을 절대 깨지 않는다
+                rec.judge_call(step_no, candidate.entity_id, severity_floor is not None,
+                               time.perf_counter() - t0)
 
     def _cloud_judge(
         self,
@@ -504,6 +625,10 @@ class _RecordingJudge:
         severity_floor: SeverityLevel | None,
     ) -> LLMResult:
         self.log.append(("ext", "judge"))
+        step_no = 0
+        if self.recorder is not None:
+            with contextlib.suppress(Exception):
+                step_no = self.recorder.step_no
         with self._lock:
             t0 = time.perf_counter()
             try:
@@ -518,6 +643,11 @@ class _RecordingJudge:
                 self.log.append(("ext_error", ("judge", type(exc).__name__)))
                 raise LLMUnavailable(f"cloud judge failed: {type(exc).__name__}") from None
             finally:
+                if self.recorder is not None:  # 잠금 안에서 잰 시간(잠금 대기는 빼고)
+                    with contextlib.suppress(Exception):
+                        self.recorder.judge_call(step_no, candidate.entity_id,
+                                                 severity_floor is not None,
+                                                 time.perf_counter() - t0)
                 usage = getattr(cloud, "last_usage", None) or {}
                 kit.meter.record(
                     "judge", getattr(cloud, "model", None),
@@ -540,6 +670,7 @@ class _RecordingGenerator(ProactiveGenerator):
     """출하 규칙 생성기 그대로 + 마지막 결정을 남긴다(침묵 사유 관찰용)."""
 
     last_decision: ProactiveDecision | None = None
+    recorder: _TraceRecorder | None = None
 
     def propose(
         self,
@@ -548,8 +679,12 @@ class _RecordingGenerator(ProactiveGenerator):
         external: ExternalContext | None = None,
         rejected_keys: frozenset[str] = frozenset(),
     ) -> ProactiveDecision:
+        t0 = time.perf_counter()
         d = super().propose(cur, external=external, rejected_keys=rejected_keys)
         self.last_decision = d
+        if self.recorder is not None:
+            with contextlib.suppress(Exception):
+                self.recorder.rules_s = time.perf_counter() - t0
         return d
 
 
@@ -616,6 +751,8 @@ class DaySim:
     house_id: str = "local"  # 집 기억 범위 house-<house_id>. 관리자가 실행 id 를 넣는다.
     memory_events: list[dict[str, Any]] = field(default_factory=list)
     luna_results: list[dict[str, Any]] = field(default_factory=list)
+    # 시연용 단계 기록(trace 사건). 끄면(기본) 사건·요약이 예전과 같다.
+    trace: bool = False
 
     def __post_init__(self) -> None:
         if self.persona not in PERSONAS:
@@ -625,6 +762,11 @@ class DaySim:
         if self.models == "cloud" and self.cloud is None:
             raise ValueError("cloud 모드에는 CloudKit 이 필요합니다.")
         self._shadow_due: list[tuple[str, dict[str, dict[str, float]], str, str | None, str]] = []
+        self._rec: _TraceRecorder | None = _TraceRecorder() if self.trace else None
+        self._trace_emit: Callable[[dict[str, Any]], None] | None = None
+        self._pending_comfort: dict[str, Any] | None = None
+        self._last_reason_s: float | None = None
+        self._db: Any = None
         self._house: HouseMemory | None = None
         self._resident: ResidentMemory | None = None
         self._decided_by: dict[str, str] = {}
@@ -722,6 +864,13 @@ class DaySim:
         generator = _RecordingGenerator(catalog=catalog, categories=categories, clock=clock)
         self._rules = {r.rule_id: r for r in generator.ruleset.rules}
         self._reg = reg
+        rec = self._rec
+        # trace 를 켠 실행에만 시간을 재는 감싸개를 넣는다(결과는 출하본 그대로). 끄면 예전과 같다.
+        timed: dict[str, Any] = {}
+        if rec is not None:
+            generator.recorder = rec
+            timed = {"guardrail": _TimedGuardrail(rec),
+                     "evaluator": _TimedEvaluator(rec, catalog=catalog)}
         app = LiotApp(
             clock=clock,
             catalog=catalog,
@@ -731,11 +880,14 @@ class DaySim:
                 cloud=None if self._kit is None else self._kit.judge,
                 kit=self._kit,
                 shadow=self._shadow_due if self._kit is not None and self._kit.luna else None,
+                recorder=rec,
             ),
             external_provider=weather,
             proactive=generator,
+            **timed,
         )
         db = await init_db(str(self.tmp_dir / "day.db"))
+        self._db = db
         secret = secrets.token_bytes(32)
         svc = LiotService(app, db, clock=clock, transport=transport, topic=transport.topic,
                           secret=secret,
@@ -748,6 +900,15 @@ class DaySim:
             emit(stage, data)
             if self.pace_ms:
                 await asyncio.sleep(self.pace_ms / 1000.0)
+
+        def out_trace(data: dict[str, Any]) -> None:
+            # trace 사건은 잠자지 않는다(pace_ms 대기 없음) — 시연 딜레이는 화면이 넣는다.
+            data.setdefault("day", self._day)
+            data.setdefault("clock_ko", self._clock_ko)
+            emit("trace", data)
+
+        if rec is not None:
+            self._trace_emit = out_trace
 
         last: dict[str, Any] = {}
         try:
@@ -816,6 +977,8 @@ class DaySim:
         hhmm = at.strftime("%H:%M")
         self._clock_ko = f"{step.day}일차 {hhmm}"
         self.log.append(("step", (step.day, hhmm)))
+        if self._rec is not None:
+            self._rec.begin_step()
         # cloud 모드: 응답 적용·모아보기(기억 쓰기·거주자 모델 호출)는 센서 반영과 안전 첫 알림 뒤로
         # 간다. fake 모드는 예전 순서 그대로다(사건 목록이 바뀌지 않게).
         late = self._kit is not None
@@ -857,6 +1020,8 @@ class DaySim:
         transport.phase = "tick"
         app.last_trace = None
         generator.last_decision = None
+        if self._rec is not None:
+            self._rec.begin_tick()
         result = await svc.run_tick()
         silence = self._silence(app, generator, result)
         # 같은 규칙이 같은 까닭으로 단계마다 건너뛰면 처음 한 번만 남긴다(타임라인이 넘치지 않게).
@@ -866,6 +1031,17 @@ class DaySim:
         self._last_silence = key if result is None else None
         if result is not None:
             await self._record_proposal(app, generator, step, result, out)
+        if self._rec is not None and (result is not None or silence is not None):
+            # 편의 trace 는 단계 끝(luna 비교 뒤)에 낸다 — 여기서는 재료만 모은다.
+            judged = None
+            with contextlib.suppress(Exception):
+                judged = await self._last_comfort_judgment()
+            self._pending_comfort = {
+                "result": result, "silence": silence, "decision": generator.last_decision,
+                "judgment": judged, "changed": len(changed),
+                "weather_ko": weather_line_ko(step.weather),
+                "sim_id": self._by_pid.get(result.proposal.proposal_id) if result else None,
+            }
 
         transport.phase = "phase2"
         await svc.drain_phase2()
@@ -878,6 +1054,9 @@ class DaySim:
             await self._luna_shadows(self._kit, step, out)
             await self._announce_trip(self._kit, out)
             await self._flush_memory(out)
+        if self._rec is not None:
+            self._emit_step_traces()
+            self._rec.end_step()
 
         if changed or weather_changed or silence or at.minute == 0:
             data: dict[str, Any] = {
@@ -1357,6 +1536,162 @@ class DaySim:
                              input_tokens=tokens_in, output_tokens=tokens_out)
         return result
 
+    async def _last_comfort_judgment(self) -> dict[str, Any] | None:
+        """이번 틱이 남긴 편의 판단 행(상황 없는 마지막 행) — 최종 확인 강도와 판정 모델.
+
+        서비스가 틱 안에서 판단을 저장하고 앱의 last_judgment 를 비운다(``_save_last_judgment``).
+        그래서 시뮬레이터 자신의 임시 DB 에서 읽는다(읽기만). 이번 틱에 판정이 없었으면(규칙·점수·
+        Gate1 에서 침묵) 이 값은 쓰지 않는다 — 부르는 쪽이 판정 호출 기록으로 가린다.
+        """
+        if self._db is None:
+            return None
+        cur = await self._db.execute(
+            "SELECT risk_tier, model_id, action_json FROM judgments"
+            " WHERE situation_id IS NULL ORDER BY rowid DESC LIMIT 1"
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row is None:
+            return None
+        return {"risk_tier": RiskTier.from_str(int(row[0])), "model_id": str(row[1]),
+                "action_json": str(row[2])}
+
+    def _emit_step_traces(self) -> None:
+        """이번 단계의 trace 사건을 낸다(잠자지 않는 내보내기). 조립 실패는 실행을 멈추지 않는다."""
+        pending, self._pending_comfort = self._pending_comfort, None
+        emit = self._trace_emit
+        if pending is None or emit is None or self._rec is None:
+            return
+        with contextlib.suppress(Exception):
+            emit(self._comfort_trace(self._rec, pending))
+
+    def _comfort_trace(self, rec: _TraceRecorder, p: dict[str, Any]) -> dict[str, Any]:
+        """편의 틱 하나의 단계(sense → … → phone[→ reason]). 침묵이면 끝난 노드에서 멈춘다."""
+        result: DispatchResult | None = p["result"]
+        silence: dict[str, Any] | None = p["silence"]
+        decision: ProactiveDecision | None = p["decision"]
+        judgment = p["judgment"]
+        evaluation = rec.evaluation
+        selected = None
+        if evaluation is not None and not evaluation.selected_is_noop():
+            selected = evaluation.selected_action()
+        entity = (result.proposal.action.entity_id if result is not None
+                  else selected.entity_id if selected is not None
+                  else decision.candidate.entity_id if decision and decision.candidate else "")
+        keyed = rec.take((entity, "comfort")) if entity else {}
+        gate1: Gate1Result | None = keyed.get("gate1")
+        judge_s = rec.take_judge(entity, False) if entity else None
+        end = None if silence is None else _silence_end(decision, evaluation, gate1)
+        nodes: list[dict[str, Any]] = []
+
+        sense_ko = (f"바뀐 센서 {p['changed']}개" if p["changed"] else "바뀐 센서 없음")
+        nodes.append(_node("sense", sense_ko + (f" · {p['weather_ko']}" if p["weather_ko"] else "")))
+
+        matched = list(getattr(decision, "matched_rule_ids", ()) or ())
+        titles = [self._title(r, self._rules[r].target_entity) for r in matched if r in self._rules]
+        if end == "rules":
+            why = str(getattr(decision, "suppressed_by", "") or (silence or {}).get("reason", ""))
+            rules_ko = (f"{titles[0] if titles else '규칙'} 성립 — 건너뜀: "
+                        f"{_SILENCE_KO.get(why, why)}")
+        else:
+            rules_ko = (f"성립: {titles[0]}" + (f" 외 {len(titles) - 1}개" if len(titles) > 1 else "")
+                        if titles else "성립한 규칙")
+        nodes.append(_node("rules", rules_ko, real_s=rec.rules_s,
+                           state="end" if end == "rules" else "done"))
+
+        def tail(after: str) -> None:
+            ids = list(_COMFORT_NODES[_COMFORT_NODES.index(after) + 1:])
+            if self._kit is not None:
+                ids.append("reason")
+            for nid in ids:
+                nodes.append(_node(nid, "건너뜀", state="skipped"))
+
+        if end == "rules":
+            tail("rules")
+            return self._trace_event(rec, "silent", "main", None, nodes, silence)
+
+        if evaluation is not None:
+            noop = next((ac.final_score for ac in evaluation.scored if is_noop(ac.candidate)), None)
+            if end == "score":
+                score_ko = f"아무것도 안 하기가 이김({noop})"
+            else:
+                sel = evaluation.scored[evaluation.selected_index]
+                label = self._title(_rule_of(sel.candidate.params), sel.candidate.entity_id)
+                score_ko = f"{label} {sel.final_score}" + (
+                    f" · 아무것도 안 하기 {noop}" if noop is not None else "")
+        else:
+            score_ko = "점수 기록 없음"
+        nodes.append(_node("score", score_ko, real_s=rec.evaluation_s,
+                           state="end" if end == "score" else "done"))
+        if end == "score":
+            tail("score")
+            return self._trace_event(rec, "silent", "main", None, nodes, silence)
+
+        nodes.append(_node("context", "판단에 쓸 맥락 스냅샷"))
+        gate1_ko = ("하한 기록 없음" if gate1 is None else
+                    f"하한 {gate1.floor_tier.label_ko}" + (" · 차단" if gate1.blocked else ""))
+        if end == "gate1":
+            gate1_ko += " — 먼저 제안할 수 없는 확인 강도라 침묵"
+        nodes.append(_node("gate1", gate1_ko, real_s=keyed.get("gate1_s"),
+                           state="end" if end == "gate1" else "done"))
+        if end == "gate1":
+            tail("gate1")
+            return self._trace_event(rec, "silent", "main", None, nodes, silence)
+
+        # 이번 틱에 이 기기를 판정한 기록이 있을 때만 판단 행을 믿는다(앞 틱의 행 섞임 방지).
+        if judge_s is None or judgment is None or f'"entity_id":"{entity}"' not in judgment.get(
+                "action_json", ""):
+            judgment = None
+        tier = None if judgment is None else judgment["risk_tier"]
+        judge_ko = "판정 기록 없음" if tier is None else f"최종 확인 강도 {tier.label_ko}"
+        if end == "judge":
+            judge_ko += " — 먼저 제안하기엔 높아 침묵"
+        nodes.append(_node("judge", judge_ko, real_s=judge_s,
+                           model=None if judgment is None else judgment["model_id"],
+                           state="end" if end == "judge" else "done"))
+        if end == "judge" or result is None:
+            tail("judge")
+            return self._trace_event(rec, "silent", "main", None, nodes, silence)
+
+        prop = result.proposal
+        nodes.append(_node("route", f"{prop.risk_tier.label_ko} · 확인 {prop.required_confirmation}"))
+        gate_ko = _GATE_KO.get(result.decision, result.decision)
+        suppressed = result.decision not in ("IMMEDIATE", "DIGEST")
+        nodes.append(_node("gate", gate_ko, state="end" if suppressed else "done"))
+        sim_id = p["sim_id"]
+        rec_view = self._records.get(sim_id or "", {})
+        title = rec_view.get("title_ko", "")
+        if suppressed:
+            nodes.append(_node("phone", "건너뜀", state="skipped"))
+        else:
+            where = "폰에 바로 알림" if result.decision == "IMMEDIATE" else "모아보기에 담김"
+            nodes.append(_node("phone", f"{where} — {title}" if title else where))
+        if self._kit is not None:
+            if suppressed:
+                nodes.append(_node("reason", "건너뜀", state="skipped"))
+            else:
+                if rec_view.get("reason_source") == "model":
+                    reason_ko = f"작성 {rec_view.get('reason_model')} — 시뮬레이터가 카드 이유 문장을 쓴다"
+                else:
+                    reason_ko = ("문장 틀 · " + str(rec_view.get("reason_fallback_ko") or "")
+                                 + " — 시뮬레이터가 카드 이유 문장을 쓴다")
+                nodes.append(_node("reason", reason_ko, real_s=self._last_reason_s,
+                                   model=rec_view.get("reason_model")))
+        return self._trace_event(rec, "comfort", "main", sim_id, nodes, None,
+                                 outcome_ko=rec_view.get("line_ko", gate_ko))
+
+    def _trace_event(self, rec: _TraceRecorder, kind: str, part: str, proposal_id: str | None,
+                     nodes: list[dict[str, Any]], silence: dict[str, Any] | None, *,
+                     outcome_ko: str | None = None) -> dict[str, Any]:
+        out: dict[str, Any] = {"trace_id": rec.next_id(), "kind": kind, "part": part,
+                               "nodes": nodes}
+        if proposal_id is not None:
+            out["proposal_id"] = proposal_id
+        if outcome_ko is None and silence is not None:
+            outcome_ko = f"{silence['title_ko']} — 건너뜀: {silence['reason_ko']}"
+        out["outcome_ko"] = outcome_ko or ""
+        return out
+
     async def _announce_trip(
         self, kit: CloudKit, out: Callable[[str, dict[str, Any]], Awaitable[None]]
     ) -> None:
@@ -1479,8 +1814,10 @@ class DaySim:
             "rule_sentence": template,
             "memories": [f"{c.title} — {c.summary}" if c.summary else c.title for c in cards],
         }
+        t_reason = time.perf_counter()
         res = await self._ext(kit, "reason", lambda: cheap.reason(facts, fallback=template),
                               usage=_cheap_usage)
+        self._last_reason_s = time.perf_counter() - t_reason
         if res is None or res.source != "model":
             fields["reason_fallback"] = (self._ext_miss or "timeout") if res is None else (
                 res.fallback_reason or "invalid_output")
@@ -1672,6 +2009,39 @@ class DaySim:
         await out("judge", {"id": target["id"], "judge": view})
 
 
+# ── 시연용 단계 기록(trace) 사건 조립 ───────────────────────────────────────
+
+_COMFORT_NODES = ("sense", "rules", "score", "context", "gate1", "judge", "route", "gate", "phone")
+_NODE_KO = {
+    "sense": "감지", "rules": "규칙", "score": "점수", "context": "맥락", "gate1": "1차 안전 검사",
+    "judge": "위험 판정", "route": "확인 강도", "gate": "알림 게이트", "phone": "폰",
+    "reason": "이유 작성",
+}
+_GATE_KO = {"IMMEDIATE": "바로 폰 알림", "DIGEST": "모아보기", "SUPPRESS": "보류"}
+
+
+def _ms(seconds: float | None) -> float | None:
+    return None if seconds is None else round(seconds * 1000.0, 2)
+
+
+def _node(nid: str, detail_ko: str, *, real_s: float | None = None, state: str = "done",
+          model: str | None = None) -> dict[str, Any]:
+    return {"id": nid, "label_ko": _NODE_KO.get(nid, nid), "detail_ko": detail_ko,
+            "real_ms": _ms(real_s), "model": model, "state": state}
+
+
+def _silence_end(decision: ProactiveDecision | None, evaluation: EvaluationResult | None,
+                 gate1: Gate1Result | None) -> str:
+    """침묵이 끝난 노드: rules(후보 없음) · score(아무것도 안 하기) · gate1(능동 상한) · judge(판정 뒤 상한)."""
+    if decision is None or decision.candidate is None:
+        return "rules"
+    if evaluation is not None and evaluation.selected_is_noop():
+        return "score"
+    if gate1 is not None and (gate1.blocked or gate1.floor_tier > PROACTIVE_TIER_CEILING):
+        return "gate1"
+    return "judge"
+
+
 def _cheap_usage(res: ReasonResult) -> tuple[str | None, int | None, int | None]:
     return res.model, res.input_tokens, res.output_tokens
 
@@ -1722,7 +2092,7 @@ class DayRuns:
                         f"실제 모델 설정을 읽지 못했습니다({type(exc).__name__}).", 503,
                         field="models") from None
             sim = DaySim(seed=req.seed, days=req.days, persona=req.persona, pace_ms=req.pace_ms,
-                         models=req.models, cloud=kit)
+                         models=req.models, cloud=kit, trace=req.trace)
             sim_box.append(sim)
 
             def worker(ctx: RunContext) -> None:
@@ -1742,6 +2112,8 @@ class DayRuns:
                                 "pace_ms": req.pace_ms}
         if req.models != "fake":
             meta["models"] = req.models
+        if req.trace:
+            meta["trace"] = True
         run = self.runs.start(make_worker, meta=meta)
         sim = sim_box[0]
         self._sims[run.run_id] = sim
@@ -1752,6 +2124,8 @@ class DayRuns:
                                "seed": req.seed, "persona": req.persona, "pace_ms": req.pace_ms}
         if req.models != "fake":
             out["models"] = req.models
+        if req.trace:
+            out["trace"] = True
         return out
 
     def get(self, run_id: str) -> LiveRun | None:

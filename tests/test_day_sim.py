@@ -304,3 +304,12 @@ def test_day_request_is_validated(body: dict[str, Any], field: str) -> None:
 def test_day_request_defaults() -> None:
     req = parse_day_request({})
     assert (req.days, req.seed, req.persona, req.pace_ms) == (3, 7, "default", 0)
+
+
+@pytest.mark.parametrize("value", ["true", 1, 0, None, [True], {"on": True}])
+def test_trace_request_key_must_be_a_bool(value: Any) -> None:
+    with pytest.raises(LiveRequestError) as exc:
+        parse_day_request({"trace": value})
+    assert exc.value.status == 400 and exc.value.field == "trace"
+    assert parse_day_request({"trace": True}).trace is True
+    assert parse_day_request({}).trace is False
