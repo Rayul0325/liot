@@ -438,3 +438,40 @@ def test_oversized_usage_tokens_are_unknown() -> None:
     llm = CheapLLM(_cfg(), KEY, transport=FakeTransport(reply))
     res = llm.reason(FACTS, fallback=FALLBACK)
     assert res.source == "model" and (res.input_tokens, res.output_tokens) == (None, None)
+
+
+# ── 리뷰 B3/B4 EGRESS-RAW-PII: 정리기가 글로 바꾸는 모든 형을 원본에서 먼저 본다 ────────
+
+
+class _Note:
+    def __str__(self) -> str:
+        return "메일 someone@example.com"
+
+
+@pytest.mark.parametrize("value", [
+    b"someone@example.com",                 # bytes → "b'someone@example.com'"
+    _Note(),                                # 임의 객체의 __str__
+    {"someone@example.com"},                # 집합(목록·튜플이 아니라 통째로 str)
+    Path("/tmp") / "someone@example.com",   # Path
+    9001011234567,                          # 정수는 숫자 그대로 나간다 — 주민번호 모양
+    [b"010-1234-5678"],                     # 목록 안의 bytes
+])
+def test_non_string_values_with_pii_are_never_sent(value: Any) -> None:
+    from liot.cheap_llm import raw_pii
+
+    assert raw_pii({"memo": value}) is not None
+    llm, fake = _client()
+    res = llm.reason({**FACTS, "memo": value}, fallback=FALLBACK)
+    assert (res.source, res.fallback_reason) == ("fallback", "egress")
+    assert fake.requests == [] and llm.calls == []
+
+
+def test_raw_scan_walks_every_text_the_sanitizer_makes() -> None:
+    """정리기 출력의 모든 글 조각은 원본 검사에서 본 조각에서 나온다(형별로 같은 길)."""
+    from liot.cheap_llm import _raw_texts
+
+    facts = {"a": b"x", "b": _Note(), "c": {"s"}, "d": 9, "e": 1.5, "f": None, "g": True,
+             "h": ("t", ["u"]), 7: "k"}
+    assert sorted(_raw_texts(facts)) == sorted(
+        ["a", "b'x'", "b", "메일 someone@example.com", "c", "{'s'}", "d", "9", "e", "f", "g",
+         "h", "t", "u", "7", "k"])

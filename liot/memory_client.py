@@ -13,7 +13,8 @@
   - **쓰기도 외부 송신**: remember 의 문장·이유와 recall 의 질의는 특성 낱말 검사와
     ``emit_external(Destination.MEMORY)`` 를 지난 것만 나간다.
   - **카드는 제목과 요약 한 줄만**: 경로·핸들·id 는 버린다.
-  - **실패해도 계속**: 시간 초과·종료 코드·형식 오류는 예외 대신 빈 결과와 기록으로 끝난다.
+  - **실패해도 계속**: 시간 초과·종료 코드·형식 오류·못 푸는 바이트·실행기 예외는 예외 대신
+    빈 결과와 기록으로 끝난다(``tests/test_memory_client.py`` 가 각 경우를 고정한다).
 """
 
 from __future__ import annotations
@@ -67,8 +68,15 @@ class MemoryRefused(Exception):
 def _default_runner(
     argv: Sequence[str], env: Mapping[str, str], timeout_s: float
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # noqa: S603 — argv 는 고정 동사 + 검사한 인자
-        list(argv), env=dict(env), capture_output=True, text=True, timeout=timeout_s, check=False
+    # 바이트로 받아 UTF-8 로 풀되 못 푸는 바이트는 바꿔 넣는다(errors="replace"). text=True 는
+    # 지역 인코딩으로 풀다 UnicodeDecodeError 를 내 기억 확인 전체가 깨진다.
+    raw = subprocess.run(  # noqa: S603 — argv 는 고정 동사 + 검사한 인자
+        list(argv), env=dict(env), capture_output=True, timeout=timeout_s, check=False
+    )
+    return subprocess.CompletedProcess(
+        raw.args, raw.returncode,
+        (raw.stdout or b"").decode("utf-8", errors="replace"),
+        (raw.stderr or b"").decode("utf-8", errors="replace"),
     )
 
 
@@ -96,7 +104,7 @@ def parse_cli_json(stdout: str) -> dict[str, Any] | None:
             continue
         try:
             value = json.loads(chunk)
-        except ValueError:
+        except (ValueError, RecursionError):  # 형식 오류·지나치게 깊은 중첩
             continue
         if isinstance(value, dict):
             return value
@@ -159,10 +167,14 @@ class MemoryClient:
         except OSError as exc:
             entry["error"] = f"spawn:{type(exc).__name__}"
             return self._finish(entry, t0, None)
+        except Exception as exc:  # noqa: BLE001 — 바깥 프로세스 경계: 어떤 실패도 기억 없이 계속
+            entry["error"] = f"runner:{type(exc).__name__}"
+            return self._finish(entry, t0, None)
         if proc.returncode != 0:
             entry["error"] = f"exit {proc.returncode}"
             return self._finish(entry, t0, None)
-        data = parse_cli_json(proc.stdout or "")
+        stdout = proc.stdout if isinstance(proc.stdout, str) else ""
+        data = parse_cli_json(stdout)
         if data is None:
             entry["error"] = "not json"
             return self._finish(entry, t0, None)

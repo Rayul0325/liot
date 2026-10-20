@@ -24,7 +24,7 @@ import math
 import re
 import time
 import urllib.parse
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -230,21 +230,34 @@ def sanitize_for_llm(obj: Any) -> Any:
     return _clean_text(str(obj))
 
 
-def raw_pii(obj: Any) -> str | None:
-    """정리 전 원본에서 egress PII 패턴(전화·이메일·주민번호·정밀좌표)을 찾는다. 첫 패턴 이름."""
-    if isinstance(obj, str):
-        return next((name for name, pat in PII_PATTERNS.items() if pat.search(obj)), None)
+def _raw_texts(obj: Any) -> Iterator[str]:
+    """정리기가 글로 다루게 될 원본 조각을 모두 낸다 — ``sanitize_for_llm`` 과 같은 길을 걷는다.
+
+    키는 ``str(key)``, 문자열은 그대로, 정수는 ``str``(그대로 숫자로 나가므로), 그 밖의 형
+    (bytes·Path·집합·임의 객체 …)은 정리기처럼 ``str(obj)``. 실수·bool·None 은 글이 되지 않는다
+    (실수는 반올림된다). 정리기가 문자열로 바꾸는 형을 하나라도 빼먹으면 그 형으로 PII 가 샌다.
+    """
     if isinstance(obj, Mapping):
         for key, value in obj.items():
-            hit = raw_pii(str(key)) or raw_pii(value)
-            if hit is not None:
-                return hit
-        return None
-    if isinstance(obj, (list, tuple)):
+            yield str(key)
+            yield from _raw_texts(value)
+    elif isinstance(obj, (list, tuple)):
         for value in obj:
-            hit = raw_pii(value)
-            if hit is not None:
-                return hit
+            yield from _raw_texts(value)
+    elif obj is None or isinstance(obj, (bool, float)):
+        return
+    elif isinstance(obj, str):
+        yield obj
+    else:
+        yield str(obj)
+
+
+def raw_pii(obj: Any) -> str | None:
+    """정리 전 원본에서 egress PII 패턴(전화·이메일·주민번호·정밀좌표)을 찾는다. 첫 패턴 이름."""
+    for text in _raw_texts(obj):
+        for name, pattern in PII_PATTERNS.items():
+            if pattern.search(text):
+                return name
     return None
 
 

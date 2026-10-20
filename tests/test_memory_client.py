@@ -379,3 +379,55 @@ def test_missing_executable_continues(tmp_path: Path) -> None:
     client = MemoryClient(home=HOME, executable=str(tmp_path / "nope"))
     assert client.check_ready() is False
     assert client.log[-1]["error"].startswith("spawn:")
+
+
+# ── 리뷰 B3/B4 MEM-DECODE: 이상한 CLI 출력·실행기 예외에도 기억 없이 계속 ─────────────
+
+
+def test_undecodable_cli_output_disables_memory_without_raising(tmp_path: Path) -> None:
+    script = _fake_executable(tmp_path, (
+        "import sys\n"
+        "sys.stdout.buffer.write(b'\\xff\\xfe\\x80 broken\\n')\n"
+        "sys.stdout.buffer.write(b'{\"hosted\": {\"name\": \"liot-demo\", \"signed_in\": true}, '\n"
+        "                        b'\"destination\": \"hosted\", \"note\": \"\\xff\"}\\n')\n"
+    ))
+    client = MemoryClient(home=HOME, executable=str(script))
+    # 못 푸는 바이트는 바꿔 넣고 읽는다 — JSON 줄은 그대로 읽혀 확인이 통과한다.
+    assert client.check_ready() is True
+    (tmp_path / "g").mkdir()
+    garbage = _fake_executable(tmp_path / "g", "import sys\nsys.stdout.buffer.write(b'\\xff\\xfe\\xfa')\n")
+    other = MemoryClient(home=HOME, executable=str(garbage))
+    assert other.check_ready() is False and other.log[-1]["error"] == "not json"
+
+
+@pytest.mark.parametrize("exc", [
+    UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+    RuntimeError("boom"),
+    ValueError("bad"),
+])
+def test_runner_exceptions_never_escape(exc: Exception) -> None:
+    class Raising(FakeCLI):
+        raise_on: set[str] = set()
+
+        def __call__(self, argv: Sequence[str], env: Mapping[str, str],
+                     timeout_s: float) -> subprocess.CompletedProcess[str]:
+            if list(argv)[1] in self.raise_on:
+                raise exc
+            return super().__call__(argv, env, timeout_s)
+
+    fake = Raising()
+    fake.raise_on = {"use"}
+    client = MemoryClient(home=HOME, runner=fake)
+    assert client.check_ready() is False
+    assert client.log[-1]["error"] == f"runner:{type(exc).__name__}"
+    fake.raise_on = {"recall", "remember"}
+    ready = MemoryClient(home=HOME, runner=fake)
+    assert ready.check_ready() is True
+    assert ready.recall("환기", scope="house-r1", reader="house") == []
+    assert ready.remember("환기 좋았다", scope="house-r1", reason="r") is None
+
+
+def test_deeply_nested_json_is_not_a_recursion_error() -> None:
+    assert parse_cli_json("[" * 100_000 + "]" * 100_000) is None
+    deep = "{\"a\": " * 100_000 + "1" + "}" * 100_000
+    assert parse_cli_json(deep) is None  # RecursionError 를 형식 오류로 친다

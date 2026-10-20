@@ -783,3 +783,26 @@ def test_oversized_jev_usage_does_not_break_a_cloud_judgment(tmp_path: Path) -> 
     jd = LLMJudge(backend=judge).judge(cand, _ctx(), g.evaluate(cand, _ctx()),
                                        ruleset_version=g.ruleset_version)
     assert jd.model_id == "jev:jev-latest" and not jd.degraded
+
+
+@pytest.mark.parametrize("verb", ["use", "recall", "remember"])
+def test_cloud_run_continues_when_the_cli_breaks(tmp_path: Path, verb: str) -> None:
+    """리뷰 MEM-DECODE: CLI 가 못 푸는 바이트를 내거나 실행기가 터져도 실행은 끝까지 간다."""
+
+    class Broken(FakeBrain):
+        def __call__(self, argv: Sequence[str], env: Mapping[str, str],
+                     timeout_s: float) -> subprocess.CompletedProcess[str]:
+            if list(argv)[1] == verb:
+                self.argvs.append(list(argv))
+                raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+            return super().__call__(argv, env, timeout_s)
+
+    fake_run = DaySim(seed=7, days=1)
+    _run(fake_run)
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=_kit(tmp_path, brain=Broken()))
+    events = _run(sim)
+    assert [d["day"] for st, d in events if st == "day.end"] == [1]
+    assert len(sim.proposals) == len(fake_run.proposals)
+    status = next(d for st, d in events if st == "models.status")["status"]
+    mem = next(s for s in status if s["part"] == "memory")
+    assert mem["state"] == ("fake" if verb == "use" else "cloud")
