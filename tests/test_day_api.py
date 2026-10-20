@@ -319,3 +319,13 @@ def test_demo_assets_are_served_and_draw_only_with_safe_dom_calls(
     html = (ROOT / "web" / "day.html").read_text(encoding="utf-8")
     assert 'src="assets/day-demo.js"' in html and 'href="assets/day-demo.css"' in html
     assert 'id="demo"' in html and 'id="demoClose"' in html and "나가기" in html
+
+
+def test_demo_narrow_layout_stacks_the_phone_below_the_graph() -> None:
+    # 390px 배치는 브라우저로만 잴 수 있다 — 여기서는 그 배치의 재료가 제자리에 있는지만 본다.
+    demo = (ROOT / "web" / "assets" / "day-demo.js").read_text(encoding="utf-8")
+    demo_css = (ROOT / "web" / "assets" / "day-demo.css").read_text(encoding="utf-8")
+    html = (ROOT / "web" / "day.html").read_text(encoding="utf-8")
+    assert '"(max-width: 640px)"' in demo and "@media (max-width: 640px)" in demo_css
+    assert 'id="demoPane"' in html and 'hidden' in html.split('id="demoPane"')[1].split(">")[0]
+    assert html.index('id="demoSvg"') < html.index('id="demoPane"')

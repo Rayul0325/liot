@@ -20,6 +20,9 @@
   const DETAIL_H = 84;
   /** 오른쪽 폰 알림창 자리(그래프와 같은 SVG 안, foreignObject). */
   const PANE = { x: 1040, y: 40, w: 330, h: 520 };
+  /** 좁은 화면(day.css 와 같은 640px): 노드를 한 줄로 세우고 설명은 오른쪽, 폰은 그래프 아래. */
+  const NARROW_MQ = "(max-width: 640px)";
+  const NARROW = { w: 370, x: 85, top: 40, row: 100 };
 
   /**
    * 종류별 노드 좌표(가운데 점). 노드 id 는 서버가 준다 — 표에 없는 id 는 그리지 않고 세지 않는다.
@@ -169,9 +172,10 @@
    * 노드 하나: 둥근 사각형 + 이름 + 실제 시간(잰 단계만) + 아래 설명(서버 detail_ko).
    * @param {Object} n
    * @param {[number, number]} at
+   * @param {boolean} [thin] 좁은 화면이면 설명을 노드 오른쪽에 둔다.
    * @returns {SVGElement}
    */
-  function nodeEl(n, at) {
+  function nodeEl(n, at, thin) {
     const [cx, cy] = at;
     const g = svg("g", { class: "dm-node", "data-id": n.id, "data-state": n.state });
     g.appendChild(svg("rect", {
@@ -184,10 +188,11 @@
     const meta = svg("text", { x: cx, y: cy + 16, class: "dm-node-time", "text-anchor": "middle" });
     meta.textContent = typeof n.real_ms === "number" ? "실제 " + n.real_ms + "ms" : "";
     g.appendChild(meta);
-    const fo = svg("foreignObject", {
-      x: cx - 85, y: cy + NODE_H / 2 + 4, width: 170, height: DETAIL_H,
-    });
-    const detail = el("div", "dm-node-detail", n.detail_ko);
+    const side = cx + NODE_W / 2 + 10;
+    const fo = svg("foreignObject", thin
+      ? { x: side, y: cy - NODE_H / 2, width: NARROW.w - side - 4, height: NARROW.row - 8 }
+      : { x: cx - 85, y: cy + NODE_H / 2 + 4, width: 170, height: DETAIL_H });
+    const detail = el("div", thin ? "dm-node-detail dm-node-detail-side" : "dm-node-detail", n.detail_ko);
     if (n.model) detail.appendChild(el("span", "dm-node-model", n.model));
     fo.appendChild(detail);
     g.appendChild(fo);
@@ -214,6 +219,23 @@
     });
     fo.appendChild(screenEl());
     return fo;
+  }
+
+  /** @returns {boolean} */
+  function narrow() {
+    return Boolean(window.matchMedia && window.matchMedia(NARROW_MQ).matches);
+  }
+
+  /**
+   * 폰 알림창을 붙인다: 넓은 화면은 그래프 SVG 안(오른쪽), 좁은 화면은 그래프 아래 칸.
+   * @param {Element} box
+   * @param {boolean} thin
+   */
+  function placePane(box, thin) {
+    const below = $("demoPane");
+    below.hidden = !thin;
+    if (thin) below.appendChild(screenEl());
+    else box.appendChild(pane());
   }
 
   /** @returns {any} */
@@ -363,17 +385,27 @@
     D.edgeEls = new Map();
     const box = $("demoSvg");
     clear(box);
-    box.setAttribute("viewBox", "0 0 " + VIEW_W + " " + VIEW_H);
+    const thin = narrow();
     const kind = layoutOf(t);
-    const table = LAYOUTS[kind];
+    const wide = LAYOUTS[kind];
     box.dataset.kind = t.kind;
-    const drawn = (t.nodes || []).filter((n) => table[n.id]);
+    const drawn = (t.nodes || []).filter((n) => wide[n.id]);
     D.drawn = drawn;
+    /** @type {Record<string, [number, number]>} */
+    let table = wide;
+    if (thin) {
+      // 좁은 화면: 서버가 준 순서대로 위에서 아래로 한 줄.
+      table = {};
+      drawn.forEach((n, i) => { table[n.id] = [NARROW.x, NARROW.top + i * NARROW.row]; });
+    }
+    const height = thin ? NARROW.top + Math.max(drawn.length, 1) * NARROW.row - NODE_H / 2 : VIEW_H;
+    box.setAttribute("viewBox", "0 0 " + (thin ? NARROW.w : VIEW_W) + " " + height);
+    box.classList.toggle("dm-svg-thin", thin);
     const edges = svg("g", { class: "dm-edges" });
     const nodes = svg("g", { class: "dm-nodes" });
     for (let i = 0; i < drawn.length; i += 1) {
       const n = drawn[i];
-      const g = nodeEl(n, table[n.id]);
+      const g = nodeEl(n, table[n.id], thin);
       if (!final) {
         g.setAttribute("data-state", "pending");
         const meta = g.querySelector(".dm-node-time");
@@ -388,7 +420,7 @@
       }
     }
     const target = drawn.find((n) => n.id === PANE_NODE[kind]);
-    if (target) {
+    if (target && !thin) {
       const [x, y] = table[target.id];
       // 같은 줄 오른쪽에 다른 노드가 있으면(이유 작성) 위로 빠져나가 그 노드를 넘는다.
       const blocked = drawn.some((n) => n !== target && table[n.id][1] === y && table[n.id][0] > x);
@@ -404,7 +436,7 @@
     D.paneNode = target ? target.id : null;
     box.appendChild(edges);
     box.appendChild(nodes);
-    box.appendChild(pane());
+    placePane(box, thin);
     $("demoOutcome").textContent = t.outcome_ko || "";
     $("demoWaiting").hidden = true;
     if (final) {
@@ -622,6 +654,13 @@
     document.addEventListener("keydown", (e) => {
       if (D.open && e.key === "Escape") close();
     });
+    // 화면 폭이 640px 를 넘나들면 쉬는 동안의 그래프를 새 배치로 다시 그린다(재생 중이면 다음 trace 부터).
+    const mq = window.matchMedia ? window.matchMedia(NARROW_MQ) : null;
+    if (mq && mq.addEventListener) {
+      mq.addEventListener("change", () => {
+        if (D.shown && !D.playing) render(D.shown, true);
+      });
+    }
     showWaiting();
   }
 

@@ -238,3 +238,33 @@ body.dm-lock {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* ── 좁은 화면(390px 기준): 그래프는 한 줄로 위, 폰은 아래 — 덮개 안에서만 세로로 넘긴다 ── */
+.dm-node-detail-side {
+  text-align: left;
+}
+@media (max-width: 640px) {
+  .dm-head {
+    flex-wrap: wrap;
+    gap: var(--s3);
+    padding: var(--s3) var(--s4);
+  }
+  .dm-outcome {
+    order: 10;
+    flex-basis: 100%;
+    white-space: normal;
+  }
+  .dm-body {
+    display: block;
+    overflow-y: auto;
+    padding: var(--s3) var(--s4) var(--s5);
+  }
+  .dm-svg {
+    display: block;
+    height: auto;
+  }
+  .dm-pane-below {
+    height: 440px;
+    margin-top: var(--s4);
+  }
+}
