@@ -68,21 +68,31 @@ body.dm-lock {
   text-align: center;
 }
 
-/* ── 노드 ─────────────────────────────────────────────────────────── */
+/* ── 노드: 대기(pending) · 지금(current) · 완료(done, 차분한 면) · 끝(end) · 건너뜀(skipped) ── */
 .dm-node-box {
   fill: var(--bg);
   stroke: var(--hair-2);
   stroke-width: 1.5;
 }
-.dm-node[data-state="done"] .dm-node-box {
-  stroke: var(--accent);
+.dm-node[data-state="pending"] {
+  opacity: 0.55;
 }
-.dm-node[data-state="end"] .dm-node-box {
+.dm-node[data-state="current"] .dm-node-box {
+  fill: rgba(0, 113, 227, 0.08);
   stroke: var(--accent);
   stroke-width: 3;
 }
+.dm-node[data-state="done"] .dm-node-box {
+  fill: var(--band);
+  stroke: var(--ink-3);
+}
+.dm-node[data-state="end"] .dm-node-box {
+  fill: var(--band);
+  stroke: var(--ink);
+  stroke-width: 2.5;
+}
 .dm-node[data-state="skipped"] {
-  opacity: 0.35;
+  opacity: 0.3;
 }
 .dm-node-label {
   font-size: 16px;
@@ -109,8 +119,8 @@ body.dm-lock {
 }
 
 /* 안전 사건만 빨강 */
-.dm-svg[data-kind="safety"] .dm-node[data-state="done"] .dm-node-box,
-.dm-svg[data-kind="safety"] .dm-node[data-state="end"] .dm-node-box {
+.dm-svg[data-kind="safety"] .dm-node[data-state="current"] .dm-node-box {
+  fill: rgba(215, 0, 21, 0.07);
   stroke: var(--sev-3);
 }
 .dm-svg[data-kind="safety"] .dm-edge-line {
@@ -129,8 +139,39 @@ body.dm-lock {
 .dm-edge-head {
   fill: var(--accent);
 }
+.dm-edge[data-state="pending"] {
+  opacity: 0.2;
+}
 .dm-edge[data-state="skipped"] {
-  opacity: 0.25;
+  opacity: 0.15;
+}
+.dm-edge[data-state="done"] .dm-edge-line {
+  stroke: var(--ink-3);
+}
+.dm-edge[data-state="done"] .dm-edge-head {
+  fill: var(--ink-3);
+}
+
+/* 움직임: 동작 줄이기 설정이 아니고(.dm-anim 은 스크립트가 그때만 붙인다) 브라우저도 허용할 때만 */
+@media (prefers-reduced-motion: no-preference) {
+  .dm-anim .dm-node,
+  .dm-anim .dm-node-box,
+  .dm-anim .dm-edge {
+    transition: opacity 0.25s ease, fill 0.25s ease, stroke 0.25s ease;
+  }
+  .dm-anim .dm-card {
+    animation: dm-card-in 0.3s ease;
+  }
+}
+@keyframes dm-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 .dm-edge-pane .dm-edge-line {
   stroke-dasharray: 6 5;
@@ -161,4 +202,24 @@ body.dm-lock {
 .dm-screen .notif,
 .dm-screen .alarm {
   margin-bottom: var(--s3);
+}
+
+.dm-queue {
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.dm-head .dy-seg {
+  flex: none;
+}
+.dm-card-tag {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.dm-card-state {
+  min-height: 1em;
+}
+.dm-card-touched {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }

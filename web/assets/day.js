@@ -807,22 +807,13 @@
     }
   }
 
-  /**
-   * 시연 화면이 빌려 가는 폰 카드(서버 기록 그대로). 편의는 제안 카드, 안전은 빨간 경보 카드.
-   * @param {Object} t
-   * @returns {HTMLElement|null}
-   */
-  function cardFor(t) {
-    if (!t || !t.proposal_id) return null;
-    if (t.kind === "safety") {
-      const a = S.alerts.get(t.proposal_id);
-      return a ? alarmCard(a) : null;
-    }
-    const p = S.proposals.get(t.proposal_id);
-    return p ? card(p) : null;
-  }
-
-  /** @type {any} */ (window).LiotDay = { cardFor: cardFor };
+  /** 시연 화면이 읽는 서버 기록(제안·안전 경보) — 값은 서버가 준 그대로. */
+  /** @type {any} */ (window).LiotDay = {
+    /** @param {string} id */
+    proposal: (id) => S.proposals.get(id) || null,
+    /** @param {string} id */
+    alert: (id) => S.alerts.get(id) || null,
+  };
 
   /** 화면을 준비한다. */
   function init() {

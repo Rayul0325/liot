@@ -471,3 +471,39 @@ def test_no_trait_words_in_safety_and_feedback_traces(seed7: tuple[DaySim, Event
     _, events = seed7
     blob = json.dumps(_traces(events), ensure_ascii=False)
     assert not any(word in blob for word in TRAIT_WORDS)
+
+
+# ── 문구: trace 설명에 영문 열거값이 새지 않는다 ──────────────────────────────
+
+# 허용: 모델 id(provider:model, 예 jev:jev-latest·anthropic:claude-haiku-5-5), 단위 ms, 모델 이름 luna.
+_ALLOWED_ASCII = {"ms", "luna"}
+
+
+def _ascii_words(text: str) -> set[str]:
+    import re
+
+    text = re.sub(r"\b[a-z0-9]+:[\w.\-]+", "", text)
+    return set(re.findall(r"[A-Za-z]{2,}", text)) - _ALLOWED_ASCII
+
+
+def test_trace_details_have_no_ascii_enum_words(
+    seed1: tuple[DaySim, Events], seed7: tuple[DaySim, Events], tmp_path: Path,
+) -> None:
+    cloud = DaySim(seed=7, days=2, models="cloud", cloud=_kit(tmp_path), trace=True)
+    runs = [seed1[1], seed7[1], _run(cloud)]
+    leaked: set[str] = set()
+    for events in runs:
+        for t in _traces(events):
+            for n in t["nodes"]:
+                leaked |= _ascii_words(n["detail_ko"])
+    assert leaked == set()
+
+
+def test_route_node_shows_the_confirmation_in_korean(seed7: tuple[DaySim, Events]) -> None:
+    _, events = seed7
+    routes = [n["detail_ko"] for t in _traces(events) if t["kind"] == "comfort"
+              for n in t["nodes"] if n["id"] == "route"]
+    assert routes
+    assert all(any(ko in r for ko in ("확인 불필요", "가벼운 확인", "명시 확인", "이중 확인"))
+               for r in routes)
+    assert not any(word in r for r in routes for word in ("light", "none", "explicit", "double"))

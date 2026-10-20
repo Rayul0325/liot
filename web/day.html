@@ -131,6 +131,13 @@
       <div class="dm-head">
         <h2 class="dm-title" id="demoTitle">시연 모드</h2>
         <p class="dm-outcome" id="demoOutcome"></p>
+        <div class="dy-seg" role="radiogroup" aria-label="시연 속도" id="demoSpeed">
+          <button type="button" class="dy-seg-btn" role="radio" aria-checked="false" data-speed="slow">느리게</button>
+          <button type="button" class="dy-seg-btn" role="radio" aria-checked="true" data-speed="normal">보통</button>
+          <button type="button" class="dy-seg-btn" role="radio" aria-checked="false" data-speed="fast">빠르게</button>
+        </div>
+        <span class="dm-queue tabnum" id="demoQueue">대기 0건</span>
+        <button type="button" class="dy-btn dy-btn-quiet" id="demoSkip" disabled>건너뛰기</button>
         <button type="button" class="dy-btn dy-btn-quiet" id="demoClose">나가기</button>
       </div>
       <div class="dm-body">

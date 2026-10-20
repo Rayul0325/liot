@@ -1685,7 +1685,8 @@ class DaySim:
             return self._trace_event(rec, "silent", "main", None, nodes, silence)
 
         prop = result.proposal
-        nodes.append(_node("route", f"{prop.risk_tier.label_ko} · 확인 {prop.required_confirmation}"))
+        nodes.append(_node("route", f"{prop.risk_tier.label_ko} · "
+                           f"{_CONFIRMATION_KO.get(prop.required_confirmation, '확인 강도 기록 없음')}"))
         gate_ko = _GATE_KO.get(result.decision, result.decision)
         suppressed = result.decision not in ("IMMEDIATE", "DIGEST")
         nodes.append(_node("gate", gate_ko, state="end" if suppressed else "done"))
@@ -2192,6 +2193,10 @@ _NODE_KO = {
     "feedback": "피드백", "prefs": "개인화", "ack": "확인",
 }
 _GATE_KO = {"IMMEDIATE": "바로 폰 알림", "DIGEST": "모아보기", "SUPPRESS": "보류"}
+# 확인 강도(risk.required_confirmation) → 한국어. 관제실 실험실(app.js CONFIRM_LABELS)의
+# none·explicit 표기를 따르고, light·double 은 판정 질문의 선택지 문구(가벼운 승인·이중확인)를 따른다.
+_CONFIRMATION_KO = {"none": "확인 불필요", "light": "가벼운 확인", "explicit": "명시 확인",
+                    "double": "이중 확인"}
 
 
 def _ms(seconds: float | None) -> float | None:
