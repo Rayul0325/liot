@@ -712,3 +712,17 @@ def test_two_situations_in_one_step_get_their_own_followup(
     assert gas[2]["detail_ko"] == "올리지 않아 따라가는 알림 없음"
     firsts = [s for s in sim.safety_events if s["kind"] == "first_alert"]
     assert len({(s["day"], s["hhmm"]) for s in firsts}) == 1 and len(firsts) == 2
+
+
+def test_ladder_says_stopped_when_the_resident_already_acked(tmp_path: Path) -> None:
+    # cloud 모드는 그 단계의 읽기 뒤에 누름을 적용한다 — 거주자의 [괜찮아요]가 같은 단계에 들어가
+    # 단계 끝 사다리는 확인됨(acked, 다음 발화 없음)이다.
+    sim = DaySim(seed=7, days=3, models="cloud", cloud=_kit(tmp_path), trace=True)
+    events = _run(sim)
+    follow = [t for t in _traces(events) if t["kind"] == "safety" and t["part"] == "followup"]
+    assert len(follow) == 3
+    for t in follow:
+        first = next(s for s in sim.safety_events if s.get("id") == t["proposal_id"])
+        ack = next(d for st, d in events if st == "feedback" and d["id"] == t["proposal_id"])
+        assert ack["signal"] == "ok" and (ack["day"], ack["hhmm"]) == (first["day"], first["hhmm"])
+        assert t["nodes"][3]["detail_ko"] == "확인돼 재알림 멈춤"

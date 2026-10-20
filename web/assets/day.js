@@ -37,7 +37,7 @@
    *   timeline: Object[], metrics: Map<number, Object>,
    *   clock: string, weather: string, queued: Set<string>, ignored: Set<string>,
    *   models: "fake"|"cloud", cloudRun: boolean, memory: Object[],
-   *   dayUsage: Map<number, Object>, fallback: string, traces: Object[]
+   *   dayUsage: Map<number, Object>, fallback: string, traces: Object[], traceRun: boolean
    * }}
    */
   const S = {
@@ -65,6 +65,7 @@
     dayUsage: new Map(),
     fallback: "",
     traces: [],
+    traceRun: false,
   };
 
   /**
@@ -198,6 +199,7 @@
       reset();
       S.runId = out.run_id;
       S.cloudRun = out.models === "cloud";
+      S.traceRun = out.trace === true;
       S.live = true;
       setStatus("running", "도는 중");
       setButtons();
@@ -211,12 +213,27 @@
     }
   }
 
-  /** [시연 모드]: 도는 실행이 없으면 trace 실행을 시작하고, 시연 덮개를 연다. */
-  async function onDemo() {
+  /**
+   * [시연 모드]: 덮개만 연다 — 실행은 시작하지 않는다(새 실행은 덮개의 [새로 돌리기]로만).
+   * 닫았다 다시 열면 남은 대기열을 이어서 재생한다. 시연 기록이 꺼진 실행이 돌고 있으면 열지 않고 알린다.
+   */
+  function onDemo() {
     const demo = /** @type {any} */ (window).LiotDemo;
     if (!demo) return;
-    if (!S.live && !(await startRun(true))) return;
-    demo.open();
+    if (S.live && !S.traceRun) {
+      showError("시연 기록이 꺼진 실행이에요 — 끝난 뒤 시연 모드로 새로 돌려 주세요");
+      return;
+    }
+    showError(null);
+    demo.open(S.traceRun ? undefined : "아직 시연 기록이 없어요. [새로 돌리기]를 누르면 시연 실행을 시작해요.");
+  }
+
+  /** 덮개의 [새로 돌리기]: trace 실행을 새로 시작한다(cloud 면 외부 호출이 다시 든다 — 누를 때만). */
+  async function onDemoNew() {
+    const demo = /** @type {any} */ (window).LiotDemo;
+    if (S.live || !demo) return;
+    if (await startRun(true)) demo.open();
+    else demo.open($("error").textContent || "시작하지 못했어요");
   }
 
   /** [멈추기]: 지금 단계를 마치고 멈추게 한다. */
@@ -428,6 +445,7 @@
   function setButtons() {
     /** @type {HTMLButtonElement} */ ($("runBtn")).disabled = S.live;
     /** @type {HTMLButtonElement} */ ($("stopBtn")).disabled = !S.live;
+    /** @type {HTMLButtonElement} */ ($("demoNew")).disabled = S.live;
   }
 
   /** 지금 상태로 화면 전체를 다시 그린다. */
@@ -820,6 +838,7 @@
     $("controls").addEventListener("submit", onRun);
     $("stopBtn").addEventListener("click", onStop);
     $("demoBtn").addEventListener("click", onDemo);
+    $("demoNew").addEventListener("click", onDemoNew);
     setupSpeed();
     setupModels();
     loadKeys();

@@ -329,3 +329,15 @@ def test_demo_narrow_layout_stacks_the_phone_below_the_graph() -> None:
     assert '"(max-width: 640px)"' in demo and "@media (max-width: 640px)" in demo_css
     assert 'id="demoPane"' in html and 'hidden' in html.split('id="demoPane"')[1].split(">")[0]
     assert html.index('id="demoSvg"') < html.index('id="demoPane"')
+
+
+def test_demo_button_never_starts_a_run_and_new_runs_are_explicit() -> None:
+    # 다시 열기가 새 실행(cloud 면 새 비용)을 부르지 않는다 — 새 실행은 덮개의 [새로 돌리기]로만.
+    day_js = (ROOT / "web" / "assets" / "day.js").read_text(encoding="utf-8")
+    html = (ROOT / "web" / "day.html").read_text(encoding="utf-8")
+    on_demo = day_js.split("function onDemo()")[1].split("\n  }\n")[0]
+    assert "startRun" not in on_demo and "reset" not in on_demo
+    assert "시연 기록이 꺼진 실행이에요" in on_demo
+    on_new = day_js.split("async function onDemoNew()")[1].split("\n  }\n")[0]
+    assert "startRun(true)" in on_new
+    assert 'id="demoNew"' in html and 'id="demoReplay"' in html and "처음부터 다시 보기" in html

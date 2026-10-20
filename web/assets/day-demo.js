@@ -52,12 +52,14 @@
    *   skip: boolean, wake: (function(): void)|null, speed: "slow"|"normal"|"fast", played: number,
    *   cards: Map<string, HTMLElement>, screen: HTMLElement|null, feed: HTMLElement|null,
    *   nodeEls: Map<string, Element>, edgeEls: Map<string, Element>, drawn: Object[],
-   *   paneNode: string|null, marks: Object[], feedDay: number|null}}
+   *   paneNode: string|null, marks: Object[], feedDay: number|null, gen: number}}
    */
   const D = {
     open: false, traces: [], queue: [], shown: null, playing: false, skip: false, wake: null,
     speed: "normal", played: 0, cards: new Map(), screen: null, feed: null, nodeEls: new Map(),
     edgeEls: new Map(), drawn: [], paneNode: null, marks: [], feedDay: null,
+    // 재생 세대: 새 실행·처음부터 다시 보기마다 1 오른다. 진행 중이던 play() 는 세대가 바뀌면 손을 뗀다.
+    gen: 0,
   };
 
   /**
@@ -280,6 +282,7 @@
     const have = D.cards.get(id);
     if (have) {
       toTop(have);
+      follow($("demoPane"));
       return have;
     }
     const safety = t.kind === "safety";
@@ -302,6 +305,7 @@
     }
     D.cards.set(id, card);
     toTop(card);
+    follow($("demoPane"));
     return card;
   }
 
@@ -453,6 +457,16 @@
   }
 
   /**
+   * 좁은 화면에서 덮개 본문을 그 요소가 보이게 넘긴다(부드러운 스크롤 없이 바로).
+   * 동작 줄이기 설정이면 넘기지 않는다.
+   * @param {Element|null|undefined} target
+   */
+  function follow(target) {
+    if (!target || !narrow() || reducedMotion()) return;
+    target.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" });
+  }
+
+  /**
    * 모델 단계(시간을 그대로 보여 주는 노드): 모델이 있는 위험 판정, 2단계 판정, 이유 작성.
    * @param {Object} n
    * @returns {boolean}
@@ -530,6 +544,7 @@
    * @param {Object} t
    */
   async function play(t) {
+    const gen = D.gen;
     D.skip = false;
     enterDay(t);
     render(t, false);
@@ -540,6 +555,7 @@
         continue;
       }
       mark(n.id, "current");
+      follow(D.nodeEls.get(n.id));
       const meta = D.nodeEls.get(n.id).querySelector(".dm-node-time");
       if (meta) meta.textContent = timeLabel(n);
       $("demoCaption").textContent = n.label_ko + " — " + n.detail_ko;
@@ -548,12 +564,14 @@
         D.edgeEls.get("__pane__").setAttribute("data-state", "current");
       }
       await wait(holdOf(n));
+      if (gen !== D.gen) return; // 새 실행·다시 보기가 시작됐다 — 낡은 카드를 새 창에 넣지 않는다
       mark(n.id, n.state === "end" ? "end" : "done");
       if (n.id === D.paneNode && D.edgeEls.get("__pane__")) {
         D.edgeEls.get("__pane__").setAttribute("data-state", "done");
       }
       onLeave(t, n);
     }
+    if (gen !== D.gen) return;
     await wait(SPEEDS[D.speed] / 2);
   }
 
@@ -578,6 +596,33 @@
   function showWaiting() {
     $("demoQueue").textContent = "대기 " + D.queue.length + "건";
     /** @type {HTMLButtonElement} */ ($("demoSkip")).disabled = !D.playing;
+    /** @type {HTMLButtonElement} */ ($("demoReplay")).disabled = !D.traces.length;
+  }
+
+  /** 재생 중인 것을 멈추고(세대 올림) 알림창·그래프를 비운다. 받아 둔 trace 목록은 부르는 쪽이 정한다. */
+  function restart() {
+    D.gen += 1;
+    D.queue = [];
+    D.shown = null;
+    D.cards = new Map();
+    D.feedDay = null;
+    D.played = 0;
+    D.skip = true;
+    if (D.wake) D.wake();
+    if (D.feed) clear(D.feed);
+    clear($("demoSvg"));
+    $("demoOutcome").textContent = "";
+    $("demoCaption").textContent = "";
+    $("demoWaiting").hidden = false;
+  }
+
+  /** [처음부터 다시 보기]: 이번 실행에서 받은 trace 를 처음부터 다시 재생한다(새 실행은 시작하지 않는다). */
+  function replay() {
+    if (!D.traces.length) return;
+    restart();
+    D.queue = D.traces.slice();
+    showWaiting();
+    if (D.open) loop();
   }
 
   /** [건너뛰기]: 지금 trace 를 바로 끝까지(상태는 차례대로 바뀐다) 보내고 다음으로. */
@@ -587,8 +632,12 @@
     if (D.wake) D.wake();
   }
 
-  /** 덮개를 연다. 받아 둔 trace 를 처음부터 재생한다. */
-  function open() {
+  /**
+   * 덮개를 연다. 닫기 전에 남은 대기열을 이어서 재생한다(처음부터는 [처음부터 다시 보기]).
+   * @param {string} [note] 대기 문구(시연 기록이 아직 없을 때 day.js 가 준다)
+   */
+  function open(note) {
+    $("demoWaiting").textContent = note || "첫 사건을 기다려요.";
     D.open = true;
     $("demo").hidden = false;
     document.body.classList.add("dm-lock");
@@ -605,21 +654,10 @@
     document.body.classList.remove("dm-lock");
   }
 
-  /** 새 실행: 대기열·카드를 비운다. */
+  /** 새 실행: 받아 둔 trace·대기열·카드를 비운다(진행 중이던 재생은 세대가 바뀌어 손을 뗀다). */
   function reset() {
-    D.queue = [];
+    restart();
     D.traces = [];
-    D.shown = null;
-    D.cards = new Map();
-    D.feedDay = null;
-    D.played = 0;
-    D.skip = true;
-    if (D.wake) D.wake();
-    if (D.feed) clear(D.feed);
-    clear($("demoSvg"));
-    $("demoOutcome").textContent = "";
-    $("demoCaption").textContent = "";
-    $("demoWaiting").hidden = false;
     showWaiting();
   }
 
@@ -650,6 +688,7 @@
   function init() {
     $("demoClose").addEventListener("click", close);
     $("demoSkip").addEventListener("click", skip);
+    $("demoReplay").addEventListener("click", replay);
     setupSpeed();
     document.addEventListener("keydown", (e) => {
       if (D.open && e.key === "Escape") close();
@@ -665,7 +704,7 @@
   }
 
   /** @type {any} */ (window).LiotDemo = { open: open, close: close, push: push, reset: reset, render: render,
-    skip: skip, state: D };
+    skip: skip, replay: replay, state: D };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();
