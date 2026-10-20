@@ -1,0 +1,164 @@
+/* LIOT 하루 시뮬레이션 — 시연 모드 덮개(day.css 토큰을 그대로 쓴다: 흰 면, 강조색 하나, 안전만 빨강).
+   화살표 머리는 path 삼각형이다 — SVG 화살표 정의 요소나 주소 참조를 쓰지 않는다. */
+
+body.dm-lock {
+  overflow: hidden;
+}
+
+.dm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+}
+.dm-overlay[hidden] {
+  display: none;
+}
+
+.dm-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding: var(--s4) var(--s6);
+  border-bottom: 1px solid var(--hair);
+}
+.dm-title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.dm-outcome {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dm-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--s4) var(--s6) var(--s5);
+}
+.dm-svg {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+}
+.dm-waiting {
+  font-size: 15px;
+  color: var(--ink-3);
+  text-align: center;
+  padding: var(--s7) 0;
+}
+.dm-caption {
+  min-height: 1.5em;
+  padding-top: var(--s3);
+  font-size: 15px;
+  color: var(--ink);
+  text-align: center;
+}
+
+/* ── 노드 ─────────────────────────────────────────────────────────── */
+.dm-node-box {
+  fill: var(--bg);
+  stroke: var(--hair-2);
+  stroke-width: 1.5;
+}
+.dm-node[data-state="done"] .dm-node-box {
+  stroke: var(--accent);
+}
+.dm-node[data-state="end"] .dm-node-box {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+.dm-node[data-state="skipped"] {
+  opacity: 0.35;
+}
+.dm-node-label {
+  font-size: 16px;
+  font-weight: 600;
+  fill: var(--ink);
+}
+.dm-node-time {
+  font-size: 12px;
+  fill: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.dm-node-detail {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--ink-2);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.dm-node-model {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* 안전 사건만 빨강 */
+.dm-svg[data-kind="safety"] .dm-node[data-state="done"] .dm-node-box,
+.dm-svg[data-kind="safety"] .dm-node[data-state="end"] .dm-node-box {
+  stroke: var(--sev-3);
+}
+.dm-svg[data-kind="safety"] .dm-edge-line {
+  stroke: var(--sev-3);
+}
+.dm-svg[data-kind="safety"] .dm-edge-head {
+  fill: var(--sev-3);
+}
+
+/* ── 엣지 ─────────────────────────────────────────────────────────── */
+.dm-edge-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.dm-edge-head {
+  fill: var(--accent);
+}
+.dm-edge[data-state="skipped"] {
+  opacity: 0.25;
+}
+.dm-edge-pane .dm-edge-line {
+  stroke-dasharray: 6 5;
+}
+
+/* ── 오른쪽 폰 알림창 ─────────────────────────────────────────────── */
+.dm-screen {
+  height: 100%;
+  box-sizing: border-box;
+  padding: var(--s4);
+  background: var(--band);
+  border: 1px solid var(--hair);
+  border-radius: 28px;
+  overflow: hidden;
+  font-family: var(--font);
+  color: var(--ink);
+}
+.dm-screen-bar {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  padding-bottom: var(--s3);
+}
+.dm-screen-empty {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.dm-screen .notif,
+.dm-screen .alarm {
+  margin-bottom: var(--s3);
+}

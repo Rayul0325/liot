@@ -11,6 +11,7 @@
     <meta name="theme-color" content="#ffffff" />
     <meta name="color-scheme" content="light" />
     <link rel="stylesheet" href="assets/day.css" />
+    <link rel="stylesheet" href="assets/day-demo.css" />
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231d1d1f'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='-apple-system,sans-serif' font-size='17' font-weight='600' fill='%23fff'%3EL%3C/text%3E%3C/svg%3E"
@@ -60,6 +61,7 @@
           </div>
           <button type="submit" class="dy-btn dy-btn-primary" id="runBtn">3일 돌리기</button>
           <button type="button" class="dy-btn dy-btn-quiet" id="stopBtn" disabled>멈추기</button>
+          <button type="button" class="dy-btn dy-btn-quiet" id="demoBtn">시연 모드</button>
         </form>
       </div>
       <p class="dy-error" id="error" role="alert" hidden></p>
@@ -125,6 +127,20 @@
       </section>
     </main>
 
+    <div class="dm-overlay" id="demo" role="dialog" aria-modal="true" aria-labelledby="demoTitle" hidden>
+      <div class="dm-head">
+        <h2 class="dm-title" id="demoTitle">시연 모드</h2>
+        <p class="dm-outcome" id="demoOutcome"></p>
+        <button type="button" class="dy-btn dy-btn-quiet" id="demoClose">나가기</button>
+      </div>
+      <div class="dm-body">
+        <p class="dm-waiting" id="demoWaiting">첫 사건을 기다려요.</p>
+        <svg class="dm-svg" id="demoSvg" role="img" aria-label="에이전트 작동 단계"></svg>
+        <p class="dm-caption" id="demoCaption" aria-live="polite"></p>
+      </div>
+    </div>
+
     <script src="assets/day.js"></script>
+    <script src="assets/day-demo.js"></script>
   </body>
 </html>

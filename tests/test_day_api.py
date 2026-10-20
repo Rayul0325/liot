@@ -278,10 +278,15 @@ def test_day_page_loads_nothing_from_other_origins_and_never_uses_inner_html() -
     import re
 
     html = (ROOT / "web" / "day.html").read_text(encoding="utf-8")
-    js = (ROOT / "web" / "assets" / "day.js").read_text(encoding="utf-8")
-    css = (ROOT / "web" / "assets" / "day.css").read_text(encoding="utf-8")
+    js = "\n".join((ROOT / "web" / "assets" / name).read_text(encoding="utf-8")
+                   for name in ("day.js", "day-demo.js"))
+    css = "\n".join((ROOT / "web" / "assets" / name).read_text(encoding="utf-8")
+                    for name in ("day.css", "day-demo.css"))
     assert re.search(r'(src|href)="(https?:)?//', html) is None
-    assert "http://" not in js and "https://" not in js
+    # SVG 이름 공간 식별자 한 문자열만 허용한다(불러오는 주소가 아니다). 그 밖의 http(s):// 는 없다.
+    svg_ns = '"http://www.w3.org/2000/svg"'
+    assert js.count(svg_ns) == 1
+    assert "http://" not in js.replace(svg_ns, "") and "https://" not in js
     assert "url(" not in css
     assert "innerHTML" not in js and "outerHTML" not in js and "insertAdjacentHTML" not in js
     # 화면은 /api/day/* 만 부른다.
@@ -289,3 +294,28 @@ def test_day_page_loads_nothing_from_other_origins_and_never_uses_inner_html() -
         "/api/day/run", "/api/day/stop", "/api/day/stream", "/api/day/runs/", "/api/day/feedback",
         "/api/day/keys",
     }
+
+
+
+def test_demo_assets_are_served_and_draw_only_with_safe_dom_calls(
+    server: tuple[int, DayRuns],
+) -> None:
+    port, _ = server
+    for path, ctype, needle in (
+        ("/assets/day-demo.js", "application/javascript", "createElementNS"),
+        ("/assets/day-demo.css", "text/css", ".dm-overlay"),
+    ):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request("GET", path, headers={"Host": f"127.0.0.1:{port}"})
+        resp = conn.getresponse()
+        body = resp.read().decode("utf-8")
+        conn.close()
+        assert resp.status == 200 and resp.getheader("Content-Type", "").startswith(ctype)
+        assert needle in body
+    demo = (ROOT / "web" / "assets" / "day-demo.js").read_text(encoding="utf-8")
+    demo_css = (ROOT / "web" / "assets" / "day-demo.css").read_text(encoding="utf-8")
+    assert "marker" not in demo and "url(#" not in demo and "url(" not in demo_css
+    assert "innerHTML" not in demo and "/api/" not in demo  # 시연 화면은 API 를 직접 부르지 않는다
+    html = (ROOT / "web" / "day.html").read_text(encoding="utf-8")
+    assert 'src="assets/day-demo.js"' in html and 'href="assets/day-demo.css"' in html
+    assert 'id="demo"' in html and 'id="demoClose"' in html and "나가기" in html

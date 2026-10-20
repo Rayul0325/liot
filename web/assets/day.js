@@ -21,6 +21,7 @@
     "memory",
     "models.status",
     "models.fallback",
+    "trace",
     "error",
     "done",
   ];
@@ -36,7 +37,7 @@
    *   timeline: Object[], metrics: Map<number, Object>,
    *   clock: string, weather: string, queued: Set<string>, ignored: Set<string>,
    *   models: "fake"|"cloud", cloudRun: boolean, memory: Object[],
-   *   dayUsage: Map<number, Object>, fallback: string
+   *   dayUsage: Map<number, Object>, fallback: string, traces: Object[]
    * }}
    */
   const S = {
@@ -63,6 +64,7 @@
     memory: [],
     dayUsage: new Map(),
     fallback: "",
+    traces: [],
   };
 
   /**
@@ -159,6 +161,9 @@
     S.memory = [];
     S.dayUsage.clear();
     S.fallback = "";
+    S.traces = [];
+    const demo = /** @type {any} */ (window).LiotDemo;
+    if (demo) demo.reset();
   }
 
   /**
@@ -167,16 +172,28 @@
    */
   async function onRun(ev) {
     ev.preventDefault();
+    await startRun(false);
+  }
+
+  /**
+   * 실행을 시작한다. 시연(trace)이면 서버는 늦추지 않는다(pace_ms 0) — 딜레이는 시연 화면이 넣는다.
+   * @param {boolean} trace
+   * @returns {Promise<boolean>}
+   */
+  async function startRun(trace) {
     showError(null);
     const seed = Number.parseInt(/** @type {HTMLInputElement} */ ($("seed")).value, 10);
     try {
-      const out = await api("/api/day/run", {
+      /** @type {Object} */
+      const body = {
         days: DAYS,
         seed: Number.isFinite(seed) ? seed : 7,
         persona: "default",
-        pace_ms: S.pace,
+        pace_ms: trace ? 0 : S.pace,
         models: S.models,
-      });
+      };
+      if (trace) body.trace = true;
+      const out = await api("/api/day/run", body);
       closeStream();
       reset();
       S.runId = out.run_id;
@@ -186,10 +203,20 @@
       setButtons();
       render();
       openStream();
+      return true;
     } catch (err) {
       showError(err instanceof Error ? err.message : String(err));
       setStatus("error", "시작하지 못했어요");
+      return false;
     }
+  }
+
+  /** [시연 모드]: 도는 실행이 없으면 trace 실행을 시작하고, 시연 덮개를 연다. */
+  async function onDemo() {
+    const demo = /** @type {any} */ (window).LiotDemo;
+    if (!demo) return;
+    if (!S.live && !(await startRun(true))) return;
+    demo.open();
   }
 
   /** [멈추기]: 지금 단계를 마치고 멈추게 한다. */
@@ -296,6 +323,12 @@
       case "memory":
         S.memory.push(ev);
         break;
+      case "trace": {
+        S.traces.push(ev);
+        const demo = /** @type {any} */ (window).LiotDemo;
+        if (demo) demo.push(ev);
+        break;
+      }
       case "error":
         showError(ev.error || "실행 중 오류가 났어요.");
         break;
@@ -774,10 +807,28 @@
     }
   }
 
+  /**
+   * 시연 화면이 빌려 가는 폰 카드(서버 기록 그대로). 편의는 제안 카드, 안전은 빨간 경보 카드.
+   * @param {Object} t
+   * @returns {HTMLElement|null}
+   */
+  function cardFor(t) {
+    if (!t || !t.proposal_id) return null;
+    if (t.kind === "safety") {
+      const a = S.alerts.get(t.proposal_id);
+      return a ? alarmCard(a) : null;
+    }
+    const p = S.proposals.get(t.proposal_id);
+    return p ? card(p) : null;
+  }
+
+  /** @type {any} */ (window).LiotDay = { cardFor: cardFor };
+
   /** 화면을 준비한다. */
   function init() {
     $("controls").addEventListener("submit", onRun);
     $("stopBtn").addEventListener("click", onStop);
+    $("demoBtn").addEventListener("click", onDemo);
     setupSpeed();
     setupModels();
     loadKeys();
