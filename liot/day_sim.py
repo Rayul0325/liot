@@ -53,6 +53,8 @@ from liot.core.contracts import (
     ContextSnapshot,
     EvaluationResult,
     ExternalContext,
+    Judgment,
+    Proposal,
     SensorReading,
     is_noop,
 )
@@ -153,6 +155,7 @@ _SIGNAL_KO = {
     "expired": "무시(만료)",
 }
 _SOURCE_KO = {"persona": "거주자", "viewer": "보는 사람", "timeout": "시간 지남", "tray": "모아보기"}
+_SEVERITY_SOURCE_KO = {"table": "표", "resident": "거주자 설정", "model": "모델"}
 _SILENCE_KO = {
     "rejected": "지난번 [그만해]로 30일 쉬는 중",
     "cooldown": "방금 제안해서 잠시 쉬는 중",
@@ -773,7 +776,6 @@ class DaySim:
         self._last_reason_s: float | None = None
         self._db: Any = None
         self._pending_safety: list[dict[str, Any]] = []
-        self._step_safety_kinds: list[tuple[str, str]] = []
         self._svc: LiotService | None = None
         self._house: HouseMemory | None = None
         self._resident: ResidentMemory | None = None
@@ -834,7 +836,9 @@ class DaySim:
         if self._kit is not None:
             out["models"] = self._models_view(self._kit)
             out["memory"] = [dict(m) for m in self.memory_events]
-            out["luna"] = [dict(r) for r in self.luna_results]
+            # entity_id 는 trace 의 followup 이 luna 비교를 찾는 열쇠다 — trace 를 켠 실행에만 싣는다.
+            out["luna"] = [{k: v for k, v in r.items() if self.trace or k != "entity_id"}
+                           for r in self.luna_results]
         return out
 
     @property
@@ -1047,7 +1051,7 @@ class DaySim:
             # 편의 trace 는 단계 끝(luna 비교 뒤)에 낸다 — 여기서는 재료만 모은다.
             judged = None
             with contextlib.suppress(Exception):
-                judged = await self._last_comfort_judgment()
+                judged = self._last_comfort_judgment(app, result)
             self._pending_comfort = {
                 "result": result, "silence": silence, "decision": generator.last_decision,
                 "judgment": judged, "changed": len(changed),
@@ -1071,7 +1075,6 @@ class DaySim:
             with contextlib.suppress(Exception):
                 await self._emit_followups()
             self._pending_safety = []
-            self._step_safety_kinds = []
             self._rec.end_step()
 
         if changed or weather_changed or silence or at.minute == 0:
@@ -1515,8 +1518,6 @@ class DaySim:
                 for rec0 in self.safety_events:
                     if rec0.get("kind") == "first_alert" and rec0.get("id") in self._open_alert.values():
                         rec0["guardian_forwarded"] = True
-            if self._rec is not None:
-                self._step_safety_kinds.append((kind, phase))
             rec = {"day": step.day, "at": step.at_local.isoformat(),
                    "hhmm": step.at_local.strftime("%H:%M"), "kind": kind, "label": label,
                    "severity_label": payload.get("severity_label"), "phase": phase,
@@ -1567,25 +1568,21 @@ class DaySim:
                              input_tokens=tokens_in, output_tokens=tokens_out)
         return result
 
-    async def _last_comfort_judgment(self) -> dict[str, Any] | None:
-        """이번 틱이 남긴 편의 판단 행(상황 없는 마지막 행) — 최종 확인 강도와 판정 모델.
+    @staticmethod
+    def _last_comfort_judgment(app: LiotApp, result: DispatchResult | None) -> dict[str, Any] | None:
+        """이번 틱의 편의 판단 — 최종 확인 강도와 판정 모델.
 
         서비스가 틱 안에서 판단을 저장하고 앱의 last_judgment 를 비운다(``_save_last_judgment``).
-        그래서 시뮬레이터 자신의 임시 DB 에서 읽는다(읽기만). 이번 틱에 판정이 없었으면(규칙·점수·
-        Gate1 에서 침묵) 이 값은 쓰지 않는다 — 부르는 쪽이 판정 호출 기록으로 가린다.
+        그래서 앱이 틱마다 새로 남기는 단계 사본(last_trace, 틱 시작에 비운다)의 판단을 읽는다.
+        제안이 나갔으면 그 제안의 judgment_id 와 같은 판단만 쓴다.
         """
-        if self._db is None:
+        trace = app.last_trace or {}
+        judgment: Judgment | None = trace.get("judgment")
+        if judgment is None or judgment.situation_id is not None:
             return None
-        cur = await self._db.execute(
-            "SELECT risk_tier, model_id, action_json FROM judgments"
-            " WHERE situation_id IS NULL ORDER BY rowid DESC LIMIT 1"
-        )
-        row = await cur.fetchone()
-        await cur.close()
-        if row is None:
+        if result is not None and judgment.judgment_id != result.proposal.judgment_id:
             return None
-        return {"risk_tier": RiskTier.from_str(int(row[0])), "model_id": str(row[1]),
-                "action_json": str(row[2])}
+        return {"risk_tier": judgment.risk_tier, "model_id": judgment.model_id}
 
     def _emit_step_traces(self) -> None:
         """이번 단계의 trace 사건을 낸다(잠자지 않는 내보내기). 조립 실패는 실행을 멈추지 않는다."""
@@ -1669,9 +1666,8 @@ class DaySim:
             tail("gate1")
             return self._trace_event(rec, "silent", "main", None, nodes, silence)
 
-        # 이번 틱에 이 기기를 판정한 기록이 있을 때만 판단 행을 믿는다(앞 틱의 행 섞임 방지).
-        if judge_s is None or judgment is None or f'"entity_id":"{entity}"' not in judgment.get(
-                "action_json", ""):
+        # 이번 틱에 판정 호출이 있었을 때만 판단을 믿는다(규칙·점수·Gate1 침묵이면 판정이 없다).
+        if judge_s is None:
             judgment = None
         tier = None if judgment is None else judgment["risk_tier"]
         judge_ko = "판정 기록 없음" if tier is None else f"최종 확인 강도 {tier.label_ko}"
@@ -1749,7 +1745,7 @@ class DaySim:
             name = f"{situation_ko} 감지기"
         floor_ko = "하한 " + (gate1.floor_tier.label_ko if gate1 is not None else p.risk_tier.label_ko)
         if p.severity is not None:
-            floor_ko += f" · 파급도 {p.severity.label_ko}(표)"
+            floor_ko += f" · 파급도 {p.severity.label_ko}({self._severity_sources_ko(p)})"
         nodes = [
             _node("sense", f"{name} 이상 값"),
             _node("classify", f"안전 카테고리 — {situation_ko}"),
@@ -1763,27 +1759,52 @@ class DaySim:
                                outcome_ko=f"{situation_ko} — 바로 경보를 보냈어요"))
         self._pending_safety.append({"eid": eid, "category": category, "sim_id": sim_id,
                                      "situation_ko": situation_ko, "first": p,
+                                     "situation_id": p.situation_id,
                                      "hhmm": step.at_local.strftime("%H:%M")})
 
-    async def _safety_judgment_row(self, eid: str) -> dict[str, Any] | None:
-        """그 센서의 마지막 상황 판단 행(2단계가 끝난 뒤면 2단계 행) — 시뮬레이터 자신의 DB(읽기만)."""
-        if self._db is None:
+    def _severity_sources_ko(self, p: Proposal) -> str:
+        """첫 경보 파급도 하한의 출처(표·거주자 설정) — 그 경보의 1단계 판단(앱 단계 사본)에서 읽는다."""
+        trace = (self._svc.app.last_trace if self._svc is not None else None) or {}
+        judgment: Judgment | None = trace.get("judgment")
+        if judgment is None or judgment.judgment_id != p.judgment_id:
+            return "출처 기록 없음"
+        names = [_SEVERITY_SOURCE_KO.get(src, src) for src in judgment.severity_sources]
+        return "·".join(names) if names else "출처 기록 없음"
+
+    async def _safety_judgment_row(self, situation_id: str | None,
+                                   first_judgment_id: str) -> dict[str, Any] | None:
+        """그 상황의 2단계 판단 행 — 시뮬레이터 자신의 DB(읽기만). 1단계 행뿐이면 None."""
+        if self._db is None or situation_id is None:
             return None
         cur = await self._db.execute(
             "SELECT risk_tier, severity, severity_floor, model_id, degraded, rationale,"
-            " situation_id, action_json FROM judgments WHERE situation_id IS NOT NULL"
-            " ORDER BY rowid DESC LIMIT 20"
+            " judgment_id FROM judgments WHERE situation_id = ? AND judgment_id != ?"
+            " ORDER BY rowid DESC LIMIT 1",
+            (situation_id, first_judgment_id),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row is None:
+            return None
+        return {"risk_tier": RiskTier.from_str(int(row[0])),
+                "severity": None if row[1] is None else SeverityLevel(int(row[1])),
+                "severity_floor": None if row[2] is None else SeverityLevel(int(row[2])),
+                "model_id": str(row[3]), "degraded": bool(row[4]),
+                "rationale": str(row[5]), "situation_id": situation_id}
+
+    async def _followup_sent(self, situation_id: str | None, first_pid: str) -> bool:
+        """그 상황에 첫 경보 말고 다른 제안(2단계가 올린 후속)이 저장됐고 실제로 송신됐는가."""
+        svc = self._svc
+        sent_at = getattr(svc.transport, "sent_at", None) if svc is not None else None
+        if self._db is None or situation_id is None or not sent_at:
+            return False
+        cur = await self._db.execute(
+            "SELECT proposal_id FROM proposals WHERE situation_id = ? AND proposal_id != ?",
+            (situation_id, first_pid),
         )
         rows = await cur.fetchall()
         await cur.close()
-        for row in rows:
-            if f'"entity_id":"{eid}"' in str(row[7]):
-                return {"risk_tier": RiskTier.from_str(int(row[0])),
-                        "severity": None if row[1] is None else SeverityLevel(int(row[1])),
-                        "severity_floor": None if row[2] is None else SeverityLevel(int(row[2])),
-                        "model_id": str(row[3]), "degraded": bool(row[4]),
-                        "rationale": str(row[5]), "situation_id": str(row[6])}
-        return None
+        return any(str(row[0]) in sent_at for row in rows)
 
     async def _emit_followups(self) -> None:
         """안전 followup: model → severity → followup → ladder(이번 단계에 열린 상황마다)."""
@@ -1793,7 +1814,8 @@ class DaySim:
         for s in self._pending_safety:
             eid = s["eid"]
             judge_s = rec.take_judge(eid, True)
-            row = await self._safety_judgment_row(eid)
+            first: Proposal = s["first"]
+            row = await self._safety_judgment_row(s["situation_id"], first.judgment_id)
             deadline = row is not None and row["degraded"] and "제한시간" in row["rationale"]
             luna = next((r for r in reversed(self.luna_results)
                          if r.get("entity_id") == eid and r["day"] == self._day
@@ -1819,8 +1841,7 @@ class DaySim:
             else:
                 sev_ko = "파급도 기록 없음"
             nodes.append(_node("severity", sev_ko))
-            raised = any(kind == "notice" and phase == "phase2"
-                         for kind, phase in self._step_safety_kinds)
+            raised = await self._followup_sent(s["situation_id"], first.proposal_id)
             nodes.append(_node("followup", "올린 판정으로 따라가는 알림을 보냈어요" if raised
                                else "올리지 않아 따라가는 알림 없음"))
             ladder_ko = "재알림 예약 기록 없음"
@@ -1830,6 +1851,8 @@ class DaySim:
                     when = datetime.fromisoformat(ladder.next_fire_at).astimezone(
                         ZoneInfo(HOME_TZ)).strftime("%H:%M")
                     ladder_ko = f"재알림 예약 {when}"
+                elif ladder is not None and ladder.acked:
+                    ladder_ko = "확인돼 재알림 멈춤"
                 elif ladder is not None:
                     ladder_ko = "재알림 예약 없음"
             nodes.append(_node("ladder", ladder_ko))

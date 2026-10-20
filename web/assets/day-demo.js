@@ -49,12 +49,12 @@
    *   skip: boolean, wake: (function(): void)|null, speed: "slow"|"normal"|"fast", played: number,
    *   cards: Map<string, HTMLElement>, screen: HTMLElement|null, feed: HTMLElement|null,
    *   nodeEls: Map<string, Element>, edgeEls: Map<string, Element>, drawn: Object[],
-   *   paneNode: string|null, marks: Object[]}}
+   *   paneNode: string|null, marks: Object[], feedDay: number|null}}
    */
   const D = {
     open: false, traces: [], queue: [], shown: null, playing: false, skip: false, wake: null,
     speed: "normal", played: 0, cards: new Map(), screen: null, feed: null, nodeEls: new Map(),
-    edgeEls: new Map(), drawn: [], paneNode: null, marks: [],
+    edgeEls: new Map(), drawn: [], paneNode: null, marks: [], feedDay: null,
   };
 
   /**
@@ -194,7 +194,7 @@
     return g;
   }
 
-  // ── 폰 알림창(재생 내내 그대로 — 카드가 쌓인다) ────────────────────────────
+  // ── 폰 알림창(그날 카드만 — 가장 최근에 다룬 카드가 맨 위) ─────────────────────
 
   /** @returns {HTMLElement} */
   function screenEl() {
@@ -222,7 +222,33 @@
   }
 
   /**
-   * 폰 카드 하나를 맨 위에 둔다(같은 제안이면 그 카드를 쓴다). 문구는 서버 기록 그대로.
+   * 새 날의 trace 를 재생하면 알림창을 비우고 맨 위에 'n일차' 구분선을 둔다.
+   * @param {Object} t
+   */
+  function enterDay(t) {
+    const n = typeof t.day === "number" ? t.day : null;
+    if (n === null || n === D.feedDay) return;
+    D.feedDay = n;
+    screenEl();
+    clear(D.feed);
+    D.cards = new Map();
+    D.feed.appendChild(el("p", "dm-day-divider", n + "일차"));
+  }
+
+  /**
+   * 카드를 맨 위(구분선 바로 아래)로 올리고 알림창을 맨 위로 되돌린다.
+   * @param {HTMLElement} card
+   */
+  function toTop(card) {
+    screenEl();
+    const divider = D.feed.querySelector(".dm-day-divider");
+    const first = divider ? divider.nextSibling : D.feed.firstChild;
+    if (first !== card) D.feed.insertBefore(card, first);
+    D.feed.scrollTop = 0;
+  }
+
+  /**
+   * 폰 카드 하나를 맨 위에 둔다(같은 제안이면 그 카드를 올린다). 문구는 서버 기록 그대로.
    * @param {Object} t
    * @returns {HTMLElement|null}
    */
@@ -230,7 +256,10 @@
     const id = t.proposal_id;
     if (!id) return null;
     const have = D.cards.get(id);
-    if (have) return have;
+    if (have) {
+      toTop(have);
+      return have;
+    }
     const safety = t.kind === "safety";
     const rec = safety ? (day().alert ? day().alert(id) : null) : (day().proposal ? day().proposal(id) : null);
     const card = el("article", safety ? "alarm dm-card" : "notif dm-card");
@@ -249,9 +278,8 @@
       card.appendChild(el("p", "notif-body dm-card-reason", ""));
       card.appendChild(el("p", "notif-state dm-card-state", ""));
     }
-    screenEl();
-    D.feed.insertBefore(card, D.feed.firstChild);
     D.cards.set(id, card);
+    toTop(card);
     return card;
   }
 
@@ -275,6 +303,7 @@
   function noteCard(id, line, state) {
     const card = D.cards.get(id);
     if (!card) return;
+    toTop(card);
     const slot = card.querySelector(".dm-card-state");
     if (slot) {
       slot.textContent = line;
@@ -470,6 +499,7 @@
    */
   async function play(t) {
     D.skip = false;
+    enterDay(t);
     render(t, false);
     $("demoSvg").classList.toggle("dm-anim", !reducedMotion());
     for (const n of D.drawn) {
@@ -549,6 +579,7 @@
     D.traces = [];
     D.shown = null;
     D.cards = new Map();
+    D.feedDay = null;
     D.played = 0;
     D.skip = true;
     if (D.wake) D.wake();

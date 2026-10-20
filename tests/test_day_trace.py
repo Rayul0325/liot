@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -354,11 +355,21 @@ def test_safety_main_comes_right_after_its_first_alert_event(seed7: tuple[DaySim
             assert prev["id"] == d["proposal_id"]
 
 
-def test_safety_main_follows_the_first_send(seed7: tuple[DaySim, Events]) -> None:
-    sim, _ = seed7
-    # 첫 경보 전송이 handle_reading 안에서 끝난 뒤에야 trace 가 나간다 — 전송 기록에 그 제안이 있다.
-    for alert in (s for s in sim.safety_events if s["kind"] == "first_alert"):
-        assert ("send", sim._tracked[alert["id"]].pid) in sim.log
+def test_safety_main_follows_the_first_send() -> None:
+    # 첫 경보 전송이 handle_reading 안에서 끝난 뒤에야 trace 가 나간다 — trace 를 받은 순간의
+    # 송신 기록(sim.log, 실시간으로 쌓인다)에 그 제안의 첫 송신이 이미 있다.
+    sim = DaySim(seed=7, days=3, trace=True)
+    at_trace: list[tuple[str, int]] = []
+
+    def emit(stage: str, data: dict[str, Any]) -> None:
+        if stage == "trace" and data["kind"] == "safety" and data["part"] == "main":
+            at_trace.append((data["proposal_id"], len(sim.log)))
+
+    asyncio.run(sim.run(emit))
+    assert len(at_trace) == 3
+    for sim_id, seen in at_trace:
+        first_send = sim.log.index(("send", sim._tracked[sim_id].pid))
+        assert first_send < seen
 
 
 def test_followup_nodes_and_phase2_time(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -371,17 +382,28 @@ def test_followup_nodes_and_phase2_time(monkeypatch: pytest.MonkeyPatch) -> None
         real(self, step_no, entity_id, phase2, seconds)
 
     monkeypatch.setattr(_TraceRecorder, "judge_call", spy)
+    # followup 을 낼 때의 단계 번호와 상황 센서(사건 순서대로) — 시간은 같은 단계·같은 센서 것이어야 한다.
+    emitted: list[tuple[int, str]] = []
+    real_emit = DaySim._emit_followups
+
+    async def emit_spy(self: DaySim) -> None:
+        assert self._rec is not None
+        emitted.extend((self._rec.step_no, s["eid"]) for s in self._pending_safety)
+        await real_emit(self)
+
+    monkeypatch.setattr(DaySim, "_emit_followups", emit_spy)
     sim = DaySim(seed=7, days=3, trace=True)
     events = _run(sim)
     follow = [t for t in _traces(events) if t["kind"] == "safety" and t["part"] == "followup"]
-    assert len(follow) == 3
-    for t in follow:
+    assert len(follow) == len(emitted) == 3
+    for t, (step_no, eid) in zip(follow, emitted, strict=True):
         assert [n["id"] for n in t["nodes"]] == FOLLOWUP
         model = t["nodes"][0]
-        phase2 = [round(s * 1000.0, 2) for _, _, p2, s in calls if p2]
-        assert model["real_ms"] in phase2 and model["model"] == "fake-llm-v1"
+        mine = [round(s * 1000.0, 2) for st, e, p2, s in calls if p2 and st == step_no and e == eid]
+        assert len(mine) == 1
+        assert model["real_ms"] == mine[0] and model["model"] == "fake-llm-v1"
         assert t["nodes"][1]["detail_ko"].startswith("파급도 ")
-        assert t["nodes"][3]["detail_ko"].startswith("재알림 예약")
+        assert re.fullmatch(r"재알림 예약 \d\d:\d\d", t["nodes"][3]["detail_ko"])
 
 
 def test_followup_after_deadline_has_no_time_and_late_writes_do_not_leak(
@@ -507,3 +529,186 @@ def test_route_node_shows_the_confirmation_in_korean(seed7: tuple[DaySim, Events
     assert all(any(ko in r for ko in ("확인 불필요", "가벼운 확인", "명시 확인", "이중 확인"))
                for r in routes)
     assert not any(word in r for r in routes for word in ("light", "none", "explicit", "double"))
+
+
+# ── trace 조립 함수가 깨져도 실행은 같다(가드마다 하나씩) ─────────────────────────
+
+
+@pytest.mark.parametrize("name", [
+    "_last_comfort_judgment", "_comfort_trace", "_emit_safety_main", "_severity_sources_ko",
+    "_emit_followups", "_safety_judgment_row", "_followup_sent", "_emit_feedback_trace",
+])
+def test_trace_builder_errors_never_change_the_run(
+    name: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(*a: Any, **kw: Any) -> Any:
+        raise RuntimeError("trace builder broke")
+
+    monkeypatch.setattr(DaySim, name, boom)
+    on = DaySim(seed=7, days=3, trace=True)
+    off = DaySim(seed=7, days=3)
+    on_events, off_events = _run(on), _run(off)
+    assert [(st, d) for st, d in on_events if st != "trace"] == off_events
+    assert on.summary() == off.summary()
+    firsts = [s for s in on.safety_events if s["kind"] == "first_alert"]
+    assert len(firsts) == 3 and all(f["sent"] and f["decision"] == "IMMEDIATE" for f in firsts)
+
+
+# ── followup 은 상황마다: 2단계가 정말 올린 상황만 '보냈어요' ──────────────────────
+
+
+class _RaiseFirstSituation(FakeJev):
+    """첫 2단계 요청(파급도 질문이 있는)에만 가장 높은 선택지를 답한다 — 그 상황만 올라간다."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.raised = 0
+
+    def post(self, payload: dict[str, Any], *, timeout_s: float) -> dict[str, Any]:
+        out = super().post(payload, timeout_s=timeout_s)
+        if "severity" in payload["questions"] and not self.raised:
+            self.raised += 1
+            for answer in out["answers"].values():
+                answer["probabilities"] = {"0": 0.0, "1": 0.0, "2": 0.1, "3": 0.9}
+        return out
+
+
+def test_followup_says_sent_only_for_the_situation_phase2_raised(tmp_path: Path) -> None:
+    kit = _kit(tmp_path)
+    kit.judge = JevBackend(transport=_RaiseFirstSituation())
+    sim = DaySim(seed=7, days=3, models="cloud", cloud=kit, trace=True)
+    events = _run(sim)
+    follow = [t for t in _traces(events) if t["kind"] == "safety" and t["part"] == "followup"]
+    assert len(follow) == 3
+    said = [t["nodes"][2]["detail_ko"] for t in follow]
+    assert said == ["올린 판정으로 따라가는 알림을 보냈어요"] + ["올리지 않아 따라가는 알림 없음"] * 2
+    # 실제로 후속 알림이 나갔다(2단계가 백그라운드라 송신 단계는 phase2 가 아닐 수 있다).
+    notices = [s for s in sim.safety_events if s["kind"] == "notice"]
+    first = next(s for s in sim.safety_events if s.get("id") == follow[0]["proposal_id"])
+    assert len(notices) == 1 and (notices[0]["day"], notices[0]["hhmm"]) == (first["day"], first["hhmm"])
+    assert follow[0]["nodes"][1]["detail_ko"] == "파급도 위험(하한 경고)"
+    for t in follow:
+        assert t["nodes"][3]["detail_ko"] in ("확인돼 재알림 멈춤", "재알림 예약 없음") or re.fullmatch(
+            r"재알림 예약 \d\d:\d\d", t["nodes"][3]["detail_ko"])
+
+
+def test_cloud_recording_errors_never_change_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(*a: Any, **kw: Any) -> Any:
+        raise RuntimeError("recorder broke")
+
+    def run(trace: bool, sub: str) -> tuple[DaySim, Events]:
+        kit = _kit(tmp_path / sub)
+        kit.judge = JevBackend(transport=_RaiseFirstSituation())
+        sim = DaySim(seed=7, days=2, models="cloud", cloud=kit, trace=trace)
+        return sim, _run(sim)
+
+    off, off_events = run(False, "off")
+    for name in ("note", "judge_call", "take", "take_judge", "next_id"):
+        monkeypatch.setattr(_TraceRecorder, name, boom)
+    for name in ("_comfort_trace", "_emit_followups", "_emit_safety_main"):
+        monkeypatch.setattr(DaySim, name, boom)
+    on, on_events = run(True, "on")
+
+    def stable(events: Events) -> list[tuple[Any, ...]]:
+        # 실제 걸린 시간(초·토큰 장부)은 실행마다 다르다 — 무엇이 어떤 순서로 나갔는지만 견준다.
+        keep = ("proposal", "safety", "feedback", "step")
+        return [(st, d.get("id"), d.get("kind"), d.get("hhmm")) for st, d in events if st in keep]
+
+    assert stable(on_events) == stable(off_events)
+    assert [p["id"] for p in on.proposals] == [p["id"] for p in off.proposals]
+    assert [(s["kind"], s.get("id")) for s in on.safety_events] == [
+        (s["kind"], s.get("id")) for s in off.safety_events]
+    firsts = [s for s in on.safety_events if s["kind"] == "first_alert"]
+    assert firsts and all(f["sent"] and f["decision"] == "IMMEDIATE" for f in firsts)
+    assert not any(st == "trace" and d["kind"] in ("comfort", "safety") for st, d in on_events)
+
+
+# ── luna 의 기기 열쇠는 trace 실행에만 · 하한의 출처는 실제 판단에서 ─────────────────
+
+
+def test_luna_entity_id_appears_in_the_summary_only_when_trace_is_on(tmp_path: Path) -> None:
+    def luna(trace: bool, sub: str) -> list[dict[str, Any]]:
+        sim = DaySim(seed=7, days=1, models="cloud", cloud=_kit(tmp_path / sub), trace=trace)
+        _run(sim)
+        rows: list[dict[str, Any]] = sim.summary()["luna"]
+        assert rows and all("entity_id" in r for r in sim.luna_results)
+        return rows
+
+    assert not any("entity_id" in r for r in luna(False, "off"))
+    assert all("entity_id" in r for r in luna(True, "on"))
+
+
+def test_floor_names_the_severity_sources_of_the_first_alert_judgment(
+    seed7: tuple[DaySim, Events],
+) -> None:
+    from types import SimpleNamespace
+
+    _, events = seed7
+    floors = [t["nodes"][2]["detail_ko"] for t in _traces(events)
+              if t["kind"] == "safety" and t["part"] == "main"]
+    assert len(floors) == 3 and all(f.endswith("(표)") for f in floors)
+
+    sim = DaySim(seed=7, days=1, trace=True)
+    judgment = SimpleNamespace(judgment_id="j1", severity_sources=["table", "resident"])
+    sim._svc = SimpleNamespace(app=SimpleNamespace(last_trace={"judgment": judgment}))  # type: ignore[assignment]
+    assert sim._severity_sources_ko(SimpleNamespace(judgment_id="j1")) == "표·거주자 설정"  # type: ignore[arg-type]
+    assert sim._severity_sources_ko(SimpleNamespace(judgment_id="j2")) == "출처 기록 없음"  # type: ignore[arg-type]
+
+
+def test_floor_text_comes_from_the_sources_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[str] = []
+    real = DaySim._severity_sources_ko
+
+    def spy(self: DaySim, p: Any) -> str:
+        out = real(self, p)
+        seen.append(out)
+        return out + "†"  # 표시가 실제로 이 값에서 왔는지 가린다
+
+    monkeypatch.setattr(DaySim, "_severity_sources_ko", spy)
+    sim = DaySim(seed=7, days=3, trace=True)
+    floors = [t["nodes"][2]["detail_ko"] for t in _traces(_run(sim))
+              if t["kind"] == "safety" and t["part"] == "main"]
+    assert seen == ["표"] * 3
+    assert len(floors) == 3 and all(f.endswith("(표†)") for f in floors)
+
+
+class _RaiseEverySituation(FakeJev):
+    """2단계(파급도 질문이 있는) 요청마다 가장 높은 선택지를 답한다."""
+
+    def post(self, payload: dict[str, Any], *, timeout_s: float) -> dict[str, Any]:
+        out = super().post(payload, timeout_s=timeout_s)
+        if "severity" in payload["questions"]:
+            for answer in out["answers"].values():
+                answer["probabilities"] = {"0": 0.0, "1": 0.0, "2": 0.1, "3": 0.9}
+        return out
+
+
+def test_two_situations_in_one_step_get_their_own_followup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_script = day_sim.build_script
+
+    def both_at_once(seed: int, days: int) -> list[Any]:
+        plans = real_script(seed, days)
+        for step in plans[0].steps:  # 첫날: 누수와 가스가 같은 단계에 함께 열린다
+            step.readings[day_sim.GAS] = step.readings[day_sim.LEAK]
+        return plans
+
+    monkeypatch.setattr(day_sim, "build_script", both_at_once)
+    kit = _kit(tmp_path)
+    kit.judge = JevBackend(transport=_RaiseEverySituation())
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=kit, trace=True)
+    events = _run(sim)
+    follow = {t["outcome_ko"].split(" — ")[0]: t for t in _traces(events)
+              if t["kind"] == "safety" and t["part"] == "followup"}
+    assert set(follow) == {"누수", "가스 누출"}
+    leak, gas = follow["누수"]["nodes"], follow["가스 누출"]["nodes"]
+    # 누수는 하한(경고) 위로 올라 후속을 보냈고, 가스는 하한이 이미 위험이라 올릴 것이 없다.
+    assert leak[1]["detail_ko"] == "파급도 위험(하한 경고)"
+    assert leak[2]["detail_ko"] == "올린 판정으로 따라가는 알림을 보냈어요"
+    assert gas[1]["detail_ko"] == "파급도 위험(하한 위험)"
+    assert gas[2]["detail_ko"] == "올리지 않아 따라가는 알림 없음"
+    firsts = [s for s in sim.safety_events if s["kind"] == "first_alert"]
+    assert len({(s["day"], s["hhmm"]) for s in firsts}) == 1 and len(firsts) == 2

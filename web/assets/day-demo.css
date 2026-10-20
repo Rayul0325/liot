@@ -179,6 +179,8 @@ body.dm-lock {
 
 /* ── 오른쪽 폰 알림창 ─────────────────────────────────────────────── */
 .dm-screen {
+  display: flex;
+  flex-direction: column;
   height: 100%;
   box-sizing: border-box;
   padding: var(--s4);
@@ -194,6 +196,19 @@ body.dm-lock {
   font-weight: 600;
   color: var(--ink-2);
   padding-bottom: var(--s3);
+}
+/* 카드는 이 안에서만 넘친다 — 가장 최근 카드가 맨 위라 넘친 쪽은 지난 카드다 */
+.dm-feed {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.dm-day-divider {
+  margin: 0 0 var(--s3);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-align: center;
 }
 .dm-screen-empty {
   font-size: 13px;
