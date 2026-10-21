@@ -28,7 +28,9 @@
   const PANE = { x: 1240, y: 40, w: 340, h: 680 };
   /** 좁은 화면(day.css 와 같은 640px): 노드를 한 줄로 세우고 설명은 오른쪽, 폰은 그래프 아래. */
   const NARROW_MQ = "(max-width: 640px)";
-  const NARROW = { w: 370, x: 85, top: 40, row: 100 };
+  /** 좁은 화면 한 줄: 노드 x 20~150, 그 오른쪽 칩(x 170~366), 줄 사이 엣지 문구(x 100~366).
+   * 줄 높이는 노드·칩·문구의 실제 높이로 정한다(foreignObject 도 그 높이 — 잘리지 않는다). */
+  const NARROW = { w: 370, x: 85, top: 24, chipX: 170, chipW: 196, pillX: 100, pillW: 266, gap: 10 };
 
   /**
    * 종류별 노드 좌표(가운데 점). 노드 id 는 서버가 준다 — 표에 없는 id 는 그리지 않고 세지 않는다.
@@ -859,16 +861,16 @@
     box.dataset.kind = t.kind;
     const drawn = (t.nodes || []).filter((n) => wide[n.id]);
     D.drawn = drawn;
-    /** @type {Record<string, [number, number]>} */
-    let table = wide;
+    D.exitEls = new Map();
     if (thin) {
-      // 좁은 화면: 서버가 준 순서대로 위에서 아래로 한 줄.
-      table = {};
-      drawn.forEach((n, i) => { table[n.id] = [NARROW.x, NARROW.top + i * NARROW.row]; });
+      renderNarrow(t, Boolean(final), box, drawn, kind);
+      finishRender(t, final, box, drawn, true);
+      return;
     }
-    const height = thin ? NARROW.top + Math.max(drawn.length, 1) * NARROW.row - NODE_H / 2 : VIEW_H;
-    box.setAttribute("viewBox", "0 0 " + (thin ? NARROW.w : VIEW_W) + " " + height);
-    box.classList.toggle("dm-svg-thin", thin);
+    /** @type {Record<string, [number, number]>} */
+    const table = wide;
+    box.setAttribute("viewBox", "0 0 " + VIEW_W + " " + VIEW_H);
+    box.classList.remove("dm-svg-thin");
     const edges = svg("g", { class: "dm-edges" });
     const nodes = svg("g", { class: "dm-nodes" });
     D.exitEls = new Map();
@@ -947,6 +949,18 @@
       const ctx = drawn.find((n) => n.id === "context");
       fanEl(scoreNode, table.score, table.context, ctx, Boolean(final), box);
     }
+    finishRender(t, final, box, drawn, thin);
+  }
+
+  /**
+   * 그리기 마무리: 폰 창 자리, 결과 한 줄, 대기 문구, 정적 그림의 자막.
+   * @param {Object} t
+   * @param {boolean|undefined} final
+   * @param {Element} box
+   * @param {Object[]} drawn
+   * @param {boolean} thin
+   */
+  function finishRender(t, final, box, drawn, thin) {
     placePane(box, thin);
     $("demoOutcome").textContent = t.outcome_ko || "";
     $("demoWaiting").hidden = true;
@@ -954,6 +968,116 @@
       const now = drawn.find((n) => n.state === "end") || drawn[drawn.length - 1];
       $("demoCaption").textContent = now ? captionOf(now) : "";
     }
+  }
+
+  /**
+   * 좁은 화면에서 그릴 갈림길 칩: 넓은 화면의 출구·후보 부채·노드 아래 칩과 같은 집합.
+   * @param {Object} n
+   * @param {string} kind
+   * @returns {Object[]}
+   */
+  function narrowChips(n, kind) {
+    if (kind === "comfort") {
+      if (!EXIT_OF[n.id]) return [];
+      return n.id === "score" ? visibleBranches(n) : exitBranches(n);
+    }
+    // followup 의 '보냄'은 넓은 화면에선 폰 연결선이 말하지만 좁은 화면엔 그 선이 없다 — 칩으로 모두 보인다.
+    const row = rowExitOf(n);
+    return row && !row.from ? exitBranches(n) : visibleBranches(n);
+  }
+
+  /**
+   * 그린 HTML 상자의 높이(문서 밖·숨김이면 글자 수로 어림한다).
+   * @param {HTMLElement} node
+   * @param {number} guess
+   * @returns {number}
+   */
+  function heightOf(node, guess) {
+    return node.offsetHeight || guess;
+  }
+
+  /**
+   * 좁은 화면: 위에서 아래로 한 줄. 노드 오른쪽에 그 노드의 갈림길 칩(간 칩만 강조), 줄 사이에
+   * 엣지 문구 알약. 칩·알약은 그려서 잰 높이로 foreignObject 를 맞추고, 다음 줄을 그만큼 내린다.
+   * @param {Object} t
+   * @param {boolean} final
+   * @param {Element} box
+   * @param {Object[]} drawn
+   * @param {string} kind
+   */
+  function renderNarrow(t, final, box, drawn, kind) {
+    box.setAttribute("viewBox", "0 0 " + NARROW.w + " 4000"); // 재는 동안 넉넉히
+    box.classList.add("dm-svg-thin");
+    const edges = svg("g", { class: "dm-edges" });
+    const exits = svg("g", { class: "dm-exits" });
+    const nodes = svg("g", { class: "dm-nodes" });
+    box.appendChild(exits);
+    box.appendChild(edges);
+    box.appendChild(nodes);
+    /** @type {Record<string, [number, number]>} */
+    const at = {};
+    /** @type {Array<Element|null>} */
+    const pills = [];
+    let y = NARROW.top;
+    drawn.forEach((n, i) => {
+      const cy = y + NODE_H / 2;
+      at[n.id] = [NARROW.x, cy];
+      const g = nodeEl(n, at[n.id], true, false);
+      if (!final) {
+        g.setAttribute("data-state", "pending");
+        const meta = g.querySelector(".dm-node-time");
+        if (meta) setTime(meta, "");
+      }
+      D.nodeEls.set(n.id, g);
+      nodes.appendChild(g);
+      let bottom = y + NODE_H;
+      const chips = narrowChips(n, kind);
+      if (chips.length) {
+        const eg = exitGroup(n, final);
+        const fo = reasonList(n, chips, NARROW.chipX, y, NARROW.chipW, 1000);
+        fo.classList.add("dm-reasons-narrow");
+        eg.appendChild(fo);
+        exits.appendChild(eg);
+        const h = heightOf(/** @type {HTMLElement} */ (fo.firstChild), chips.length * 24 + 24);
+        fo.setAttribute("height", String(h));
+        bottom = Math.max(bottom, y + h);
+      }
+      y = bottom + NARROW.gap;
+      const next = drawn[i + 1];
+      if (next && n.edge_ko && n.state !== "skipped") {
+        const fo = svg("foreignObject", { x: NARROW.pillX, y: y, width: NARROW.pillW, height: 1000,
+          class: "dm-pill-box" });
+        const wrap = el("div", "dm-pill-wrap dm-pill-wrap-narrow");
+        const pill = el("span", "dm-pill", n.edge_ko);
+        wrap.appendChild(pill);
+        fo.appendChild(wrap);
+        edges.appendChild(fo); // 재기 위해 잠시 붙인다 — 아래에서 엣지 묶음으로 옮긴다
+        const lines = Math.ceil((String(n.edge_ko).length * 15) / (NARROW.pillW - 16));
+        const h = heightOf(wrap, lines * 20 + 8);
+        fo.setAttribute("height", String(h));
+        pills.push(fo);
+        y += h + NARROW.gap;
+      } else {
+        pills.push(null);
+      }
+    });
+    for (let i = 1; i < drawn.length; i += 1) {
+      const prev = drawn[i - 1];
+      const n = drawn[i];
+      const e = edge(route(at[prev.id], at[n.id]), final ? n.state : "pending", null);
+      const pill = pills[i - 1];
+      if (pill) e.appendChild(pill);
+      const offGate = kind === "comfort" && prev.id === "gate"
+        && !(prev.branches || []).some((b) => b.key === "IMMEDIATE" && b.taken);
+      const row = rowExitOf(prev);
+      if (((kind === "comfort" || (row && !row.from)) && tookExit(prev)) || offGate) {
+        e.classList.add("dm-edge-off");
+      }
+      D.edgeEls.set(n.id, e);
+      edges.appendChild(e);
+    }
+    D.paneNode = null;
+    box.setAttribute("viewBox", "0 0 " + NARROW.w + " " + Math.ceil(y + 6));
   }
 
   // ── 재생기 ────────────────────────────────────────────────────────────

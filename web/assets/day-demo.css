@@ -272,6 +272,11 @@ body.dm-lock {
   gap: 2px 6px;
   font-family: var(--font);
 }
+.dm-pill-wrap.dm-pill-wrap-narrow {
+  height: auto;
+  justify-content: flex-start;
+  align-items: flex-start;
+}
 .dm-reasons-up .dm-reasons {
   height: 100%;
   align-content: flex-end;
