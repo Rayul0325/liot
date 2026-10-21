@@ -478,3 +478,22 @@ body.dm-lock {
     margin-top: var(--s4);
   }
 }
+
+/* ── 넓은 화면 폰 창(그래프 SVG 안 — 1600 단위가 약 1216px 로 줄어든다): 글자를 15 단위 이상으로 둬
+      화면에서 11px 아래로 내려가지 않게 한다(15 × 1216/1600 ≈ 11.4px). 좁은 화면 폰 창은 SVG 밖이라 그대로. */
+.dm-pane .dm-screen-bar,
+.dm-pane .dm-day-divider,
+.dm-pane .notif-head,
+.dm-pane .notif-app,
+.dm-pane .notif-head .tabnum,
+.dm-pane .notif-body,
+.dm-pane .notif-state,
+.dm-pane .alarm-body,
+.dm-pane .alarm-meta,
+.dm-pane .dm-card-tag {
+  font-size: 15px;
+}
+.dm-pane .notif-title,
+.dm-pane .alarm-title {
+  font-size: 17px;
+}
