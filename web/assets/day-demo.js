@@ -1,7 +1,9 @@
 /* LIOT 하루 시뮬레이션 — 시연 모드(전체 화면 덮개 + 단계 그래프).
  *
- * 서버 trace 사건(nodes[].id·label_ko·detail_ko·real_ms·model·state)을 노드·엣지 그래프로 그린다.
- * 노드 id·문구·시간·상태는 서버 값 그대로이고, 이 파일은 종류별 고정 좌표표로 위치만 정한다.
+ * 서버 trace 사건(nodes[].id·label_ko·detail_ko·real_ms·model·state·branches·edge_ko)을 분기 그래프로
+ * 그린다: 판단 노드 아래에 갈 수 있던 길(갈림길 칩)을 모두 쌓고 간 길만 강조하며, 간 엣지 위에 서버의
+ * 판단 문구(edge_ko) 알약을 얹는다. 노드 id·문구·시간·상태·갈림길은 서버 값 그대로이고, 이 파일은
+ * 종류별 고정 좌표표로 위치만 정한다. 노드 설명(detail_ko)은 아래 자막과 노드의 SVG 제목(title)에 둔다.
  * DOM 은 createElementNS(SVG) · createElement(HTML) + textContent 로만 만든다(HTML 문자열을 넣지 않는다).
  * 화살표 머리는 작은 삼각형 path 로 그린다(SVG 화살표 정의 요소·주소 참조 없음).
  * 재생기: 받은 순서대로 trace 를 재생한다. 노드마다 max(실제 시간, 속도의 최소)만큼 강조하고(서버는
@@ -12,14 +14,17 @@
 (function () {
   /** SVG 이름 공간 식별자(불러오는 주소가 아니다). */
   const SVG_NS = "http://www.w3.org/2000/svg";
-  const VIEW_W = 1400;
-  const VIEW_H = 600;
-  const NODE_W = 150;
+  const VIEW_W = 1600;
+  const VIEW_H = 760;
+  const NODE_W = 130;
   const NODE_H = 58;
-  /** 노드 아래 설명 칸 높이(foreignObject). */
-  const DETAIL_H = 84;
+  /** 갈림길 칩 묶음: 노드 아래 y+40 ~ y+240, 칩 하나 22. 노드 왼쪽 끝에 맞추고 폭은 열 간격(240)보다 좁게
+   * — 다음 열 칩과 24 띄운다(왼쪽 바깥 8 은 간 칩 연결선 통로). */
+  const CHIP = { top: 40, bottom: 240, h: 22, w: 216 };
+  /** 엣지 문구 알약: 아래 끝이 엣지 위 34, 폭은 열 간격(240) 안. 줄바꿈하고 줄이지 않는다. */
+  const PILL = { gap: 34, w: 230, h: 90 };
   /** 오른쪽 폰 알림창 자리(그래프와 같은 SVG 안, foreignObject). */
-  const PANE = { x: 1040, y: 40, w: 330, h: 520 };
+  const PANE = { x: 1240, y: 40, w: 340, h: 680 };
   /** 좁은 화면(day.css 와 같은 640px): 노드를 한 줄로 세우고 설명은 오른쪽, 폰은 그래프 아래. */
   const NARROW_MQ = "(max-width: 640px)";
   const NARROW = { w: 370, x: 85, top: 40, row: 100 };
@@ -28,17 +33,18 @@
    * 종류별 노드 좌표(가운데 점). 노드 id 는 서버가 준다 — 표에 없는 id 는 그리지 않고 세지 않는다.
    * @type {Record<string, Record<string, [number, number]>>}
    */
+  // 그래프 영역 x 20~1220: 노드 폭 130, 열 간격 240 → 열 가운데 85·325·565·805·1045.
   const LAYOUTS = {
     comfort: {
-      sense: [100, 110], rules: [280, 110], score: [460, 110], context: [640, 110], gate1: [820, 110],
-      judge: [100, 360], route: [280, 360], gate: [460, 360], phone: [640, 360], reason: [820, 360],
+      sense: [85, 130], rules: [325, 130], score: [565, 130], context: [805, 130], gate1: [1045, 130],
+      judge: [85, 450], route: [325, 450], gate: [565, 450], phone: [805, 450], reason: [1045, 450],
     },
     safety: {
-      sense: [100, 250], classify: [280, 250], floor: [460, 250], first_alert: [640, 250],
-      phone: [820, 250],
+      sense: [85, 300], classify: [325, 300], floor: [565, 300], first_alert: [805, 300],
+      phone: [1045, 300],
     },
-    followup: { model: [100, 250], severity: [280, 250], followup: [460, 250], ladder: [640, 250] },
-    feedback: { phone: [820, 250], feedback: [640, 250], prefs: [460, 250], ack: [640, 250] },
+    followup: { model: [85, 300], severity: [325, 300], followup: [565, 300], ladder: [805, 300] },
+    feedback: { phone: [1045, 300], feedback: [805, 300], prefs: [565, 300], ack: [805, 300] },
   };
   /** 폰 알림창으로 이어지는 노드(피드백은 폰 쪽에서 들어온다). */
   const PANE_NODE = { comfort: "phone", safety: "phone", followup: "followup", feedback: "phone" };
@@ -130,10 +136,10 @@
       return [[ax, ay + dir * NODE_H / 2], [bx, by - dir * NODE_H / 2]];
     }
     if (bx < ax && by > ay) {
-      // 줄바꿈(오른쪽 끝 → 다음 줄 왼쪽 끝): 설명 글을 가로지르지 않게 바깥 통로로 돈다.
-      const lane = ay + NODE_H / 2 + 4 + DETAIL_H + 14;
-      const outX = ax + NODE_W / 2 + 28;
-      const inX = bx - NODE_W / 2 - 22;
+      // 줄바꿈(오른쪽 끝 → 다음 줄 왼쪽 끝): 칩 묶음을 가로지르지 않게 바깥 통로로 돈다.
+      const lane = laneY(ay);
+      const outX = ax - NODE_W / 2 + CHIP.w + 10; // 윗줄 마지막 열의 칩 묶음 오른쪽 바깥
+      const inX = bx - NODE_W / 2 - 10;
       return [[ax + NODE_W / 2, ay], [outX, ay], [outX, lane], [inX, lane], [inX, by],
         [bx - NODE_W / 2, by]];
     }
@@ -143,12 +149,38 @@
   }
 
   /**
+   * 줄바꿈 엣지가 지나는 통로의 높이: 윗줄 칩 묶음 아래 끝과 아랫줄 노드 사이.
+   * @param {number} ay
+   * @returns {number}
+   */
+  function laneY(ay) {
+    return ay + CHIP.bottom + 10;
+  }
+
+  /**
+   * 엣지 문구 알약(서버 edge_ko 그대로). 아래 끝이 bottom 이고 위로 자란다 — 줄바꿈하며 줄이지 않는다.
+   * @param {string} text
+   * @param {number} cx 가운데 x
+   * @param {number} bottom 알약 아래 끝 y
+   * @returns {SVGElement}
+   */
+  function pillEl(text, cx, bottom) {
+    const fo = svg("foreignObject", {
+      x: cx - PILL.w / 2, y: bottom - PILL.h, width: PILL.w, height: PILL.h, class: "dm-pill-box",
+    });
+    const wrap = el("div", "dm-pill-wrap");
+    wrap.appendChild(el("span", "dm-pill", text));
+    fo.appendChild(wrap);
+    return fo;
+  }
+
+  /**
    * 엣지(선 + 끝의 작은 삼각형).
    * @param {[number, number][]} pts
    * @param {string} state
    * @returns {SVGElement}
    */
-  function edge(pts, state) {
+  function edge(pts, state, text) {
     const g = svg("g", { class: "dm-edge", "data-state": state });
     const d = pts.map((p, i) => (i === 0 ? "M" : "L") + p[0] + "," + p[1]).join(" ");
     g.appendChild(svg("path", { d: d, class: "dm-edge-line" }));
@@ -167,19 +199,92 @@
       d: "M" + tri.map((p) => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" L") + " Z",
       class: "dm-edge-head",
     }));
+    if (text) {
+      if (pts.length > 2) {
+        // 줄바꿈 엣지: 통로 오른쪽 끝(윗줄 마지막 열 아래) 위에 둔다 — 통로 가운데는 아랫줄 엣지
+        // 문구 알약과 겹친다(아랫줄 알약은 그 줄 위 34 에서 위로 자란다).
+        const [x0, y0] = pts[2];
+        g.appendChild(pillEl(text, x0 - PILL.w / 2, y0 - 4));
+      } else {
+        g.appendChild(pillEl(text, (pts[0][0] + pts[1][0]) / 2, pts[0][1] - PILL.gap));
+      }
+    }
     return g;
   }
 
   /**
-   * 노드 하나: 둥근 사각형 + 이름 + 실제 시간(잰 단계만) + 아래 설명(서버 detail_ko).
+   * 그릴 갈림길: 서버 목록 그대로, 단 '기록 없음'(unknown)·'반영되지 않음'(refused)은 간 경우에만.
+   * @param {Object} n
+   * @returns {Object[]}
+   */
+  function visibleBranches(n) {
+    return (n.branches || []).filter((b) => b.taken || (b.key !== "unknown" && b.key !== "refused"));
+  }
+
+  /**
+   * 갈림길 칩 한 줄의 글: 이름 + 값(있으면).
+   * @param {Object} b
+   * @returns {string}
+   */
+  function chipText(b) {
+    return b.value_ko ? b.label_ko + " · " + b.value_ko : b.label_ko;
+  }
+
+  /**
+   * 노드 아래 갈림길 칩 묶음 + 노드에서 간 칩으로 가는 짧은 연결선.
+   * 칩은 한 줄(22) — 넘치는 글은 칩 제목(마우스오버)과 자막으로 본다.
    * @param {Object} n
    * @param {[number, number]} at
-   * @param {boolean} [thin] 좁은 화면이면 설명을 노드 오른쪽에 둔다.
+   * @returns {SVGElement|null}
+   */
+  function chipsEl(n, at) {
+    const shown = visibleBranches(n);
+    if (!shown.length) return null;
+    const [cx, cy] = at;
+    const g = svg("g", { class: "dm-chips", "data-id": n.id });
+    const top = cy + CHIP.top;
+    const left = cx - NODE_W / 2;
+    const fo = svg("foreignObject", {
+      x: left, y: top, width: CHIP.w, height: CHIP.bottom - CHIP.top, class: "dm-chips-box",
+    });
+    const list = el("div", "dm-chip-list");
+    shown.forEach((b) => {
+      const chip = el("div", "dm-chip" + (b.taken ? " dm-chip-taken" : "") + (b.exit ? " dm-chip-exit" : ""),
+        chipText(b));
+      chip.dataset.key = b.key;
+      chip.title = chipText(b);
+      list.appendChild(chip);
+    });
+    fo.appendChild(list);
+    const i = shown.findIndex((b) => b.taken);
+    if (i >= 0) {
+      // 노드 아래 → 칩 묶음 왼쪽 바깥 통로 → 간 칩 가운데(다른 칩을 가로지르지 않는다).
+      const lane = left - 8;
+      const mid = top + i * CHIP.h + CHIP.h / 2;
+      const startX = left + 10;
+      g.appendChild(svg("path", {
+        d: "M" + startX + "," + (cy + NODE_H / 2) + " L" + startX + "," + (top - 6) + " L" + lane + ","
+          + (top - 6) + " L" + lane + "," + mid + " L" + left + "," + mid,
+        class: "dm-chip-link",
+      }));
+    }
+    g.appendChild(fo);
+    return g;
+  }
+
+  /**
+   * 노드 하나: 둥근 사각형 + 이름 + 실제 시간(잰 단계만). 설명은 SVG 제목(마우스오버)과 자막.
+   * @param {Object} n
+   * @param {[number, number]} at
+   * @param {boolean} [thin] 좁은 화면(칩은 아직 그리지 않는다)
    * @returns {SVGElement}
    */
   function nodeEl(n, at, thin) {
     const [cx, cy] = at;
     const g = svg("g", { class: "dm-node", "data-id": n.id, "data-state": n.state });
+    const title = svg("title");
+    title.textContent = n.label_ko + " — " + n.detail_ko + (n.model ? " · " + n.model : "");
+    g.appendChild(title);
     g.appendChild(svg("rect", {
       x: cx - NODE_W / 2, y: cy - NODE_H / 2, width: NODE_W, height: NODE_H, rx: 12,
       class: "dm-node-box",
@@ -190,15 +295,24 @@
     const meta = svg("text", { x: cx, y: cy + 16, class: "dm-node-time", "text-anchor": "middle" });
     meta.textContent = typeof n.real_ms === "number" ? "실제 " + n.real_ms + "ms" : "";
     g.appendChild(meta);
-    const side = cx + NODE_W / 2 + 10;
-    const fo = svg("foreignObject", thin
-      ? { x: side, y: cy - NODE_H / 2, width: NARROW.w - side - 4, height: NARROW.row - 8 }
-      : { x: cx - 85, y: cy + NODE_H / 2 + 4, width: 170, height: DETAIL_H });
-    const detail = el("div", thin ? "dm-node-detail dm-node-detail-side" : "dm-node-detail", n.detail_ko);
-    if (n.model) detail.appendChild(el("span", "dm-node-model", n.model));
-    fo.appendChild(detail);
-    g.appendChild(fo);
+    if (!thin) {
+      const chips = chipsEl(n, at);
+      if (chips) g.appendChild(chips);
+    }
     return g;
+  }
+
+  /**
+   * 자막 한 줄: 노드 이름 — 설명 (· 간 갈림길) (→ 엣지 문구). 모두 서버 글 그대로.
+   * @param {Object} n
+   * @returns {string}
+   */
+  function captionOf(n) {
+    const taken = (n.branches || []).find((b) => b.taken);
+    let line = n.label_ko + " — " + n.detail_ko;
+    if (taken && taken.value_ko) line += " · " + chipText(taken);
+    if (n.edge_ko) line += " → " + n.edge_ko;
+    return line;
   }
 
   // ── 폰 알림창(그날 카드만 — 가장 최근에 다룬 카드가 맨 위) ─────────────────────
@@ -418,7 +532,8 @@
       D.nodeEls.set(n.id, g);
       nodes.appendChild(g);
       if (i > 0) {
-        const e = edge(route(table[drawn[i - 1].id], table[n.id]), final ? n.state : "pending");
+        const e = edge(route(table[drawn[i - 1].id], table[n.id]), final ? n.state : "pending",
+          thin ? null : drawn[i - 1].edge_ko);
         D.edgeEls.set(n.id, e);
         edges.appendChild(e);
       }
@@ -445,7 +560,7 @@
     $("demoWaiting").hidden = true;
     if (final) {
       const now = drawn.find((n) => n.state === "end") || drawn[drawn.length - 1];
-      $("demoCaption").textContent = now ? now.label_ko + " — " + now.detail_ko : "";
+      $("demoCaption").textContent = now ? captionOf(now) : "";
     }
   }
 
@@ -558,7 +673,7 @@
       follow(D.nodeEls.get(n.id));
       const meta = D.nodeEls.get(n.id).querySelector(".dm-node-time");
       if (meta) meta.textContent = timeLabel(n);
-      $("demoCaption").textContent = n.label_ko + " — " + n.detail_ko;
+      $("demoCaption").textContent = captionOf(n);
       onEnter(t, n);
       if (n.id === D.paneNode && D.edgeEls.get("__pane__")) {
         D.edgeEls.get("__pane__").setAttribute("data-state", "current");
@@ -704,7 +819,7 @@
   }
 
   /** @type {any} */ (window).LiotDemo = { open: open, close: close, push: push, reset: reset, render: render,
-    skip: skip, replay: replay, state: D };
+    skip: skip, replay: replay, captionOf: captionOf, state: D };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();
