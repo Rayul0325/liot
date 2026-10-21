@@ -1041,7 +1041,9 @@ def test_safety_and_feedback_branch_sets_match_the_tables(
             if t["kind"] == "safety" and t["part"] == "main":
                 assert _node_of(t, "classify")["edge_ko"] == "이상 값 → 안전 경보 경로"
                 first = _node_of(t, "first_alert")
-                assert first["edge_ko"] == f"모델 없이 즉시 · {first['real_ms']:.1f}ms"
+                # 문구는 잰 초에서 바로 소수 첫째 자리로, real_ms 는 소수 둘째 자리 — 반올림 차이 0.05 까지.
+                shown = re.fullmatch(r"모델 없이 즉시 · (\d+\.\d)ms", first["edge_ko"])
+                assert shown and abs(float(shown.group(1)) - first["real_ms"]) <= 0.051
 
 
 def test_followup_model_edges_fake_and_cloud(seed7: tuple[DaySim, Events], tmp_path: Path) -> None:
