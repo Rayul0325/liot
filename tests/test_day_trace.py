@@ -1344,3 +1344,60 @@ def test_first_alert_edge_uses_the_same_rounded_ms_as_the_node() -> None:
     first = _node_of(out[0], "first_alert")
     assert first["real_ms"] == round(0.0026549 * 1000.0, 2)
     assert first["edge_ko"] == f"모델 없이 즉시 · {first['real_ms']:.1f}ms"
+
+
+def test_gate_main_edge_only_for_immediate_and_exit_text_in_the_branch() -> None:
+    events = _run(DaySim(seed=9, days=7, trace=True))
+    seen = set()
+    for t in _traces(events):
+        if t["kind"] != "comfort":
+            continue
+        gate = _node_of(t, "gate")
+        taken = _taken(gate)
+        seen.add(taken["key"])
+        if taken["key"] == "IMMEDIATE":
+            assert gate["edge_ko"] == "바로 폰 알림" and taken["value_ko"] is None
+        elif taken["key"] == "DIGEST":
+            assert gate["edge_ko"] is None and taken["value_ko"] == "모아보기"
+        elif taken["key"] == "SUPPRESS":
+            assert gate["edge_ko"] is None and taken["value_ko"] == "사유 기록 없음"
+    assert {"IMMEDIATE", "DIGEST"} <= seen
+
+
+def test_outcome_lines_have_no_ascii_enum_words(
+    seed1: tuple[DaySim, Events], seed7: tuple[DaySim, Events], tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import dataclasses
+
+    class Down(FakeJev):
+        def post(self, payload: dict[str, Any], *, timeout_s: float) -> dict[str, Any]:
+            raise RuntimeError("jev down")
+
+    kit = _kit(tmp_path / "down")
+    kit.judge = JevBackend(transport=Down())
+    judge_silent = _run(DaySim(seed=7, days=1, models="cloud", cloud=kit, trace=True))
+    cloud = _run(DaySim(seed=7, days=2, models="cloud", cloud=_kit(tmp_path / "ok"), trace=True))
+    real = day_sim._TimedGuardrail.evaluate
+
+    def high(self: Any, candidate: Any, ctx: Any = None) -> Gate1Result:
+        out = real(self, candidate, ctx)
+        if candidate.category not in ("leak", "gas"):
+            out = dataclasses.replace(out, floor_tier=RiskTier.DUSK)
+            self.recorder.note((candidate.entity_id, "comfort"), gate1=out)
+        return out
+
+    monkeypatch.setattr(day_sim._TimedGuardrail, "evaluate", high)
+    gate1_silent = _run(DaySim(seed=7, days=1, trace=True))
+    ends = set()
+    leaked: set[str] = set()
+    for events in (seed1[1], seed7[1], cloud, judge_silent, gate1_silent):
+        for t in _traces(events):
+            leaked |= _ascii_words(t["outcome_ko"])
+            if t["kind"] == "silent":
+                ends.add(_end(t))
+    assert leaked == set()
+    assert {"rules", "gate1", "judge"} <= ends
+    outcome = next(t["outcome_ko"] for t in _traces(gate1_silent) if t["kind"] == "silent"
+                   and _end(t) == "gate1")
+    assert outcome.endswith("건너뜀: 하한 땅거미 > 능동 상한 숨결 → 침묵")

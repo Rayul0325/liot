@@ -1653,7 +1653,8 @@ class DaySim:
         rule_taken = "next" if end != "rules" else why_key
         rule_values: dict[str, str | None] = {}
         if end == "rules" and why_key in _SILENCE_KO:
-            rule_values[str(why_key)] = f"{_SILENCE_KO[str(why_key)]} · 마지막으로 본 규칙의 사유"
+            # 긴 사유 문장은 규칙 노드 설명에 이미 있다 — 칩 값은 출처 한 줄만.
+            rule_values[str(why_key)] = "마지막으로 본 규칙의 사유"
         nodes.append(_node("rules", rules_ko, real_s=rec.rules_s,
                            state="end" if end == "rules" else "done",
                            branches=_branches(_RULES_BRANCHES, rule_taken, rule_values),
@@ -1716,7 +1717,8 @@ class DaySim:
                                     if gate1 is not None and gate1_taken == "next" else None)))
         if end == "gate1":
             tail("gate1")
-            return self._trace_event(rec, "silent", "main", None, nodes, silence)
+            return self._trace_event(rec, "silent", "main", None, nodes, silence,
+                                     outcome_ko=self._silence_outcome_ko(silence, gate1_values))
 
         # 이번 틱에 판정 호출이 있었을 때만 판단을 믿는다(규칙·점수·Gate1 침묵이면 판정이 없다).
         if judge_s is None:
@@ -1742,7 +1744,13 @@ class DaySim:
                            edge_ko=judge_text if judge_taken == "next" else None))
         if end == "judge" or result is None:
             tail("judge")
-            return self._trace_event(rec, "silent", "main", None, nodes, silence)
+            judge_why = None
+            if judged is not None and judge_taken == "ceiling":
+                judge_why = (f"판정 {judged.risk_tier.label_ko} > 능동 상한 "
+                             f"{PROACTIVE_TIER_CEILING.label_ko} → 침묵")
+            return self._trace_event(rec, "silent", "main", None, nodes, silence,
+                                     outcome_ko=self._silence_outcome_ko(
+                                         silence, {"ceiling": judge_why} if judge_why else {}))
 
         prop = result.proposal
         confirm_ko = _CONFIRMATION_KO.get(prop.required_confirmation, "확인 강도 기록 없음")
@@ -1755,11 +1763,12 @@ class DaySim:
         nodes.append(_node("route", f"{prop.risk_tier.label_ko} · {confirm_ko}", edge_ko=route_edge))
         gate_ko = _GATE_KO.get(result.decision, result.decision)
         suppressed = result.decision not in ("IMMEDIATE", "DIGEST")
+        # 본선(폰으로 바로)은 바로 알림뿐이다. 모아보기·보류 문구는 그 출구 갈림길의 값에 둔다.
+        gate_values: dict[str, str | None] = {"DIGEST": gate_ko} if result.decision == "DIGEST" else (
+            {"SUPPRESS": "사유 기록 없음"} if result.decision == "SUPPRESS" else {})
         nodes.append(_node("gate", gate_ko, state="end" if suppressed else "done",
-                           branches=_branches(_GATE_BRANCHES, result.decision,
-                                              {"SUPPRESS": "사유 기록 없음"}
-                                              if result.decision == "SUPPRESS" else {}),
-                           edge_ko=None if suppressed else gate_ko))
+                           branches=_branches(_GATE_BRANCHES, result.decision, gate_values),
+                           edge_ko=gate_ko if result.decision == "IMMEDIATE" else None))
         sim_id = p["sim_id"]
         rec_view = self._records.get(sim_id or "", {})
         title = rec_view.get("title_ko", "")
@@ -1781,6 +1790,16 @@ class DaySim:
                                    model=rec_view.get("reason_model")))
         return self._trace_event(rec, "comfort", "main", sim_id, nodes, None,
                                  outcome_ko=rec_view.get("line_ko", gate_ko))
+
+    @staticmethod
+    def _silence_outcome_ko(silence: dict[str, Any] | None,
+                            values: dict[str, str | None]) -> str | None:
+        """1차 안전 검사·판정 뒤 침묵의 결과 한 줄. 앱의 침묵 사유 글(silence_reason)은 영문 열거값
+        (DUSK·BREATH·LLM)을 담고 있어, 같은 기록 필드로 만든 한국어 출구 값을 쓴다."""
+        why = next((v for v in values.values() if v), None)
+        if silence is None or why is None:
+            return None  # _trace_event 가 예전 문장을 쓴다
+        return f"{silence['title_ko']} — 건너뜀: {why}"
 
     def _branch_title(self, candidate: CandidateAction) -> str:
         """갈림길 칩 이름: 규칙 제목, 없으면 기기 이름(기기 id 는 쓰지 않는다)."""
