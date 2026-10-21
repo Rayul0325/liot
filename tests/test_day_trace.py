@@ -857,11 +857,20 @@ def test_score_branches_are_the_evaluation_values(monkeypatch: pytest.MonkeyPatc
 def test_route_edge_is_the_required_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:
     seen = _spy_comfort(monkeypatch)
     _run(DaySim(seed=7, days=3, trace=True))
-    routes = [(p["result"].proposal, _node_of(t, "route")) for p, _e, t in seen if t["kind"] == "comfort"]
-    assert routes
-    for prop, node in routes:
+    routes = [(p["result"].proposal, p["judgment"]["judgment"], _node_of(t, "route"))
+              for p, _e, t in seen if t["kind"] == "comfort"]
+    cases = set()
+    for prop, judged, node in routes:
         confirm = day_sim._CONFIRMATION_KO[prop.required_confirmation]
-        assert node["edge_ko"] == f"{prop.risk_tier.label_ko} → {confirm}"
+        if prop.risk_tier != judged.risk_tier:  # 라우터가 기기 기준으로 올렸다(risk_router.py:87-95)
+            assert prop.risk_tier > judged.risk_tier
+            assert node["edge_ko"] == (f"판정 {judged.risk_tier.label_ko} → 기기 기준 "
+                                       f"{prop.risk_tier.label_ko}로 올림 → {confirm}")
+            cases.add("raised")
+        else:
+            assert node["edge_ko"] == f"{prop.risk_tier.label_ko} → {confirm}"
+            cases.add("equal")
+    assert cases == {"raised", "equal"}
 
 
 def test_judge_edge_fake_and_cloud_success(seed7: tuple[DaySim, Events], tmp_path: Path) -> None:

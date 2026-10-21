@@ -1746,8 +1746,13 @@ class DaySim:
 
         prop = result.proposal
         confirm_ko = _CONFIRMATION_KO.get(prop.required_confirmation, "확인 강도 기록 없음")
-        nodes.append(_node("route", f"{prop.risk_tier.label_ko} · {confirm_ko}",
-                           edge_ko=f"{prop.risk_tier.label_ko} → {confirm_ko}"))
+        # 라우터는 카탈로그 기준으로 '올리기만' 한다(risk_router.py:87-95). 판정과 다르면 올린 것을 보인다.
+        if judged is not None and prop.risk_tier != judged.risk_tier:
+            route_edge = (f"판정 {judged.risk_tier.label_ko} → 기기 기준 {prop.risk_tier.label_ko}로 올림"
+                          f" → {confirm_ko}")
+        else:
+            route_edge = f"{prop.risk_tier.label_ko} → {confirm_ko}"
+        nodes.append(_node("route", f"{prop.risk_tier.label_ko} · {confirm_ko}", edge_ko=route_edge))
         gate_ko = _GATE_KO.get(result.decision, result.decision)
         suppressed = result.decision not in ("IMMEDIATE", "DIGEST")
         nodes.append(_node("gate", gate_ko, state="end" if suppressed else "done",
