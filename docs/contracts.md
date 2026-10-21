@@ -174,7 +174,7 @@ DB 를 읽지도 쓰지도 않는 순수 계산이다. 실제 파급도 표·사
     | 노드 | 갈림길 (exit 이면 *) | 간 길의 값 · 이 노드의 `edge_ko` |
     |---|---|---|
     | `rules` | `next` · `cooldown`* `rejected`* `budget`* `no_match`* `tier_ceiling`* `safety_target`* `not_allowed`* `capability_mismatch`* `unknown`* | 간 길 = 기록된 `suppressed_by`, 값 "마지막으로 본 규칙의 사유"(그 값은 마지막 규칙의 사유뿐이다). `budget`·`no_match` 는 규칙이 하나도 안 맞을 때만 나며 그때는 trace 가 없다. edge "맞은 규칙 n개" |
-    | `score` | 후보 `c<i>`(평가 결과 상위 3개 — 고른 후보 포함, i = `scored` 순번, 값 = 그 `final_score`) · `noop`*(아무것도 안 하기) · `unknown`* | 간 길 = `selected_index`. edge "<고른 후보> 0.39 > 아무것도 안 하기 0.35 · 출처: 규칙 줄"(같은 점수면 "≥" — 평가기는 같은 점수면 앞 후보를 고른다. 출처 = `origin` 의 규칙 줄·학습 줄·언어 모델 줄) |
+    | `score` | 후보 `c<i>`(평가 결과 상위 3개 — 고른 후보 포함, i = `scored` 순번, 값 = 그 `final_score`) · `noop`*(아무것도 안 하기) · `unknown`* | 간 길 = `selected_index`. edge "<고른 후보> 0.390 > 아무것도 안 하기 0.350 · 출처: 규칙 줄"(점수는 후보 값·노드 설명과 같이 늘 소수 셋째 자리, 같은 점수면 "≥" — 평가기는 같은 점수면 앞 후보를 고른다. 출처 = `origin` 의 규칙 줄·학습 줄·언어 모델 줄) |
     | `gate1` | `next` · `ceiling`* · `blocked`* · `unknown`* | 갈래는 기록된 `Gate1Result.blocked`·`floor_tier` 로. 값 "하한 땅거미 > 능동 상한 숨결 → 침묵" · "차단 · 하한 잔잔 → 침묵". edge "하한 잔잔 · 상한 안" |
     | `judge` | `next` · `ceiling`* · `unknown`* | 판정 문구(본선이면 edge, 상한이면 `ceiling` 값): 가짜 "가짜 판정(확률 없음)" · 상한 전환 "상한 도달 · 가짜 판정(확률 없음)" · cloud 실패 "모델 응답 없음 → 안전하게 올림(땅거미) → 상한이라 침묵" · injection_suspect "모델이 하한보다 낮게 답해 하한 유지 · Jev 최댓값 잔잔 80% · luna …" · 그 밖 "최종 숨결(하한 잔잔) · Jev 최댓값 숨결 90% · luna 97% 일치"(luna 를 못 견줬으면 그 기록의 짧은 사유, 예 "luna 미접근 · 응답 해석 실패") |
     | `route` | — | edge "<단계> → <확인 강도>"(`proposal.required_confirmation`), 라우터가 기기 기준으로 올렸으면(`proposal.risk_tier` ≠ `judgment.risk_tier`) "판정 잔잔 → 기기 기준 숨결로 올림 → 가벼운 확인" |
