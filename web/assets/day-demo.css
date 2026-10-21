@@ -226,6 +226,10 @@ body.dm-lock {
 .dm-fan-head {
   fill: var(--hair-2);
 }
+/* 재생 중: 판단 노드가 켜지기 전 출구는 숨긴다(정적 그림·지난 노드는 보인다) */
+.dm-exit[data-state="pending"] {
+  opacity: 0;
+}
 .dm-lane-line {
   stroke: var(--hair-2);
   stroke-width: 2;
@@ -359,7 +363,8 @@ body.dm-lock {
 @media (prefers-reduced-motion: no-preference) {
   .dm-anim .dm-node,
   .dm-anim .dm-node-box,
-  .dm-anim .dm-edge {
+  .dm-anim .dm-edge,
+  .dm-anim .dm-exit {
     transition: opacity 0.25s ease, fill 0.25s ease, stroke 0.25s ease;
   }
   .dm-anim .dm-card {

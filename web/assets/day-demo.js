@@ -411,7 +411,7 @@
     const x = cx + cfg.dx;
     arrow([[x, cy + NODE_H / 2], [x, ROW_LANE_Y]], "dm-exit").forEach((p) => g.appendChild(p));
     const lane = svg("g", { class: "dm-lane" + (tookExit(n) ? " dm-lane-taken" : ""),
-      "data-state": final ? n.state : "pending" });
+      "data-state": !tookExit(n) ? "done" : final ? n.state : "pending" });
     lane.appendChild(svg("path", { d: "M" + cfg.x0 + "," + ROW_LANE_Y + " L" + cfg.x1 + "," + ROW_LANE_Y,
       class: "dm-lane-line" }));
     // 길 이름은 화살표가 닿는 쪽의 반대 끝(화살표가 글을 가로지르지 않게).
@@ -496,7 +496,10 @@
     const scoreNoop = byId.has("score") && (byId.get("score").branches || []).some(
       (b) => b.key === "noop" && b.taken);
     const lane = (x0, x1, y, on, ids) => {
-      const lg = svg("g", { class: "dm-lane" + (on ? " dm-lane-taken" : ""), "data-state": final ? "done" : "pending" });
+      // 간 길만 상태를 따른다(재생 중엔 그 노드의 ② 에서 불). 안 간 길은 늘 흐리다.
+      const feed = ids.length ? byId.get(ids[0]) : undefined;
+      const state = !on ? "done" : final ? String((feed && feed.state) || "done") : "pending";
+      const lg = svg("g", { class: "dm-lane" + (on ? " dm-lane-taken" : ""), "data-state": state });
       lg.appendChild(svg("path", { d: "M" + x0 + "," + y + " L" + x1 + "," + y, class: "dm-lane-line" }));
       const t = svg("text", { x: x0 + 4, y: y === LANE.top ? y - 10 : y + 26, class: "dm-lane-label" });
       t.textContent = "침묵";
@@ -1037,15 +1040,48 @@
   function mark(id, state) {
     const g = D.nodeEls && D.nodeEls.get(id);
     if (g) g.setAttribute("data-state", state);
-    const e = D.edgeEls && D.edgeEls.get(id);
-    if (e) e.setAttribute("data-state", state);
-    for (const x of (D.exitEls && D.exitEls.get(id)) || []) x.setAttribute("data-state", state);
+    note(id, state);
+  }
+
+  /**
+   * 바뀐 때를 남긴다(시험·확인용: 판단 순서를 eval 로 잰다).
+   * @param {string} id 노드 id 또는 'exits:<id>'·'edge:<id>'
+   * @param {string} state
+   */
+  function note(id, state) {
     D.marks.push({ trace: D.shown ? D.shown.trace_id : null, id: id, state: state, at: performance.now() });
     if (D.marks.length > 2000) D.marks.splice(0, 1000);
   }
 
   /**
-   * trace 하나를 재생한다: 노드마다 강조 → 완료(또는 끝·건너뜀), 폰 연결.
+   * 노드로 들어오는 엣지(그 문구 알약 포함)의 상태.
+   * @param {string} id 들어오는 쪽 노드 id
+   * @param {string} state
+   */
+  function markEdge(id, state) {
+    const e = D.edgeEls && D.edgeEls.get(id);
+    if (!e) return;
+    e.setAttribute("data-state", state);
+    note("edge:" + id, state);
+  }
+
+  /**
+   * 판단 노드의 출구(출구 엣지·이유 칩·싱크·후보 부채·간 길)의 상태.
+   * pending = 아직 숨김, shown = 보이되 불 꺼짐, done/end = 간 길에 불, skipped = 흐리게.
+   * @param {string} id
+   * @param {string} state
+   */
+  function markExits(id, state) {
+    const list = (D.exitEls && D.exitEls.get(id)) || [];
+    if (!list.length) return;
+    for (const x of list) x.setAttribute("data-state", state);
+    note("exits:" + id, state);
+  }
+
+  /**
+   * trace 하나를 재생한다. 노드마다 강조 시간 = max(실제, 속도의 최소)를 셋으로 나눠
+   * ① 출구 엣지·후보 부채가 나타나고 ② 간 갈림길에 불이 들어오고 ③ 다음 본선 엣지와 그 문구 알약에
+   * 불이 들어온다. 동작 줄이기면 셋을 한 번에 바꾼다. 마지막 장면은 간 길·알약을 그대로 남긴다.
    * @param {Object} t
    */
   async function play(t) {
@@ -1053,10 +1089,19 @@
     D.skip = false;
     enterDay(t);
     render(t, false);
-    $("demoSvg").classList.toggle("dm-anim", !reducedMotion());
-    for (const n of D.drawn) {
+    const calm = reducedMotion();
+    $("demoSvg").classList.toggle("dm-anim", !calm);
+    const drawn = D.drawn;
+    for (let i = 0; i < drawn.length; i += 1) {
+      const n = drawn[i];
+      const next = drawn[i + 1];
       if (n.state === "skipped") {
         mark(n.id, "skipped");
+        markEdge(n.id, "skipped");
+        markExits(n.id, "skipped");
+        if (n.id === D.paneNode && D.edgeEls.get("__pane__")) {
+          D.edgeEls.get("__pane__").setAttribute("data-state", "skipped");
+        }
         continue;
       }
       mark(n.id, "current");
@@ -1068,8 +1113,16 @@
       if (n.id === D.paneNode && D.edgeEls.get("__pane__")) {
         D.edgeEls.get("__pane__").setAttribute("data-state", "current");
       }
-      await wait(holdOf(n));
+      const third = holdOf(n) / 3;
+      markExits(n.id, "shown");                                   // ① 갈 수 있던 길이 나타난다
+      if (!calm) await wait(third);
       if (gen !== D.gen) return; // 새 실행·다시 보기가 시작됐다 — 낡은 카드를 새 창에 넣지 않는다
+      markExits(n.id, n.state === "end" ? "end" : "done");        // ② 간 길에 불
+      if (!calm) await wait(third);
+      if (gen !== D.gen) return;
+      if (next && next.state !== "skipped") markEdge(next.id, next.state === "end" ? "end" : "done"); // ③ 다음 본선 + 알약
+      await wait(calm ? holdOf(n) : third);
+      if (gen !== D.gen) return;
       mark(n.id, n.state === "end" ? "end" : "done");
       if (n.id === D.paneNode && D.edgeEls.get("__pane__")) {
         D.edgeEls.get("__pane__").setAttribute("data-state", "done");
