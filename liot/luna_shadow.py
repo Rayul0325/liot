@@ -194,19 +194,19 @@ class LunaShadow:
         ``on_request`` 는 보낸 요청 하나마다 그 기록(지연·토큰·성공)을 받는다.
         """
         if self.cfg.mode == "unavailable":
-            return self._unavailable("luna 미접근 — 설정에서 꺼져 있습니다.")
+            return self._unavailable("luna 미접근 · 설정에서 꺼짐")
         if self.cfg.mode == "decision_api":
             return self._unavailable(
-                "luna 미접근 — Decision API 엔드포인트가 아직 확인되지 않았습니다(0단계)."
+                "luna 미접근 · 호출 주소 미확인(0단계)"
             )
         if not self._api_key:
-            return self._unavailable("luna 미접근 — OPENAI_API_KEY 가 없습니다.")
+            return self._unavailable("luna 미접근 · 키 없음")
         try:
             sanitized = emit_external(
                 Destination.LLM, {"evidence": evidence}, trace_id=trace_id, alias=self.alias
             )
         except EgressViolation:
-            return self._unavailable("luna 미접근 — 증거가 송신 검사를 통과하지 못했습니다.")
+            return self._unavailable("luna 미접근 · 송신 검사")
         safe_evidence = str(sanitized["evidence"])
         qids = [TIER_QUESTION.qid] + (
             [SEVERITY_QUESTION.qid] if SEVERITY_QUESTION.qid in jev_probs else []
@@ -221,17 +221,18 @@ class LunaShadow:
 
         for qid in qids:
             if allow is not None and not allow():
-                return self._unavailable("luna 미접근 — 호출 상한에 닿았습니다.")
+                return self._unavailable("luna 미접근 · 호출 상한")
             t0 = time.perf_counter()
             record: dict[str, Any] = {"question": qid, "model": self.cfg.model, "ok": False}
             try:
                 data = self.transport.post(
                     self.request(qid, safe_evidence), timeout_s=self.cfg.timeout_s
                 )
-            except CheapLLMError as exc:
+            except CheapLLMError:
                 record["seconds"] = round(time.perf_counter() - t0, 4)
                 done(record)
-                return self._unavailable(f"luna 미접근 — 호출 실패({exc}).")
+                # 예외 글은 싣지 않는다 — 이 사유는 화면·기록으로 나간다.
+                return self._unavailable("luna 미접근 · 호출 실패")
             elapsed = time.perf_counter() - t0
             seconds += elapsed
             record["seconds"] = round(elapsed, 4)
@@ -248,7 +249,7 @@ class LunaShadow:
                 probs[qid] = read_option_probs(top, _QUESTIONS[qid].option_ids, missing="zero")
             except (KeyError, IndexError, TypeError, LLMUnavailable):
                 done(record)
-                return self._unavailable("luna 미접근 — 응답에서 보기 글자 확률을 읽지 못했습니다.")
+                return self._unavailable("luna 미접근 · 응답 해석 실패")
             record["ok"] = True
             done(record)
         choice = {qid: argmax_option(p) for qid, p in probs.items()}

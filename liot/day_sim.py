@@ -1764,11 +1764,14 @@ class DaySim:
         gate_ko = _GATE_KO.get(result.decision, result.decision)
         suppressed = result.decision not in ("IMMEDIATE", "DIGEST")
         # 본선(폰으로 바로)은 바로 알림뿐이다. 모아보기·보류 문구는 그 출구 갈림길의 값에 둔다.
-        gate_values: dict[str, str | None] = {"DIGEST": gate_ko} if result.decision == "DIGEST" else (
+        gate_values: dict[str, str | None] = (
             {"SUPPRESS": "사유 기록 없음"} if result.decision == "SUPPRESS" else {})
+        # 바로 알림은 폰으로 곧장, 모아보기는 모아보기를 거쳐 폰으로(밤 리뷰) — 둘 다 폰까지 가는 길의 문구.
+        gate_edge = (gate_ko if result.decision == "IMMEDIATE"
+                     else _DIGEST_ROUTE_KO if result.decision == "DIGEST" else None)
         nodes.append(_node("gate", gate_ko, state="end" if suppressed else "done",
                            branches=_branches(_GATE_BRANCHES, result.decision, gate_values),
-                           edge_ko=gate_ko if result.decision == "IMMEDIATE" else None))
+                           edge_ko=gate_edge))
         sim_id = p["sim_id"]
         rec_view = self._records.get(sim_id or "", {})
         title = rec_view.get("title_ko", "")
@@ -2117,21 +2120,24 @@ class DaySim:
             pref_ko = ("선호 변화 기록 없음" if pref is None
                        else f"이 제안 칸 선호 {pref[0]:.2f} → {pref[1]:.2f}")
             nodes = [_node("phone", f"아무도 누르지 않아 만료 — {title}",
-                           branches=_branches(_FEEDBACK_BRANCHES, "expired"),
+                           branches=_branches(_CHOICE_BRANCHES, "expired"),
                            edge_ko=_FEEDBACK_KO["expired"]),
                      _node("feedback", "만료 신호 반영",
+                           branches=_branches(_APPLY_BRANCHES, "applied"),
                            edge_ko=pref_ko + " · 같은 순간 다른 만료의 감쇠 포함"),
                      _node("prefs", "이번 단계 판단부터 반영")]
         else:
             pref_ko = ("선호 변화 기록 없음" if pref is None
                        else f"이 제안 칸 선호 {pref[0]:.2f} → {pref[1]:.2f}")
             nodes = [_node("phone", f"{who} [{signal_ko}] — {title}",
-                           branches=_branches(_FEEDBACK_BRANCHES, signal if ok else "refused",
-                                              {} if ok else {"refused": f"[{signal_ko}]"}),
-                           # 반영된 응답은 본선(phone → feedback) 문구, 거절은 출구 갈림길 값.
-                           edge_ko=_FEEDBACK_KO.get(signal) if ok else None),
+                           # 거주자가 고른 응답 — 반영되든 거절되든 폰 → 피드백 본선의 문구다.
+                           branches=_branches(_CHOICE_BRANCHES, signal),
+                           edge_ko=_FEEDBACK_KO.get(signal)),
                      _node("feedback", "서명 링크 확인 → 반영" if ok else f"반영되지 않음({code})",
-                           state="done" if ok else "end", edge_ko=pref_ko if ok else None),
+                           state="done" if ok else "end",
+                           branches=_branches(_APPLY_BRANCHES, "applied" if ok else "refused",
+                                              {} if ok else {"refused": f"서버 응답 {code}"}),
+                           edge_ko=pref_ko if ok else None),
                      _node("prefs", "다음 판단부터 반영" if ok else "건너뜀",
                            state="done" if ok else "skipped")]
         line = (f"{who} [{signal_ko}] — {title}" if signal != "expired"
@@ -2384,7 +2390,7 @@ class DaySim:
 
         for evidence, probs, model_id, served, entity_id in due:
             res: ShadowResult | None
-            miss_ko = "luna 미접근 — 시간 초과"
+            miss_ko = "luna 미접근 · 시간 초과"
             if luna.cfg.mode == "logprobs":
                 def compare(ev: str = evidence,
                             pr: dict[str, dict[str, float]] = probs) -> ShadowResult:
@@ -2397,7 +2403,7 @@ class DaySim:
                     res = None
                 except Exception as exc:  # noqa: BLE001 — 그림자는 판정·실행을 멈추지 않는다
                     self.log.append(("ext_error", ("luna", type(exc).__name__)))
-                    miss_ko = "luna 미접근 — 비교 중 오류"
+                    miss_ko = "luna 미접근 · 비교 중 오류"
                     res = None
             else:
                 res = luna.compare(evidence, probs)  # 부르지 않는 방식 — 외부 호출 없음
@@ -2517,9 +2523,9 @@ _GATE_BRANCHES: tuple[tuple[str, str, bool], ...] = (
 # not_sent 하나로 합친다. 마감 초과·판정 오류는 app.deadline_judgment(degraded, 제한시간/판정 오류).
 _MODEL_BRANCHES: tuple[tuple[str, str, bool], ...] = (
     ("sent", "따라가는 알림 보냄", False),
-    ("not_sent", "따라가는 알림 없음 · 올렸는지 기록 없음", False),
-    ("deadline", "마감 초과 · 하한 유지", False),
-    ("error", "판정 오류 · 하한 유지", False),
+    ("not_sent", "따라가는 알림 없음 · 올렸는지 기록 없음", True),
+    ("deadline", "마감 초과 · 하한 유지", True),
+    ("error", "판정 오류 · 하한 유지", True),
     _UNKNOWN,
 )
 # 재알림 사다리: 단계 끝 SafetyRepository.get_ladder 의 next_fire_at·acked.
@@ -2529,16 +2535,24 @@ _LADDER_BRANCHES: tuple[tuple[str, str, bool], ...] = (
     ("none", "재알림 예약 없음", False),
     _UNKNOWN,
 )
-# 피드백(편의): 응답 신호(feature_vector.py:48-55 SIGNAL_TARGET). 서버가 거절하면 refused 가 간 길이다.
-_FEEDBACK_BRANCHES: tuple[tuple[str, str, bool], ...] = (
+# 피드백(편의) 폰: 거주자가 고른 응답(feature_vector.py:48-55 SIGNAL_TARGET). 고른 것만 — 반영 여부는
+# 피드백 노드의 갈림길이다.
+_CHOICE_BRANCHES: tuple[tuple[str, str, bool], ...] = (
     ("accepted", "도움됐어요", False),
     ("expired", "무시·만료", False),
     ("dismissed", "그만해 → 30일 쉬기", False),
+    _UNKNOWN,
+)
+# 피드백 노드: 서명 링크 경로(_route_feedback)가 받아들였는가. 거절(200 이 아님)은 출구다.
+_APPLY_BRANCHES: tuple[tuple[str, str, bool], ...] = (
+    ("applied", "반영됨", False),
     ("refused", "반영되지 않음", True),
     _UNKNOWN,
 )
 
-_FEEDBACK_KO = {k: label for k, label, _ in _FEEDBACK_BRANCHES}
+_FEEDBACK_KO = {k: label for k, label, _ in _CHOICE_BRANCHES}
+# 모아보기는 끊긴 출구가 아니라 폰으로 가는 두 번째 길이다 — 거주자가 밤에 한 번 연다(TRAY_REVIEW_AT).
+_DIGEST_ROUTE_KO = f"밤 {int(TRAY_REVIEW_AT.split(':')[0]) - 12}시 모아보기로"
 
 # 후보 출처(ActionCandidate.origin, contracts.py:303 — 여러 줄이 같으면 '+'로 합친다,
 # proposal_lines.py:290) → 한국어.

@@ -1146,7 +1146,7 @@ def test_luna_comparison_has_an_overall_deadline(tmp_path: Path) -> None:
     sim = DaySim(seed=7, days=1, models="cloud", cloud=kit)
     _run(sim)
     first = sim.luna_results[0]
-    assert first["status"] == "unavailable" and first["reason_ko"] == "luna 미접근 — 시간 초과"
+    assert first["status"] == "unavailable" and first["reason_ko"] == "luna 미접근 · 시간 초과"
     assert all(r["status"] == "ok" for r in sim.luna_results[1:])
 
 
@@ -1218,5 +1218,5 @@ def test_raising_luna_compare_is_recorded_and_the_day_continues(tmp_path: Path) 
     sim = DaySim(seed=7, days=1, models="cloud", cloud=kit)
     events = _run(sim)
     assert [d["day"] for st, d in events if st == "day.end"] == [1]
-    assert sim.luna_results and all(r["reason_ko"] == "luna 미접근 — 비교 중 오류"
+    assert sim.luna_results and all(r["reason_ko"] == "luna 미접근 · 비교 중 오류"
                                     for r in sim.luna_results)

@@ -127,7 +127,8 @@ def test_severity_only_when_jev_asked_it() -> None:
 def test_transport_failure_is_unavailable_once_no_retry() -> None:
     shadow, fake = _shadow(fail=True)
     res = shadow.compare(EVIDENCE, {"tier": JEV_TIER, "severity": JEV_SEV})
-    assert res.status == "unavailable" and "HTTP 403" in (res.reason_ko or "")
+    assert res.status == "unavailable" and res.reason_ko == "luna 미접근 · 호출 실패"
+    assert "403" not in (res.reason_ko or "")  # 예외 글은 사유에 싣지 않는다
     assert len(fake.requests) == 1
     assert KEY not in (res.reason_ko or "")
 
@@ -145,7 +146,7 @@ def test_unreadable_reply_is_unavailable(reply: dict[str, Any]) -> None:
 def test_no_key_is_unavailable_without_a_request() -> None:
     shadow, fake = _shadow(key="")
     res = shadow.compare(EVIDENCE, {"tier": JEV_TIER})
-    assert res.status == "unavailable" and "OPENAI_API_KEY" in (res.reason_ko or "")
+    assert res.status == "unavailable" and res.reason_ko == "luna 미접근 · 키 없음"
     assert fake.requests == []
 
 

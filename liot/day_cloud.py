@@ -358,9 +358,9 @@ def build_cloud_kit(
     openai_key = secrets.get("OPENAI_API_KEY") or ""
     kit.luna = LunaShadow(luna_cfg, openai_key)
     if luna_cfg.mode != "logprobs":
-        note("luna", "fake", luna_cfg.model, "luna 미접근 — 설정 방식이 logprobs 가 아닙니다.")
+        note("luna", "fake", luna_cfg.model, "luna 미접근 · 확률 방식 아님")
     elif not openai_key:
-        note("luna", "fake", luna_cfg.model, "luna 미접근 — OPENAI_API_KEY 가 없습니다.")
+        note("luna", "fake", luna_cfg.model, "luna 미접근 · 키 없음")
     else:
         note("luna", "cloud", luna_cfg.model, None)
 

@@ -1010,7 +1010,7 @@ def test_score_edge_uses_greater_or_equal_on_a_tie(monkeypatch: pytest.MonkeyPat
 
 _FIXED_BRANCHES_2 = {
     ("followup", "model"): day_sim._MODEL_BRANCHES, ("followup", "ladder"): day_sim._LADDER_BRANCHES,
-    ("feedback", "phone"): day_sim._FEEDBACK_BRANCHES,
+    ("feedback", "phone"): day_sim._CHOICE_BRANCHES, ("feedback", "feedback"): day_sim._APPLY_BRANCHES,
 }
 
 
@@ -1145,10 +1145,15 @@ def test_refused_tap_takes_the_refused_branch_with_the_choice() -> None:
     assert [d["status"] for d in fb] == ["200", "403"]
     traces = [t for t in _traces(events) if t["kind"] == "feedback" and t["proposal_id"] == "p1"]
     refused = traces[1]
-    taken = _taken(_node_of(refused, "phone"))
-    assert taken["key"] == "refused" and taken["value_ko"] == "[도움됐어요]"
+    # 폰은 거주자가 고른 것(도움됐어요) — 거절은 피드백 노드의 출구다.
+    choice = _taken(_node_of(refused, "phone"))
+    assert choice["key"] == "accepted" and _node_of(refused, "phone")["edge_ko"] == "도움됐어요"
+    taken = _taken(_node_of(refused, "feedback"))
+    assert taken["key"] == "refused" and taken["exit"] and taken["value_ko"] == "서버 응답 403"
     assert _node_of(refused, "feedback")["edge_ko"] is None
+    assert _node_of(refused, "prefs")["state"] == "skipped"
     assert _taken(_node_of(traces[0], "phone"))["key"] == "dismissed"
+    assert _taken(_node_of(traces[0], "feedback"))["key"] == "applied"
 
 
 def test_pref_edges_equal_independent_reads_around_taps_and_ticks(
@@ -1358,7 +1363,9 @@ def test_gate_main_edge_only_for_immediate_and_exit_text_in_the_branch() -> None
         if taken["key"] == "IMMEDIATE":
             assert gate["edge_ko"] == "바로 폰 알림" and taken["value_ko"] is None
         elif taken["key"] == "DIGEST":
-            assert gate["edge_ko"] is None and taken["value_ko"] == "모아보기"
+            # 모아보기는 폰으로 가는 두 번째 길(밤 리뷰) — 끊긴 출구가 아니다.
+            assert gate["edge_ko"] == "밤 10시 모아보기로" and not taken["exit"]
+            assert taken["value_ko"] is None
         elif taken["key"] == "SUPPRESS":
             assert gate["edge_ko"] is None and taken["value_ko"] == "사유 기록 없음"
     assert {"IMMEDIATE", "DIGEST"} <= seen
@@ -1421,11 +1428,10 @@ def test_feedback_main_edge_names_the_applied_answer() -> None:
         phone = _node_of(t, "phone")
         taken = _taken(phone)
         keys.add(taken["key"])
-        if taken["key"] == "refused":
-            assert phone["edge_ko"] is None
-        else:
-            assert phone["edge_ko"] == taken["label_ko"]
-    assert {"dismissed", "refused"} <= keys and keys & {"accepted", "expired"}
+        keys.add(_taken(_node_of(t, "feedback"))["key"])
+        # 반영되든 거절되든 폰 → 피드백 본선 문구는 고른 응답 이름이다.
+        assert phone["edge_ko"] == taken["label_ko"]
+    assert {"dismissed", "accepted", "applied", "refused"} <= keys
 
 
 def test_first_alert_detail_uses_the_same_rounded_ms_as_the_edge() -> None:
@@ -1461,3 +1467,31 @@ def test_jev_answer_equal_to_the_floor_is_not_called_below_it(tmp_path: Path) ->
     row["model_probs"] = {"tier": {"dusk": 0.9}, "severity": {"notice": 0.8}}
     text = sim._safety_model_text_ko(row, day_sim.LEAK, "13:00", RiskTier.EMBER)
     assert text.count("아래라 반영 안 됨") == 2
+
+
+def test_exit_flags_are_the_drawn_exits() -> None:
+    # 화면은 서버의 exit 표시만 출구로 그린다 — 표마다 고정한다(모아보기는 폰으로 가는 길, 출구 아님).
+    flags = {name: {k: x for k, _, x in table} for name, table in {
+        "rules": day_sim._RULES_BRANCHES, "gate1": day_sim._GATE1_BRANCHES,
+        "judge": day_sim._JUDGE_BRANCHES, "gate": day_sim._GATE_BRANCHES,
+        "model": day_sim._MODEL_BRANCHES, "ladder": day_sim._LADDER_BRANCHES,
+        "choice": day_sim._CHOICE_BRANCHES, "apply": day_sim._APPLY_BRANCHES}.items()}
+    assert {k for k, x in flags["rules"].items() if not x} == {"next"}
+    assert {k for k, x in flags["gate"].items() if x} == {"SUPPRESS", "unknown"}
+    assert {k for k, x in flags["model"].items() if x} == {"not_sent", "deadline", "error", "unknown"}
+    assert {k for k, x in flags["choice"].items() if x} == {"unknown"}
+    assert {k for k, x in flags["apply"].items() if x} == {"refused", "unknown"}
+    assert {k for k, x in flags["ladder"].items() if x} == {"unknown"}
+
+
+def test_expired_phone_edge_and_the_rules_exit_value_are_pinned(
+    seed1: tuple[DaySim, Events], seed7: tuple[DaySim, Events],
+) -> None:
+    expired = [t for t in _traces(seed7[1]) if t["kind"] == "feedback" and len(t["nodes"]) == 3
+               and _taken(_node_of(t, "phone"))["key"] == "expired"]
+    assert expired and all(_node_of(t, "phone")["edge_ko"] == "무시·만료" for t in expired)
+    rules = [t for t in _traces(seed1[1]) if t["kind"] == "silent" and _end(t) == "rules"]
+    assert rules
+    for t in rules:
+        taken = _taken(_node_of(t, "rules"))
+        assert taken["value_ko"] == "마지막으로 본 규칙의 사유"
