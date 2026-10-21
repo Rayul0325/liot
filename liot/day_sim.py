@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import queue
 import random
 import re
@@ -65,6 +66,7 @@ from liot.db.database import init_db
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l2_context.evaluator import CandidateEvaluator
 from liot.layers.l2_context.external_provider import FakeExternalProvider
+from liot.layers.l2_context.feature_vector import NEUTRAL_PREF, load_cells
 from liot.layers.l2_context.feedback_store import InMemoryFeedbackStore, candidate_key
 from liot.layers.l2_context.proactive import (
     PROACTIVE_TIER_CEILING,
@@ -776,6 +778,8 @@ class DaySim:
         self._last_reason_s: float | None = None
         self._db: Any = None
         self._pending_safety: list[dict[str, Any]] = []
+        # trace 실행에만: 이번 틱 직전·직후의 선호 셀(만료 신호의 전후 값). (제안→셀, 전, 후)
+        self._pref_tick: tuple[dict[str, str], dict[str, float], dict[str, float] | None] | None = None
         self._svc: LiotService | None = None
         self._house: HouseMemory | None = None
         self._resident: ResidentMemory | None = None
@@ -1038,7 +1042,15 @@ class DaySim:
         generator.last_decision = None
         if self._rec is not None:
             self._rec.begin_tick()
+            self._pref_tick = None
+            with contextlib.suppress(Exception):  # 선호 읽기(만료 전후 값) — trace 에만, 읽기만
+                prop_cell, cells = await self._pref_cells(svc)
+                self._pref_tick = (prop_cell, cells, None)
         result = await svc.run_tick()
+        if self._rec is not None and self._pref_tick is not None:
+            with contextlib.suppress(Exception):
+                self._pref_tick = (self._pref_tick[0], self._pref_tick[1],
+                                   (await self._pref_cells(svc))[1])
         silence = self._silence(app, generator, result)
         # 같은 규칙이 같은 까닭으로 단계마다 건너뛰면 처음 한 번만 남긴다(타임라인이 넘치지 않게).
         key = None if silence is None else (tuple(silence["rules"]), silence["reason"])
@@ -1333,10 +1345,20 @@ class DaySim:
         pid = tracked.pid
         nonce = svc._nonce.get(pid, "")
         sig = sign_feedback(secret, pid, tracked.risk_tier, signal, nonce)
+        pref_before: tuple[dict[str, str], dict[str, float]] | None = None
+        if self._rec is not None and tracked.kind == "comfort":
+            with contextlib.suppress(Exception):  # 선호 읽기(누름 전후 값) — trace 에만, 읽기만
+                pref_before = await self._pref_cells(svc)
         status, body = await svc._route_feedback(
             f"GET /feedback?p={pid}&t={int(tracked.risk_tier)}&n={nonce}&sig={sig}&a={signal} "
             "HTTP/1.1"
         )
+        pref: tuple[float, float] | None = None
+        if pref_before is not None:
+            with contextlib.suppress(Exception):
+                key = pref_before[0][pid]
+                after = (await self._pref_cells(svc))[1]
+                pref = (pref_before[1].get(key, NEUTRAL_PREF), after.get(key, NEUTRAL_PREF))
         code = status.split(" ", 1)[0]
         day_m = self.metrics[tracked.day - 1]
         if code == "200" and tracked.kind == "comfort" and tracked.state == "pending":
@@ -1390,7 +1412,7 @@ class DaySim:
         )
         if self._rec is not None:  # 누름 trace 는 누름이 적용된 자리 바로 뒤
             with contextlib.suppress(Exception):
-                self._emit_feedback_trace(tracked, signal, source, code, what)
+                self._emit_feedback_trace(tracked, signal, source, code, what, pref=pref)
 
     async def _expiries(
         self,
@@ -1426,7 +1448,8 @@ class DaySim:
             })
             if self._rec is not None:
                 with contextlib.suppress(Exception):
-                    self._emit_feedback_trace(t, "expired", "timeout", "200", rec["title_ko"])
+                    self._emit_feedback_trace(t, "expired", "timeout", "200", rec["title_ko"],
+                                              pref=self._expiry_pref(t.pid))
 
     # ── 안전 ───────────────────────────────────────────────────────────────
 
@@ -1828,15 +1851,27 @@ class DaySim:
         else:
             parts.append(f"최종 {judgment.risk_tier.label_ko}"
                          + (f"(하한 {floor.label_ko})" if floor is not None else ""))
-        jev = (judgment.model_probs or {}).get("tier") or {}
+        jev = _jev_ko(judgment.model_probs, "tier")
         if jev:
-            top = max(jev, key=lambda k: jev[k])
-            with contextlib.suppress(Exception):
-                parts.append(f"Jev 최댓값 {RiskTier.from_str(top).label_ko} {float(jev[top]) * 100:.0f}%")
+            parts.append(jev)
         luna = self._luna_ko(entity, hhmm)
         if luna:
             parts.append(luna)
         return " · ".join(parts)
+
+    def _safety_model_text_ko(self, row: dict[str, Any], entity: str, hhmm: str) -> str:
+        """안전 2단계 판정 값(model → severity 엣지): Jev 최댓값(단계·파급도)과 luna. 기록만 읽는다."""
+        kit = self._kit
+        if kit is None:
+            return "가짜 판정(확률 없음)"
+        if row["degraded"]:
+            return "모델 응답 없음 · 하한 유지"
+        if kit.judge is None or row["model_id"] != kit.judge.model_id:
+            return "상한 도달 · 가짜 판정(확률 없음)"
+        parts = [x for x in (_jev_ko(row["model_probs"], "tier"),
+                             _jev_ko(row["model_probs"], "severity"),
+                             self._luna_ko(entity, hhmm)) if x]
+        return " · ".join(parts) if parts else "확률 기록 없음"
 
     def _trace_event(self, rec: _TraceRecorder, kind: str, part: str, proposal_id: str | None,
                      nodes: list[dict[str, Any]], silence: dict[str, Any] | None, *,
@@ -1878,11 +1913,13 @@ class DaySim:
             floor_ko += f" · 파급도 {p.severity.label_ko}({self._severity_sources_ko(p)})"
         nodes = [
             _node("sense", f"{name} 이상 값"),
-            _node("classify", f"안전 카테고리 — {situation_ko}"),
+            _node("classify", f"안전 카테고리 — {situation_ko}", edge_ko="이상 값 → 안전 경보 경로"),
             _node("floor", floor_ko),
             _node("first_alert", "읽기부터 첫 경보 전송까지 "
                   + ("—" if first_s is None else f"{first_s * 1000.0:.1f}ms") + " · 모델 없이",
-                  real_s=first_s),
+                  real_s=first_s,
+                  edge_ko="모델 없이 즉시" + ("" if first_s is None
+                                           else f" · {first_s * 1000.0:.1f}ms")),
             _node("phone", "폰에 바로 경보"),
         ]
         emit(self._trace_event(rec, "safety", "main", sim_id, nodes, None,
@@ -1908,7 +1945,7 @@ class DaySim:
             return None
         cur = await self._db.execute(
             "SELECT risk_tier, severity, severity_floor, model_id, degraded, rationale,"
-            " judgment_id FROM judgments WHERE situation_id = ? AND judgment_id != ?"
+            " judgment_id, model_probs FROM judgments WHERE situation_id = ? AND judgment_id != ?"
             " ORDER BY rowid DESC LIMIT 1",
             (situation_id, first_judgment_id),
         )
@@ -1920,7 +1957,8 @@ class DaySim:
                 "severity": None if row[1] is None else SeverityLevel(int(row[1])),
                 "severity_floor": None if row[2] is None else SeverityLevel(int(row[2])),
                 "model_id": str(row[3]), "degraded": bool(row[4]),
-                "rationale": str(row[5]), "situation_id": situation_id}
+                "rationale": str(row[5]), "situation_id": situation_id,
+                "model_probs": _json_probs(row[7])}
 
     async def _followup_sent(self, situation_id: str | None, first_pid: str) -> bool:
         """그 상황에 첫 경보 말고 다른 제안(2단계가 올린 후속)이 저장됐고 실제로 송신됐는가."""
@@ -1962,35 +2000,66 @@ class DaySim:
                 if luna is not None and luna.get("agree"):
                     agree = luna["agree"].get("tier")
                     model_ko += " · luna " + ("—" if agree is None else ("일치" if agree else "불일치"))
+            raised = await self._followup_sent(s["situation_id"], first.proposal_id)
+            if row is None:
+                model_taken = None
+            elif deadline:
+                model_taken = "deadline"
+            elif row["degraded"]:
+                model_taken = "error"
+            else:
+                model_taken = "sent" if raised else "not_sent"
+            model_branches = _branches(_MODEL_BRANCHES, model_taken)
             nodes = [_node("model", model_ko, real_s=model_s,
-                           model=None if row is None else row["model_id"])]
+                           model=None if row is None else row["model_id"],
+                           branches=model_branches,
+                           edge_ko=None if row is None else self._safety_model_text_ko(row, eid,
+                                                                                       s["hhmm"]))]
             if row is not None and row["severity"] is not None:
                 sev_ko = f"파급도 {row['severity'].label_ko}"
                 if row["severity_floor"] is not None:
                     sev_ko += f"(하한 {row['severity_floor'].label_ko})"
             else:
                 sev_ko = "파급도 기록 없음"
-            nodes.append(_node("severity", sev_ko))
-            raised = await self._followup_sent(s["situation_id"], first.proposal_id)
+            taken_model = next(b for b in model_branches if b["taken"])
+            nodes.append(_node("severity", sev_ko, edge_ko=taken_model["label_ko"]))
             nodes.append(_node("followup", "올린 판정으로 따라가는 알림을 보냈어요" if raised
-                               else "올리지 않아 따라가는 알림 없음"))
+                               else "따라가는 알림 없음 · 올렸는지 기록 없음"))
             ladder_ko = "재알림 예약 기록 없음"
+            ladder_taken: str | None = None
+            ladder_values: dict[str, str | None] = {}
             if row is not None:
                 ladder = await svc.safety.get_ladder(row["situation_id"])
                 if ladder is not None and ladder.next_fire_at:
                     when = datetime.fromisoformat(ladder.next_fire_at).astimezone(
                         ZoneInfo(HOME_TZ)).strftime("%H:%M")
                     ladder_ko = f"재알림 예약 {when}"
+                    ladder_taken, ladder_values = "scheduled", {"scheduled": when}
                 elif ladder is not None and ladder.acked:
                     ladder_ko = "확인돼 재알림 멈춤"
+                    ladder_taken = "acked"
                 elif ladder is not None:
                     ladder_ko = "재알림 예약 없음"
-            nodes.append(_node("ladder", ladder_ko))
+                    ladder_taken = "none"
+            nodes.append(_node("ladder", ladder_ko,
+                               branches=_branches(_LADDER_BRANCHES, ladder_taken, ladder_values)))
             emit(self._trace_event(rec, "safety", "followup", s["sim_id"], nodes, None,
                                    outcome_ko=f"{s['situation_ko']} — 2단계 판정 뒤"))
 
+    async def _pref_cells(self, svc: LiotService) -> tuple[dict[str, str], dict[str, float]]:
+        """선호 셀 읽기(읽기 전용 SELECT, preference_store.py:78-105): (제안 → 셀 키, 셀 값)."""
+        return dict(svc._prop_cell), await load_cells(svc.prefs)
+
+    def _expiry_pref(self, pid: str) -> tuple[float, float] | None:
+        """만료된 제안 칸의 이번 틱 직전·직후 선호. 못 읽었으면 None."""
+        tick = self._pref_tick
+        if tick is None or tick[2] is None or pid not in tick[0]:
+            return None
+        key = tick[0][pid]
+        return tick[1].get(key, NEUTRAL_PREF), tick[2].get(key, NEUTRAL_PREF)
+
     def _emit_feedback_trace(self, tracked: _Tracked, signal: str, source: str, code: str,
-                             title: str) -> None:
+                             title: str, *, pref: tuple[float, float] | None = None) -> None:
         """피드백 trace: 편의는 phone → feedback → prefs, 안전 확인은 phone → ack."""
         rec, emit = self._rec, self._trace_emit
         if rec is None or emit is None:
@@ -2003,13 +2072,21 @@ class DaySim:
                      _node("ack", "확인 반영 — 재알림을 멈춰요" if ok else f"반영되지 않음({code})",
                            state="done" if ok else "end")]
         elif signal == "expired":
-            nodes = [_node("phone", f"아무도 누르지 않아 만료 — {title}"),
-                     _node("feedback", "만료 신호 반영"),
+            pref_ko = ("선호 변화 기록 없음" if pref is None
+                       else f"이 제안 칸 선호 {pref[0]:.2f} → {pref[1]:.2f}")
+            nodes = [_node("phone", f"아무도 누르지 않아 만료 — {title}",
+                           branches=_branches(_FEEDBACK_BRANCHES, "expired")),
+                     _node("feedback", "만료 신호 반영",
+                           edge_ko=pref_ko + " · 같은 순간 다른 만료의 감쇠 포함"),
                      _node("prefs", "이번 단계 판단부터 반영")]
         else:
-            nodes = [_node("phone", f"{who} [{signal_ko}] — {title}"),
+            pref_ko = ("선호 변화 기록 없음" if pref is None
+                       else f"이 제안 칸 선호 {pref[0]:.2f} → {pref[1]:.2f}")
+            nodes = [_node("phone", f"{who} [{signal_ko}] — {title}",
+                           branches=_branches(_FEEDBACK_BRANCHES, signal if ok else "refused",
+                                              {} if ok else {"refused": f"[{signal_ko}]"})),
                      _node("feedback", "서명 링크 확인 → 반영" if ok else f"반영되지 않음({code})",
-                           state="done" if ok else "end"),
+                           state="done" if ok else "end", edge_ko=pref_ko if ok else None),
                      _node("prefs", "다음 판단부터 반영" if ok else "건너뜀",
                            state="done" if ok else "skipped")]
         line = (f"{who} [{signal_ko}] — {title}" if signal != "expired"
@@ -2390,6 +2467,32 @@ _GATE_BRANCHES: tuple[tuple[str, str, bool], ...] = (
     ("SUPPRESS", "보류", True),
     _UNKNOWN,
 )
+# 안전 2단계: 서비스는 올렸을 때만 후속을 보내고(service.py:641-672), '그대로'와 '올렸지만
+# 상황이 닫힘'은 둘 다 전송 없이 None 을 돌려준다(service.py:649-658) — 기록으로 가를 수 없어
+# not_sent 하나로 합친다. 마감 초과·판정 오류는 app.deadline_judgment(degraded, 제한시간/판정 오류).
+_MODEL_BRANCHES: tuple[tuple[str, str, bool], ...] = (
+    ("sent", "따라가는 알림 보냄", False),
+    ("not_sent", "따라가는 알림 없음 · 올렸는지 기록 없음", False),
+    ("deadline", "마감 초과 · 하한 유지", False),
+    ("error", "판정 오류 · 하한 유지", False),
+    _UNKNOWN,
+)
+# 재알림 사다리: 단계 끝 SafetyRepository.get_ladder 의 next_fire_at·acked.
+_LADDER_BRANCHES: tuple[tuple[str, str, bool], ...] = (
+    ("scheduled", "재알림 예약", False),
+    ("acked", "확인돼 멈춤", False),
+    ("none", "재알림 예약 없음", False),
+    _UNKNOWN,
+)
+# 피드백(편의): 응답 신호(feature_vector.py:48-55 SIGNAL_TARGET). 서버가 거절하면 refused 가 간 길이다.
+_FEEDBACK_BRANCHES: tuple[tuple[str, str, bool], ...] = (
+    ("accepted", "도움됐어요", False),
+    ("expired", "무시·만료", False),
+    ("dismissed", "그만해 → 30일 쉬기", False),
+    ("refused", "반영되지 않음", True),
+    _UNKNOWN,
+)
+
 # 후보 출처(ActionCandidate.origin, contracts.py:303 — 여러 줄이 같으면 '+'로 합친다,
 # proposal_lines.py:290) → 한국어.
 _ORIGIN_KO = {"rule": "규칙 줄", "line_a": "학습 줄", "line_b": "언어 모델 줄", "llm": "언어 모델 줄"}
@@ -2410,6 +2513,31 @@ def _origin_ko(origin: str) -> str:
     if not parts or not all(parts):
         return "출처 기록 없음"
     return "+".join(x for x in dict.fromkeys(parts) if x)
+
+
+def _json_probs(raw: Any) -> dict[str, dict[str, float]] | None:
+    """judgments.model_probs(JSON 글) → 질문별 확률. 읽지 못하면 None."""
+    if raw is None:
+        return None
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _jev_ko(probs: dict[str, dict[str, float]] | None, question: str) -> str | None:
+    """Jev 답의 최댓값 한 줄(단계 또는 파급도). 모르는 선택지면 None — 문구에서 뺀다."""
+    answer = (probs or {}).get(question) or {}
+    if not answer:
+        return None
+    top = max(answer, key=lambda k: answer[k])
+    try:
+        label = (RiskTier.from_str(top) if question == "tier" else SeverityLevel.from_str(top)).label_ko
+        pct = float(answer[top]) * 100
+    except Exception:  # noqa: BLE001 — 표시용 글, 실패하면 그 조각만 뺀다
+        return None
+    return f"{'Jev 최댓값' if question == 'tier' else '파급도 최댓값'} {label} {pct:.0f}%"
 
 
 def _ms(seconds: float | None) -> float | None:

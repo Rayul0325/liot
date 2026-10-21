@@ -581,7 +581,7 @@ def test_followup_says_sent_only_for_the_situation_phase2_raised(tmp_path: Path)
     follow = [t for t in _traces(events) if t["kind"] == "safety" and t["part"] == "followup"]
     assert len(follow) == 3
     said = [t["nodes"][2]["detail_ko"] for t in follow]
-    assert said == ["올린 판정으로 따라가는 알림을 보냈어요"] + ["올리지 않아 따라가는 알림 없음"] * 2
+    assert said == ["올린 판정으로 따라가는 알림을 보냈어요"] + ["따라가는 알림 없음 · 올렸는지 기록 없음"] * 2
     # 실제로 후속 알림이 나갔다(2단계가 백그라운드라 송신 단계는 phase2 가 아닐 수 있다).
     notices = [s for s in sim.safety_events if s["kind"] == "notice"]
     first = next(s for s in sim.safety_events if s.get("id") == follow[0]["proposal_id"])
@@ -709,7 +709,7 @@ def test_two_situations_in_one_step_get_their_own_followup(
     assert leak[1]["detail_ko"] == "파급도 위험(하한 경고)"
     assert leak[2]["detail_ko"] == "올린 판정으로 따라가는 알림을 보냈어요"
     assert gas[1]["detail_ko"] == "파급도 위험(하한 위험)"
-    assert gas[2]["detail_ko"] == "올리지 않아 따라가는 알림 없음"
+    assert gas[2]["detail_ko"] == "따라가는 알림 없음 · 올렸는지 기록 없음"
     firsts = [s for s in sim.safety_events if s["kind"] == "first_alert"]
     assert len({(s["day"], s["hhmm"]) for s in firsts}) == 1 and len(firsts) == 2
 
@@ -995,3 +995,278 @@ def test_score_edge_uses_greater_or_equal_on_a_tie(monkeypatch: pytest.MonkeyPat
     assert edge is not None and f"{sel.final_score} ≥ 아무것도 안 하기 {sel.final_score}" in edge
     _branches, edge = sim._score_branches(ev)
     assert edge is not None and " > 아무것도 안 하기 " in edge
+
+
+# ── 갈림길(안전·followup·피드백) · 선호 전후 ──────────────────────────────────
+
+_FIXED_BRANCHES_2 = {
+    ("followup", "model"): day_sim._MODEL_BRANCHES, ("followup", "ladder"): day_sim._LADDER_BRANCHES,
+    ("feedback", "phone"): day_sim._FEEDBACK_BRANCHES,
+}
+
+
+def _followups(events: Events) -> list[dict[str, Any]]:
+    return [t for t in _traces(events) if t["kind"] == "safety" and t["part"] == "followup"]
+
+
+def test_safety_and_feedback_branch_sets_match_the_tables(
+    seed7: tuple[DaySim, Events], tmp_path: Path,
+) -> None:
+    cloud = _run(DaySim(seed=7, days=2, models="cloud", cloud=_kit(tmp_path), trace=True))
+    seen: set[tuple[str, str]] = set()
+    for events in (seed7[1], cloud):
+        for t in _traces(events):
+            for n in t["nodes"]:
+                key = (t["part"], n["id"])
+                is_comfort_fb = t["kind"] == "feedback" and _node_of(t, "phone") and len(t["nodes"]) == 3
+                if key in _FIXED_BRANCHES_2 and (key[0] != "feedback" or is_comfort_fb):
+                    assert [b["key"] for b in n["branches"]] == [
+                        k for k, _, _ in _FIXED_BRANCHES_2[key]]
+                    _taken(n)
+                    seen.add(key)
+                elif t["kind"] == "safety" or (t["kind"] == "feedback" and not is_comfort_fb):
+                    assert n["branches"] == []
+    assert seen == set(_FIXED_BRANCHES_2)
+    for events in (seed7[1], cloud):
+        for t in _traces(events):
+            if t["kind"] == "safety" and t["part"] == "main":
+                assert _node_of(t, "classify")["edge_ko"] == "이상 값 → 안전 경보 경로"
+                first = _node_of(t, "first_alert")
+                assert first["edge_ko"] == f"모델 없이 즉시 · {first['real_ms']:.1f}ms"
+
+
+def test_followup_model_edges_fake_and_cloud(seed7: tuple[DaySim, Events], tmp_path: Path) -> None:
+    for t in _followups(seed7[1]):
+        assert _node_of(t, "model")["edge_ko"] == "가짜 판정(확률 없음)"
+        assert _taken(_node_of(t, "model"))["key"] == "not_sent"
+        assert _node_of(t, "severity")["edge_ko"] == "따라가는 알림 없음 · 올렸는지 기록 없음"
+        ladder = _taken(_node_of(t, "ladder"))
+        assert ladder["key"] == "scheduled" and re.fullmatch(r"\d\d:\d\d", ladder["value_ko"])
+    sim = DaySim(seed=7, days=2, models="cloud", cloud=_kit(tmp_path), trace=True)
+    cloud = _followups(_run(sim))
+    assert cloud
+    for t in cloud:
+        edge = _node_of(t, "model")["edge_ko"]
+        assert edge.startswith("Jev 최댓값 ") and " · 파급도 최댓값 " in edge and " · luna " in edge
+        assert _taken(_node_of(t, "ladder"))["key"] == "acked"
+
+
+def test_followup_sent_branch_and_its_edge(tmp_path: Path) -> None:
+    kit = _kit(tmp_path)
+    kit.judge = JevBackend(transport=_RaiseFirstSituation())
+    follow = _followups(_run(DaySim(seed=7, days=3, models="cloud", cloud=kit, trace=True)))
+    keys = [_taken(_node_of(t, "model"))["key"] for t in follow]
+    assert keys == ["sent", "not_sent", "not_sent"]
+    assert _node_of(follow[0], "severity")["edge_ko"] == "따라가는 알림 보냄"
+
+
+def test_followup_not_sent_when_the_raised_situation_already_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    from liot.db.safety_repo import SafetyRepo
+
+    real = SafetyRepo.get_open_situation
+
+    async def closed_for_phase2(self: Any, *a: Any, **kw: Any) -> Any:
+        # 2단계가 '올렸는데' 그 사이 상황이 닫힌 경우를 흉내 낸다(서비스는 보내지 않고 None).
+        if sys._getframe(1).f_code.co_name == "_run_phase2":
+            return None
+        return await real(self, *a, **kw)
+
+    monkeypatch.setattr(SafetyRepo, "get_open_situation", closed_for_phase2)
+    kit = _kit(tmp_path)
+    kit.judge = JevBackend(transport=_RaiseFirstSituation())
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=kit, trace=True)
+    follow = _followups(_run(sim))
+    assert len(follow) == 1
+    assert not [s for s in sim.safety_events if s["kind"] == "notice"]
+    model = _node_of(follow[0], "model")
+    assert _taken(model)["key"] == "not_sent"
+    assert _node_of(follow[0], "followup")["detail_ko"] == "따라가는 알림 없음 · 올렸는지 기록 없음"
+
+
+def test_followup_error_and_deadline_branches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Down(FakeJev):
+        def post(self, payload: dict[str, Any], *, timeout_s: float) -> dict[str, Any]:
+            raise RuntimeError("jev down")
+
+    kit = _kit(tmp_path / "down")
+    kit.judge = JevBackend(transport=Down())
+    follow = _followups(_run(DaySim(seed=7, days=1, models="cloud", cloud=kit, trace=True)))
+    assert follow and all(_taken(_node_of(t, "model"))["key"] == "error" for t in follow)
+    assert all(_node_of(t, "model")["edge_ko"] == "모델 응답 없음 · 하한 유지" for t in follow)
+
+    import threading
+    import time as _time
+
+    class SlowSeverity(FakeJev):
+        def __init__(self) -> None:
+            super().__init__()
+            self.slowed = threading.Event()
+
+        def post(self, payload: dict[str, Any], *, timeout_s: float) -> dict[str, Any]:
+            if "severity" in payload["questions"] and not self.slowed.is_set():
+                self.slowed.set()
+                _time.sleep(0.6)
+            return super().post(payload, timeout_s=timeout_s)
+
+    monkeypatch.setattr(day_sim, "CLOUD_PHASE2_DEADLINE_S", 0.2)
+    kit = _kit(tmp_path / "slow")
+    kit.judge = JevBackend(transport=SlowSeverity())
+    follow = _followups(_run(DaySim(seed=7, days=1, models="cloud", cloud=kit, trace=True)))
+    assert follow and _taken(_node_of(follow[0], "model"))["key"] == "deadline"
+
+
+def test_refused_tap_takes_the_refused_branch_with_the_choice() -> None:
+    sim = DaySim(seed=7, days=1, trace=True)
+    events: Events = []
+
+    def emit(stage: str, data: dict[str, Any]) -> None:
+        events.append((stage, data))
+        if stage == "proposal" and data["id"] == "p1":
+            sim.enqueue_feedback("p1", "dismissed")
+            sim.enqueue_feedback("p1", "accepted")  # 이미 처리된 제안 — 서버가 거절한다
+
+    asyncio.run(sim.run(emit))
+    fb = [d for st, d in events if st == "feedback" and d["id"] == "p1" and d["source"] == "viewer"]
+    assert [d["status"] for d in fb] == ["200", "403"]
+    traces = [t for t in _traces(events) if t["kind"] == "feedback" and t["proposal_id"] == "p1"]
+    refused = traces[1]
+    taken = _taken(_node_of(refused, "phone"))
+    assert taken["key"] == "refused" and taken["value_ko"] == "[도움됐어요]"
+    assert _node_of(refused, "feedback")["edge_ko"] is None
+    assert _taken(_node_of(traces[0], "phone"))["key"] == "dismissed"
+
+
+def test_pref_edges_equal_independent_reads_around_taps_and_ticks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from liot.layers.l2_context.feature_vector import NEUTRAL_PREF, load_cells
+    from liot.service import LiotService
+
+    taps: dict[str, tuple[float, float]] = {}
+    ticks: list[tuple[dict[str, str], dict[str, float], dict[str, float]]] = []
+    real_route, real_tick = LiotService._route_feedback, LiotService.run_tick
+
+    async def route(self: LiotService, request_line: str) -> Any:
+        pid = request_line.split("p=", 1)[1].split("&", 1)[0]
+        key = self._prop_cell.get(pid)
+        before = await load_cells(self.prefs)
+        out = await real_route(self, request_line)
+        after = await load_cells(self.prefs)
+        if key is not None:
+            taps[pid] = (before.get(key, NEUTRAL_PREF), after.get(key, NEUTRAL_PREF))
+        return out
+
+    async def tick(self: LiotService) -> Any:
+        cells, cell_of = await load_cells(self.prefs), dict(self._prop_cell)
+        out = await real_tick(self)
+        ticks.append((cell_of, cells, await load_cells(self.prefs)))
+        return out
+
+    monkeypatch.setattr(LiotService, "_route_feedback", route)
+    monkeypatch.setattr(LiotService, "run_tick", tick)
+    sim = DaySim(seed=7, days=3, trace=True)
+    events = _run(sim)
+    tap_n = exp_n = 0
+    for t in _traces(events):
+        if t["kind"] != "feedback" or len(t["nodes"]) != 3 or t["nodes"][1]["state"] != "done":
+            continue
+        pid = sim._tracked[t["proposal_id"]].pid
+        edge = _node_of(t, "feedback")["edge_ko"]
+        if _taken(_node_of(t, "phone"))["key"] == "expired":
+            # 만료는 그 단계 틱의 직전·직후 값(같은 틱의 다른 만료 감쇠 포함).
+            candidates = {f"이 제안 칸 선호 {b.get(c[pid], NEUTRAL_PREF):.2f} → "
+                          f"{a.get(c[pid], NEUTRAL_PREF):.2f} · 같은 순간 다른 만료의 감쇠 포함"
+                          for c, b, a in ticks if pid in c and b != a}
+            assert edge in candidates
+            exp_n += 1
+        else:
+            before, after = taps[pid]
+            assert edge == f"이 제안 칸 선호 {before:.2f} → {after:.2f}"
+            tap_n += 1
+    assert tap_n >= 3 and exp_n >= 1
+
+
+@pytest.mark.parametrize("name", ["_pref_cells", "_expiry_pref", "_safety_model_text_ko"])
+def test_phase2_builder_errors_never_change_the_run(
+    name: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(*a: Any, **kw: Any) -> Any:
+        raise RuntimeError("builder broke")
+
+    monkeypatch.setattr(DaySim, name, boom)
+    on = DaySim(seed=7, days=3, trace=True)
+    off = DaySim(seed=7, days=3)
+    on_events, off_events = _run(on), _run(off)
+    assert [(st, d) for st, d in on_events if st != "trace"] == off_events
+    assert on.summary() == off.summary()
+    firsts = [s for s in on.safety_events if s["kind"] == "first_alert"]
+    assert len(firsts) == 3 and all(f["sent"] and f["decision"] == "IMMEDIATE" for f in firsts)
+    if name == "_pref_cells":
+        edges = [_node_of(t, "feedback")["edge_ko"] for t in _traces(on_events)
+                 if t["kind"] == "feedback" and len(t["nodes"]) == 3
+                 and t["nodes"][1]["state"] == "done"]
+        assert edges and all(e.startswith("선호 변화 기록 없음") for e in edges)
+
+
+def test_cloud_trace_on_and_off_make_the_same_decisions_and_sends(tmp_path: Path) -> None:
+    def run(trace: bool) -> tuple[DaySim, Events]:
+        sim = DaySim(seed=7, days=3, models="cloud", cloud=_kit(tmp_path / str(trace)), trace=trace)
+        return sim, _run(sim)
+
+    (on, on_events), (off, off_events) = run(True), run(False)
+
+    def stable(events: Events) -> list[tuple[Any, ...]]:
+        keep = ("proposal", "safety", "feedback", "step", "digest", "day.end")
+        return [(st, d.get("id"), d.get("kind"), d.get("hhmm"), d.get("decision"), d.get("signal"),
+                 d.get("status")) for st, d in events if st in keep]
+
+    assert stable(on_events) == stable(off_events)
+    assert [(s["kind"], s.get("phase"), s.get("id"), s.get("hhmm")) for s in on.safety_events] == [
+        (s["kind"], s.get("phase"), s.get("id"), s.get("hhmm")) for s in off.safety_events]
+    assert [(p["id"], p["decision"], p.get("state")) for p in on.proposals] == [
+        (p["id"], p["decision"], p.get("state")) for p in off.proposals]
+
+
+def test_a_failing_after_read_leaves_no_pref_value_and_the_run_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 전 읽기는 되고 후 읽기만 깨지는 경우(틱·누름 모두 전·후가 이어서 불린다): 짝수 번째 호출만 실패.
+    calls = {"n": 0}
+    real = DaySim._pref_cells
+
+    async def flaky(self: DaySim, svc: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] % 2 == 0:
+            raise RuntimeError("after read broke")
+        return await real(self, svc)
+
+    monkeypatch.setattr(DaySim, "_pref_cells", flaky)
+    on = DaySim(seed=7, days=3, trace=True)
+    off = DaySim(seed=7, days=3)
+    on_events, off_events = _run(on), _run(off)
+    assert [(st, d) for st, d in on_events if st != "trace"] == off_events
+    edges = [_node_of(t, "feedback")["edge_ko"] for t in _traces(on_events)
+             if t["kind"] == "feedback" and len(t["nodes"]) == 3 and t["nodes"][1]["state"] == "done"]
+    assert edges and all(e.startswith("선호 변화 기록 없음") for e in edges)
+    assert calls["n"] > 10
+
+
+def test_pref_reads_happen_only_in_trace_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"n": 0}
+    real = DaySim._pref_cells
+
+    async def count(self: DaySim, svc: Any) -> Any:
+        calls["n"] += 1
+        return await real(self, svc)
+
+    monkeypatch.setattr(DaySim, "_pref_cells", count)
+    _run(DaySim(seed=7, days=2))
+    assert calls["n"] == 0
+    _run(DaySim(seed=7, days=2, trace=True))
+    assert calls["n"] > 0
