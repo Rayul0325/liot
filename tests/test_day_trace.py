@@ -1426,3 +1426,38 @@ def test_feedback_main_edge_names_the_applied_answer() -> None:
         else:
             assert phone["edge_ko"] == taken["label_ko"]
     assert {"dismissed", "refused"} <= keys and keys & {"accepted", "expired"}
+
+
+def test_first_alert_detail_uses_the_same_rounded_ms_as_the_edge() -> None:
+    import datetime
+    from types import SimpleNamespace
+
+    sim = DaySim(seed=7, days=1, trace=True)
+    out: list[dict[str, Any]] = []
+    sim._trace_emit = out.append
+    p = SimpleNamespace(proposal_id="pid-1", risk_tier=RiskTier.EMBER, severity=None,
+                        judgment_id="j-1", situation_id="s-1")
+    transport = SimpleNamespace(sent_at={"pid-1": 10.0026549})  # 2.6549ms — 반올림 경계
+    step = SimpleNamespace(at_local=datetime.datetime(2026, 6, 1, 13, 0))
+    sim._emit_safety_main(transport, step, day_sim.LEAK, "leak", "누수", "p1", p, 10.0)  # type: ignore[arg-type]
+    first = _node_of(out[0], "first_alert")
+    ms = f"{first['real_ms']:.1f}ms"
+    assert first["detail_ko"] == f"읽기부터 첫 경보 전송까지 {ms} · 모델 없이"
+    assert first["edge_ko"].endswith(ms)
+
+
+def test_jev_answer_equal_to_the_floor_is_not_called_below_it(tmp_path: Path) -> None:
+    from liot.core.severity import SeverityLevel
+
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=_kit(tmp_path), trace=True)
+    assert sim._kit is not None and sim._kit.judge is not None
+    row = {"degraded": False, "model_id": sim._kit.judge.model_id,
+           "severity_floor": SeverityLevel.WARNING,
+           "model_probs": {"tier": {"ambient": 0.1, "ember": 0.9},
+                           "severity": {"record": 0.2, "warning": 0.8}}}
+    text = sim._safety_model_text_ko(row, day_sim.LEAK, "13:00", RiskTier.EMBER)
+    assert text == "Jev 최댓값 불씨 90% · 파급도 최댓값 경고 80%"
+    # 한 칸 낮으면 둘 다 '아래'다(같은 값에서만 빠진다).
+    row["model_probs"] = {"tier": {"dusk": 0.9}, "severity": {"notice": 0.8}}
+    text = sim._safety_model_text_ko(row, day_sim.LEAK, "13:00", RiskTier.EMBER)
+    assert text.count("아래라 반영 안 됨") == 2

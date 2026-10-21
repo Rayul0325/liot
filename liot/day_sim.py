@@ -1957,7 +1957,7 @@ class DaySim:
             _node("classify", f"안전 카테고리 — {situation_ko}", edge_ko="이상 값 → 안전 경보 경로"),
             _node("floor", floor_ko),
             _node("first_alert", "읽기부터 첫 경보 전송까지 "
-                  + ("—" if first_s is None else f"{first_s * 1000.0:.1f}ms") + " · 모델 없이",
+                  + ("—" if first_s is None else f"{_ms(first_s):.1f}ms") + " · 모델 없이",
                   real_s=first_s,
                   # 노드의 real_ms 와 같은 반올림 값에서 만든다 — 두 값이 갈리지 않는다.
                   edge_ko="모델 없이 즉시" + ("" if first_s is None
