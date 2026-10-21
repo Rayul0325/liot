@@ -17,12 +17,13 @@
   const VIEW_W = 1600;
   const VIEW_H = 760;
   const NODE_W = 130;
-  const NODE_H = 58;
+  /** 노드 높이: 이름(18) + 시간 두 줄(15) — '실제 …ms · 시연 …초'는 폭 130 에 한 줄로 들지 않는다. */
+  const NODE_H = 74;
   /** 갈림길 칩 묶음: 노드 아래 y+40 ~ y+240, 칩 하나 22. 노드 왼쪽 끝에 맞추고 폭은 열 간격(240)보다 좁게
    * — 다음 열 칩과 24 띄운다(왼쪽 바깥 8 은 간 칩 연결선 통로). */
   const CHIP = { top: 40, bottom: 240, h: 22, w: 216 };
-  /** 엣지 문구 알약: 아래 끝이 엣지 위 34, 폭은 열 간격(240) 안. 줄바꿈하고 줄이지 않는다. */
-  const PILL = { gap: 34, w: 230, h: 90 };
+  /** 엣지 문구 알약: 아래 끝이 엣지 위 42(노드 위 끝 37 바로 위), 폭은 열 간격(240) 안. 줄바꿈하고 줄이지 않는다. */
+  const PILL = { gap: 42, w: 230, h: 90 };
   /** 오른쪽 폰 알림창 자리(그래프와 같은 SVG 안, foreignObject). */
   const PANE = { x: 1240, y: 40, w: 340, h: 680 };
   /** 좁은 화면(day.css 와 같은 640px): 노드를 한 줄로 세우고 설명은 오른쪽, 폰은 그래프 아래. */
@@ -34,10 +35,12 @@
    * @type {Record<string, Record<string, [number, number]>>}
    */
   // 그래프 영역 x 20~1220: 노드 폭 130, 열 간격 240 → 열 가운데 85·325·565·805·1045.
+  // 편의는 두 줄(y 220·590). 위 '침묵' 길(y 50)은 1줄 출구, 아래 '침묵' 길(y 700)과 알림 게이트 밑
+  // '모아보기'·'보류'는 2줄 출구를 받는다. 점수 후보 부채는 1줄 아래(y 272~), 줄바꿈 통로는 y 478.
   const LAYOUTS = {
     comfort: {
-      sense: [85, 130], rules: [325, 130], score: [565, 130], context: [805, 130], gate1: [1045, 130],
-      judge: [85, 450], route: [325, 450], gate: [565, 450], phone: [805, 450], reason: [1045, 450],
+      sense: [85, 220], rules: [325, 220], score: [565, 220], context: [805, 220], gate1: [1045, 220],
+      judge: [85, 590], route: [325, 590], gate: [565, 590], phone: [805, 590], reason: [1045, 590],
     },
     safety: {
       sense: [85, 300], classify: [325, 300], floor: [565, 300], first_alert: [805, 300],
@@ -46,6 +49,15 @@
     followup: { model: [85, 300], severity: [325, 300], followup: [565, 300], ladder: [805, 300] },
     feedback: { phone: [1045, 300], feedback: [805, 300], prefs: [565, 300], ack: [805, 300] },
   };
+  /** 출구 길: 위·아래 '침묵' 길의 높이와 끝, 알림 게이트 밑 두 싱크(가운데 x). */
+  const LANE = { top: 50, bottom: 700, left: 20, right: 1220, bottomRight: 450 };
+  const SINKS = { DIGEST: 515, SUPPRESS: 645 };
+  const SINK = { w: 110, h: 28 };
+  /** 편의 판단 노드의 출구 모양: 위 길 · 아래 길 · 점수 부채 · 알림 게이트 싱크. */
+  const EXIT_OF = { rules: "top", gate1: "top", score: "fan", judge: "bottom", gate: "sinks" };
+  /** 점수 후보 부채(점수 노드 오른쪽 아래). */
+  const FAN = { x: 640, y: 282, w: 260, h: 190, noopLane: 920 };
+
   /** 폰 알림창으로 이어지는 노드(피드백은 폰 쪽에서 들어온다). */
   const PANE_NODE = { comfort: "phone", safety: "phone", followup: "followup", feedback: "phone" };
 
@@ -64,6 +76,8 @@
     open: false, traces: [], queue: [], shown: null, playing: false, skip: false, wake: null,
     speed: "normal", played: 0, cards: new Map(), screen: null, feed: null, nodeEls: new Map(),
     edgeEls: new Map(), drawn: [], paneNode: null, marks: [], feedDay: null,
+    // 판단 노드 id → 그 노드의 출구 요소들(출구 엣지·이유 칩·싱크). mark() 가 상태를 같이 바꾼다.
+    exitEls: new Map(),
     // 재생 세대: 새 실행·처음부터 다시 보기마다 1 오른다. 진행 중이던 play() 는 세대가 바뀌면 손을 뗀다.
     gen: 0,
   };
@@ -138,7 +152,7 @@
     if (bx < ax && by > ay) {
       // 줄바꿈(오른쪽 끝 → 다음 줄 왼쪽 끝): 칩 묶음을 가로지르지 않게 바깥 통로로 돈다.
       const lane = laneY(ay);
-      const outX = ax - NODE_W / 2 + CHIP.w + 10; // 윗줄 마지막 열의 칩 묶음 오른쪽 바깥
+      const outX = ax + NODE_W / 2 + 30; // 윗줄 마지막 열 오른쪽 바깥
       const inX = bx - NODE_W / 2 - 10;
       return [[ax + NODE_W / 2, ay], [outX, ay], [outX, lane], [inX, lane], [inX, by],
         [bx - NODE_W / 2, by]];
@@ -154,7 +168,7 @@
    * @returns {number}
    */
   function laneY(ay) {
-    return ay + CHIP.bottom + 10;
+    return ay + 258; // 편의 1줄(220) → 478: 점수 후보 부채 아래, 2줄 문구 알약 위
   }
 
   /**
@@ -273,13 +287,29 @@
   }
 
   /**
+   * 노드 시간 글: ' · ' 로 나뉜 조각을 줄마다 한 줄(tspan)로 쓴다.
+   * @param {Element} meta
+   * @param {string} text
+   */
+  function setTime(meta, text) {
+    clear(meta);
+    const x = meta.getAttribute("x") || "0";
+    text.split(" · ").forEach((part, i) => {
+      const line = svg("tspan", { x: x, dy: i === 0 ? 0 : 18 });
+      line.textContent = part;
+      meta.appendChild(line);
+    });
+  }
+
+  /**
    * 노드 하나: 둥근 사각형 + 이름 + 실제 시간(잰 단계만). 설명은 SVG 제목(마우스오버)과 자막.
    * @param {Object} n
    * @param {[number, number]} at
    * @param {boolean} [thin] 좁은 화면(칩은 아직 그리지 않는다)
+   * @param {boolean} [stack] 노드 아래 칩 묶음(편의는 출구 길로 그리므로 false)
    * @returns {SVGElement}
    */
-  function nodeEl(n, at, thin) {
+  function nodeEl(n, at, thin, stack) {
     const [cx, cy] = at;
     const g = svg("g", { class: "dm-node", "data-id": n.id, "data-state": n.state });
     const title = svg("title");
@@ -289,17 +319,261 @@
       x: cx - NODE_W / 2, y: cy - NODE_H / 2, width: NODE_W, height: NODE_H, rx: 12,
       class: "dm-node-box",
     }));
-    const label = svg("text", { x: cx, y: cy - 4, class: "dm-node-label", "text-anchor": "middle" });
+    const label = svg("text", { x: cx, y: cy - 10, class: "dm-node-label", "text-anchor": "middle" });
     label.textContent = n.label_ko;
     g.appendChild(label);
-    const meta = svg("text", { x: cx, y: cy + 16, class: "dm-node-time", "text-anchor": "middle" });
-    meta.textContent = typeof n.real_ms === "number" ? "실제 " + n.real_ms + "ms" : "";
+    const meta = svg("text", { x: cx, y: cy + 10, class: "dm-node-time", "text-anchor": "middle" });
+    setTime(meta, typeof n.real_ms === "number" ? "실제 " + n.real_ms + "ms" : "");
     g.appendChild(meta);
-    if (!thin) {
+    if (!thin && stack !== false) {
       const chips = chipsEl(n, at);
       if (chips) g.appendChild(chips);
     }
     return g;
+  }
+
+  // ── 편의 분기: 출구 길·싱크·점수 부채 ─────────────────────────────────────
+
+  /**
+   * 화살표 경로(선 + 끝 삼각형) — 엣지와 같은 모양, 다른 클래스.
+   * @param {[number, number][]} pts
+   * @param {string} cls
+   * @returns {SVGElement[]}
+   */
+  function arrow(pts, cls) {
+    const d = pts.map((p, i) => (i === 0 ? "M" : "L") + p[0] + "," + p[1]).join(" ");
+    const [px, py] = pts[pts.length - 2];
+    const [qx, qy] = pts[pts.length - 1];
+    const len = Math.hypot(qx - px, qy - py) || 1;
+    const ux = (qx - px) / len;
+    const uy = (qy - py) / len;
+    const s = 6;
+    const tri = [[qx, qy], [qx - ux * s * 1.6 - uy * s, qy - uy * s * 1.6 + ux * s],
+      [qx - ux * s * 1.6 + uy * s, qy - uy * s * 1.6 - ux * s]];
+    return [
+      svg("path", { d: d, class: cls + "-line" }),
+      svg("path", { d: "M" + tri.map((p) => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" L") + " Z",
+        class: cls + "-head" }),
+    ];
+  }
+
+  /**
+   * 출구로 그릴 갈림길: 출구(exit)와 모아보기. '기록 없음'·'반영되지 않음'은 간 경우만.
+   * @param {Object} n
+   * @returns {Object[]}
+   */
+  function exitBranches(n) {
+    return visibleBranches(n).filter((b) => b.exit || b.key === "DIGEST");
+  }
+
+  /**
+   * 이 노드에서 간 길이 출구인가(본선이면 false).
+   * @param {Object} n
+   * @returns {boolean}
+   */
+  function tookExit(n) {
+    return exitBranches(n).some((b) => b.taken);
+  }
+
+  /**
+   * 출구 엣지 하나를 담는 묶음(상태는 노드를 따른다).
+   * @param {Object} n
+   * @param {boolean} final
+   * @returns {SVGElement}
+   */
+  function exitGroup(n, final) {
+    const g = svg("g", { class: "dm-exit" + (tookExit(n) ? " dm-exit-taken" : ""), "data-id": n.id,
+      "data-state": final ? n.state : "pending" });
+    const list = D.exitEls.get(n.id) || [];
+    list.push(g);
+    D.exitEls.set(n.id, list);
+    return g;
+  }
+
+  /**
+   * 출구 길에 닿은 자리의 이유 칩 묶음(서버 갈림길 글 그대로, 줄바꿈).
+   * @param {Object} n
+   * @param {Object[]} branches
+   * @param {number} x
+   * @param {number} y
+   * @param {number} w
+   * @param {number} h
+   * @returns {SVGElement}
+   */
+  function reasonList(n, branches, x, y, w, h) {
+    const fo = svg("foreignObject", { x: x, y: y, width: w, height: h, class: "dm-reasons-box" });
+    const list = el("div", "dm-reasons");
+    branches.forEach((b) => {
+      const chip = el("div", "dm-chip dm-branch" + (b.taken ? " dm-chip-taken dm-branch-taken" : "")
+        + (b.exit ? " dm-chip-exit" : ""), chipText(b));
+      chip.dataset.node = n.id;
+      chip.dataset.key = b.key;
+      chip.title = chipText(b);
+      list.appendChild(chip);
+    });
+    fo.appendChild(list);
+    return fo;
+  }
+
+  /**
+   * 위·아래 '침묵' 길과 알림 게이트 밑 싱크 두 개(모아보기·보류).
+   * @param {Object[]} drawn
+   * @param {boolean} final
+   * @returns {SVGElement}
+   */
+  function lanesEl(drawn, final) {
+    const g = svg("g", { class: "dm-lanes" });
+    const byId = new Map(drawn.map((n) => [n.id, n]));
+    const lit = (ids) => ids.some((id) => byId.has(id) && tookExit(byId.get(id))
+      && (final || byId.get(id).state !== "skipped"));
+    const scoreNoop = byId.has("score") && (byId.get("score").branches || []).some(
+      (b) => b.key === "noop" && b.taken);
+    const lane = (x0, x1, y, on, ids) => {
+      const lg = svg("g", { class: "dm-lane" + (on ? " dm-lane-taken" : ""), "data-state": final ? "done" : "pending" });
+      lg.appendChild(svg("path", { d: "M" + x0 + "," + y + " L" + x1 + "," + y, class: "dm-lane-line" }));
+      const t = svg("text", { x: x0 + 4, y: y === LANE.top ? y - 10 : y + 26, class: "dm-lane-label" });
+      t.textContent = "침묵";
+      lg.appendChild(t);
+      ids.forEach((id) => {
+        const list = D.exitEls.get(id) || [];
+        list.push(lg);
+        D.exitEls.set(id, list);
+      });
+      g.appendChild(lg);
+    };
+    const topOn = lit(["rules", "gate1"]) || scoreNoop;
+    const topIds = ["rules", "gate1", "score"].filter((id) => byId.has(id) && (
+      id === "score" ? scoreNoop : tookExit(byId.get(id))));
+    lane(LANE.left, LANE.right, LANE.top, topOn, topIds);
+    const judgeOn = lit(["judge"]);
+    lane(LANE.left, LANE.bottomRight, LANE.bottom, judgeOn, judgeOn ? ["judge"] : []);
+    return g;
+  }
+
+  /**
+   * 편의 판단 노드 하나의 출구(위·아래 길로 가는 점선 화살표 + 이유 칩, 또는 게이트 싱크).
+   * @param {Object} n
+   * @param {[number, number]} at
+   * @param {boolean} final
+   * @returns {SVGElement|null}
+   */
+  function exitEl(n, at, final) {
+    const kind = EXIT_OF[n.id];
+    if (!kind || kind === "fan") return null;
+    const [cx, cy] = at;
+    const g = exitGroup(n, final);
+    const branches = exitBranches(n);
+    if (kind === "top") {
+      const x = cx + 30;
+      arrow([[x, cy - NODE_H / 2], [x, LANE.top]], "dm-exit").forEach((p) => g.appendChild(p));
+      // 이유 칩은 길 바로 아래: 규칙은 점수·맥락 열 위까지 넓게, 1차 안전 검사는 그래프 오른쪽 끝까지.
+      const w = n.id === "rules" ? 380 : LANE.right - (x + 8);
+      if (branches.length) g.appendChild(reasonList(n, branches, x + 8, LANE.top + 6, w, 104));
+    } else if (kind === "bottom") {
+      const x = cx + 30;
+      arrow([[x, cy + NODE_H / 2], [x, LANE.bottom]], "dm-exit").forEach((p) => g.appendChild(p));
+      if (branches.length) g.appendChild(reasonList(n, branches, x + 8, LANE.bottom + 6, 320, 54));
+    } else {
+      // 알림 게이트: 모아보기·보류 싱크로 가는 두 출구. 간 쪽만 강조한다.
+      [["DIGEST", -20], ["SUPPRESS", 20]].forEach(([key, dx]) => {
+        const b = branches.find((x) => x.key === key);
+        const sx = SINKS[key];
+        const one = svg("g", { class: "dm-sink" + (b && b.taken ? " dm-sink-taken" : "") });
+        arrow([[cx + Number(dx), cy + NODE_H / 2], [cx + Number(dx), cy + 60], [sx, cy + 60],
+          [sx, LANE.bottom - SINK.h / 2]], "dm-exit").forEach((p) => one.appendChild(p));
+        const fo = svg("foreignObject", { x: sx - SINK.w / 2, y: LANE.bottom - SINK.h / 2, width: SINK.w,
+          height: SINK.h + 30, class: "dm-sink-box" });
+        const box = el("div", "dm-sink-card");
+        const label = el("div", "dm-sink-label dm-branch" + (b && b.taken ? " dm-branch-taken" : ""),
+          b ? b.label_ko : String(key === "DIGEST" ? "모아보기" : "보류"));
+        label.dataset.node = n.id;
+        label.dataset.key = String(key);
+        if (!b) label.classList.remove("dm-branch"); // 서버 갈림길이 없으면 세지 않는다(건너뜀)
+        box.appendChild(label);
+        if (b && b.value_ko) box.appendChild(el("div", "dm-sink-value", b.value_ko));
+        fo.appendChild(box);
+        one.appendChild(fo);
+        g.appendChild(one);
+      });
+      const extra = branches.filter((b) => b.key !== "DIGEST" && b.key !== "SUPPRESS");
+      if (extra.length) g.appendChild(reasonList(n, extra, SINKS.SUPPRESS + SINK.w / 2 + 8, LANE.bottom - 14, 160, 54));
+    }
+    return g;
+  }
+
+  /**
+   * 점수 후보 부채: 점수 노드 오른쪽 아래에 후보 알약, 점수 노드에서 짧은 엣지(그 점수)로 잇는다.
+   * 고른 후보는 굵은 강조로 맥락까지 이어지고, '아무것도 안 하기'는 위 침묵 길로 간다.
+   * @param {Object} n 점수 노드
+   * @param {[number, number]} at
+   * @param {[number, number]} next 맥락 노드 좌표
+   * @param {Object|undefined} nextNode
+   * @param {boolean} final
+   * @param {Element} box
+   * @returns {boolean} 부채를 그렸으면 true(맥락으로 가는 일반 엣지를 대신한다)
+   */
+  function fanEl(n, at, next, nextNode, final, box) {
+    const shown = visibleBranches(n);
+    if (!shown.length) return false;
+    const num = (b) => Number.parseFloat(b.value_ko || "") || 0;
+    const order = shown.slice().sort((a, b) => (num(b) - num(a)) || (Number(b.taken) - Number(a.taken)));
+    const g = exitGroup(n, final);
+    g.classList.add("dm-fan");
+    const fo = svg("foreignObject", { x: FAN.x, y: FAN.y, width: FAN.w, height: FAN.h, class: "dm-fan-box" });
+    const list = el("div", "dm-fan-list");
+    const pills = order.map((b) => {
+      const sel = b.taken && b.key !== "noop" && n.edge_ko;
+      const text = sel ? n.edge_ko : b.label_ko;
+      const pill = el("div", "dm-fan-pill dm-branch" + (b.taken ? " dm-branch-taken" : "")
+        + (b.key === "noop" ? " dm-fan-noop" : "") + (sel ? " dm-pill" : ""), text);
+      pill.dataset.node = n.id;
+      pill.dataset.key = b.key;
+      pill.title = b.label_ko + (b.value_ko ? " · " + b.value_ko : "");
+      list.appendChild(pill);
+      return pill;
+    });
+    fo.appendChild(list);
+    g.appendChild(fo);
+    box.appendChild(g); // 높이를 재려면 문서 안에 있어야 한다
+    const [cx, cy] = at;
+    let fallback = 0;
+    const mids = pills.map((p) => {
+      const h = p.offsetHeight || 26;
+      const top = p.offsetHeight ? p.offsetTop : fallback;
+      fallback += h + 6;
+      return { top: FAN.y + top, mid: FAN.y + top + h / 2 };
+    });
+    const stubs = svg("g", { class: "dm-fan-stubs" });
+    order.forEach((b, i) => {
+      const cls = "dm-fan-stub" + (b.taken ? " dm-fan-stub-taken" : "");
+      const sg = svg("g", { class: cls });
+      arrow([[cx, cy + NODE_H / 2], [cx, mids[i].mid], [FAN.x, mids[i].mid]], "dm-fan").forEach(
+        (p) => sg.appendChild(p));
+      const score = svg("text", { x: FAN.x - 6, y: mids[i].mid - 5, class: "dm-fan-score", "text-anchor": "end" });
+      score.textContent = b.value_ko || "";
+      sg.appendChild(score);
+      if (b.taken) stubs.appendChild(sg);
+      else stubs.insertBefore(sg, stubs.firstChild); // 간 줄을 맨 위에 그린다
+    });
+    g.insertBefore(stubs, fo);
+    // '아무것도 안 하기' → 위 침묵 길.
+    const noopIdx = order.findIndex((b) => b.key === "noop");
+    if (noopIdx >= 0) {
+      const ng = svg("g", { class: "dm-fan-exit" + (order[noopIdx].taken ? " dm-fan-exit-taken" : "") });
+      arrow([[FAN.x + FAN.w, mids[noopIdx].mid], [FAN.noopLane, mids[noopIdx].mid], [FAN.noopLane, LANE.top]],
+        "dm-exit").forEach((p) => ng.appendChild(p));
+      g.appendChild(ng);
+    }
+    // 고른 후보 → 맥락(본선).
+    const selIdx = order.findIndex((b) => b.taken && b.key !== "noop");
+    if (selIdx >= 0 && nextNode) {
+      const go = svg("g", { class: "dm-edge dm-fan-go", "data-state": final ? nextNode.state : "pending" });
+      arrow([[next[0], mids[selIdx].top], [next[0], next[1] + NODE_H / 2]], "dm-edge").forEach(
+        (p) => go.appendChild(p));
+      box.appendChild(go);
+      D.edgeEls.set(nextNode.id, go);
+    }
+    return true;
   }
 
   /**
@@ -521,19 +795,42 @@
     box.classList.toggle("dm-svg-thin", thin);
     const edges = svg("g", { class: "dm-edges" });
     const nodes = svg("g", { class: "dm-nodes" });
+    D.exitEls = new Map();
+    const branching = kind === "comfort" && !thin;
+    const scoreNode = drawn.find((n) => n.id === "score");
+    const fan = branching && scoreNode !== undefined && visibleBranches(scoreNode).length > 0;
+    const exits = svg("g", { class: "dm-exits" });
+    if (branching) {
+      drawn.forEach((n) => {
+        const x = exitEl(n, table[n.id], Boolean(final));
+        if (x) exits.appendChild(x);
+      });
+      if (scoreNode && !fan) {
+        // 점수를 건너뛴 침묵: 후보는 없지만 출구 자리는 그린다.
+        const [sx, sy] = table.score;
+        const g = exitGroup(scoreNode, Boolean(final));
+        arrow([[sx + 30, sy - NODE_H / 2], [sx + 30, LANE.top]], "dm-exit").forEach((p) => g.appendChild(p));
+        exits.appendChild(g);
+      }
+      box.appendChild(lanesEl(drawn, Boolean(final)));
+    }
     for (let i = 0; i < drawn.length; i += 1) {
       const n = drawn[i];
-      const g = nodeEl(n, table[n.id], thin);
+      const g = nodeEl(n, table[n.id], thin, !branching);
       if (!final) {
         g.setAttribute("data-state", "pending");
         const meta = g.querySelector(".dm-node-time");
-        if (meta) meta.textContent = "";
+        if (meta) setTime(meta, "");
       }
       D.nodeEls.set(n.id, g);
       nodes.appendChild(g);
-      if (i > 0) {
-        const e = edge(route(table[drawn[i - 1].id], table[n.id]), final ? n.state : "pending",
-          thin ? null : drawn[i - 1].edge_ko);
+      if (i > 0 && !(fan && n.id === "context")) {
+        const prev = drawn[i - 1];
+        const e = edge(route(table[prev.id], table[n.id]), final ? n.state : "pending",
+          thin ? null : prev.edge_ko);
+        // 출구로 간 판단 노드 다음의 본선, 바로 알림이 아닌 알림 게이트 다음의 본선은 불을 켜지 않는다.
+        if (branching && (tookExit(prev) || (prev.id === "gate" && !(prev.branches || []).some(
+          (b) => b.key === "IMMEDIATE" && b.taken)))) e.classList.add("dm-edge-off");
         D.edgeEls.set(n.id, e);
         edges.appendChild(e);
       }
@@ -553,8 +850,13 @@
       edges.appendChild(link);
     }
     D.paneNode = target ? target.id : null;
+    box.appendChild(exits);
     box.appendChild(edges);
     box.appendChild(nodes);
+    if (fan && scoreNode) {
+      const ctx = drawn.find((n) => n.id === "context");
+      fanEl(scoreNode, table.score, table.context, ctx, Boolean(final), box);
+    }
     placePane(box, thin);
     $("demoOutcome").textContent = t.outcome_ko || "";
     $("demoWaiting").hidden = true;
@@ -650,6 +952,7 @@
     if (g) g.setAttribute("data-state", state);
     const e = D.edgeEls && D.edgeEls.get(id);
     if (e) e.setAttribute("data-state", state);
+    for (const x of (D.exitEls && D.exitEls.get(id)) || []) x.setAttribute("data-state", state);
     D.marks.push({ trace: D.shown ? D.shown.trace_id : null, id: id, state: state, at: performance.now() });
     if (D.marks.length > 2000) D.marks.splice(0, 1000);
   }
@@ -672,7 +975,7 @@
       mark(n.id, "current");
       follow(D.nodeEls.get(n.id));
       const meta = D.nodeEls.get(n.id).querySelector(".dm-node-time");
-      if (meta) meta.textContent = timeLabel(n);
+      if (meta) setTime(meta, timeLabel(n));
       $("demoCaption").textContent = captionOf(n);
       onEnter(t, n);
       if (n.id === D.paneNode && D.edgeEls.get("__pane__")) {

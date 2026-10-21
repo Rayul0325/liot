@@ -95,12 +95,12 @@ body.dm-lock {
   opacity: 0.3;
 }
 .dm-node-label {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
   fill: var(--ink);
 }
 .dm-node-time {
-  font-size: 13px;
+  font-size: 15px;
   fill: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
@@ -120,7 +120,7 @@ body.dm-lock {
   border-radius: 10px;
   background: var(--bg);
   color: var(--ink-3);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 18px;
   white-space: nowrap;
   overflow: hidden;
@@ -157,7 +157,7 @@ body.dm-lock {
   border-radius: 9px;
   background: var(--bg);
   color: var(--ink);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.3;
   text-align: center;
   overflow-wrap: anywhere;
@@ -201,11 +201,146 @@ body.dm-lock {
 .dm-edge[data-state="skipped"] {
   opacity: 0.15;
 }
+/* 간 본선은 강조색 그대로(굵게) — 출구로 빠진 뒤의 본선·바로 알림이 아닌 게이트 뒤 본선은 꺼 둔다 */
 .dm-edge[data-state="done"] .dm-edge-line {
-  stroke: var(--ink-3);
+  stroke-width: 2.5;
 }
-.dm-edge[data-state="done"] .dm-edge-head {
+.dm-edge.dm-edge-off {
+  opacity: 0.15;
+}
+.dm-fan-go .dm-edge-line {
+  stroke-width: 3;
+}
+
+/* ── 출구: 점선 화살표 · '침묵' 길 · 싱크 — 간 출구만 강조색(안전은 빨강), 나머지는 흐린 점선 ── */
+.dm-exit-line,
+.dm-fan-line {
+  fill: none;
+  stroke: var(--hair-2);
+  stroke-width: 1.5;
+}
+.dm-exit-line {
+  stroke-dasharray: 5 4;
+}
+.dm-exit-head,
+.dm-fan-head {
+  fill: var(--hair-2);
+}
+.dm-lane-line {
+  stroke: var(--hair-2);
+  stroke-width: 2;
+}
+.dm-lane-label {
+  font-size: 15px;
+  font-weight: 600;
   fill: var(--ink-3);
+}
+:is(.dm-exit, .dm-lane)[data-state="done"],
+:is(.dm-exit, .dm-lane)[data-state="end"],
+:is(.dm-exit, .dm-lane)[data-state="current"] {
+  --lit: var(--accent);
+}
+.dm-svg[data-kind="safety"] :is(.dm-exit, .dm-lane):is([data-state="done"], [data-state="end"], [data-state="current"]) {
+  --lit: var(--sev-3);
+}
+.dm-exit-taken:not(.dm-fan) > .dm-exit-line,
+.dm-exit .dm-sink-taken .dm-exit-line,
+.dm-fan .dm-fan-exit-taken .dm-exit-line,
+.dm-fan .dm-fan-stub-taken .dm-fan-line,
+.dm-lane-taken .dm-lane-line {
+  stroke: var(--lit, var(--hair-2));
+}
+.dm-exit-taken:not(.dm-fan) > .dm-exit-head,
+.dm-exit .dm-sink-taken .dm-exit-head,
+.dm-fan .dm-fan-exit-taken .dm-exit-head,
+.dm-fan .dm-fan-stub-taken .dm-fan-head {
+  fill: var(--lit, var(--hair-2));
+}
+.dm-fan .dm-fan-stub-taken .dm-fan-line {
+  stroke-width: 3;
+}
+.dm-lane-taken .dm-lane-label {
+  fill: var(--lit, var(--ink-3));
+}
+.dm-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  font-family: var(--font);
+}
+.dm-reasons .dm-chip {
+  margin-bottom: 0;
+}
+.dm-reasons .dm-chip-taken {
+  height: auto;
+  white-space: normal;
+}
+.dm-exit:not([data-state="done"]):not([data-state="end"]):not([data-state="current"]) .dm-chip-taken,
+.dm-exit:not([data-state="done"]):not([data-state="end"]):not([data-state="current"]) .dm-branch-taken {
+  border-color: var(--hair);
+  font-weight: 400;
+  color: var(--ink-3);
+}
+.dm-sink-card {
+  box-sizing: border-box;
+  padding: 2px 8px;
+  border: 1px dashed var(--hair-2);
+  border-radius: 8px;
+  background: var(--bg);
+  font-family: var(--font);
+  font-size: 15px;
+  color: var(--ink-3);
+  text-align: center;
+}
+.dm-exit[data-state="done"] .dm-sink-taken .dm-sink-card,
+.dm-exit[data-state="end"] .dm-sink-taken .dm-sink-card {
+  border: 1.5px solid var(--accent);
+  color: var(--ink);
+  font-weight: 600;
+}
+.dm-sink-value {
+  font-size: 15px;
+  font-weight: 400;
+}
+.dm-fan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font);
+}
+.dm-fan-pill {
+  box-sizing: border-box;
+  padding: 3px 8px;
+  border: 1px solid var(--hair-2);
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--ink-3);
+  font-size: 15px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dm-fan[data-state="done"] .dm-fan-pill.dm-branch-taken,
+.dm-fan[data-state="end"] .dm-fan-pill.dm-branch-taken {
+  border: 1.5px solid var(--accent);
+  color: var(--ink);
+  font-weight: 600;
+  white-space: normal;
+  overflow: visible;
+}
+.dm-fan-pill.dm-branch-taken {
+  white-space: normal;
+  overflow: visible;
+}
+.dm-fan-score {
+  font-size: 15px;
+  fill: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.dm-fan .dm-fan-stub-taken .dm-fan-score {
+  fill: var(--lit, var(--ink-3));
+  font-weight: 600;
 }
 
 /* 움직임: 동작 줄이기 설정이 아니고(.dm-anim 은 스크립트가 그때만 붙인다) 브라우저도 허용할 때만 */
