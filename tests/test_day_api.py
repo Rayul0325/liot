@@ -341,3 +341,14 @@ def test_demo_button_never_starts_a_run_and_new_runs_are_explicit() -> None:
     on_new = day_js.split("async function onDemoNew()")[1].split("\n  }\n")[0]
     assert "startRun(true)" in on_new
     assert 'id="demoNew"' in html and 'id="demoReplay"' in html and "처음부터 다시 보기" in html
+
+
+def test_demo_steps_one_node_at_a_time_with_prev_and_next() -> None:
+    # 한 단계씩: 세그먼트의 네 번째 칸 + [‹ 이전]·[다음 ›] + 키보드 ←·→. 넘기기는 화면 재생만 바꾼다.
+    html = (ROOT / "web" / "day.html").read_text(encoding="utf-8")
+    demo = (ROOT / "web" / "assets" / "day-demo.js").read_text(encoding="utf-8")
+    assert 'data-speed="step"' in html and "한 단계씩" in html
+    assert 'id="demoPrev"' in html and 'id="demoNext"' in html and 'id="demoStep"' in html
+    assert '"ArrowRight"' in demo and '"ArrowLeft"' in demo
+    step_fns = demo.split("function stepNext()")[1].split("function showWaiting()")[0]
+    assert "fetch" not in step_fns and "startRun" not in step_fns

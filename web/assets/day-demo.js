@@ -19,9 +19,9 @@
   const NODE_W = 130;
   /** 노드 높이: 이름(18) + 시간 두 줄(15) — '실제 …ms · 시연 …초'는 폭 130 에 한 줄로 들지 않는다. */
   const NODE_H = 74;
-  /** 갈림길 칩 묶음: 노드 아래 y+40 ~ y+240, 칩 하나 22. 노드 왼쪽 끝에 맞추고 폭은 열 간격(240)보다 좁게
-   * — 다음 열 칩과 24 띄운다(왼쪽 바깥 8 은 간 칩 연결선 통로). */
-  const CHIP = { top: 40, bottom: 240, h: 22, w: 216 };
+  /** 갈림길 칩 묶음: 노드 아래 y+46 ~ y+240, 칩 한 칸 26(칩 24 + 틈 2). 묶음은 노드 왼쪽 끝에서 시작해
+   * 폭 216(열 간격 240 — 다음 열과 24 띄운다). 줄기는 노드 왼쪽 끝 +18, 칩은 +34 부터. */
+  const CHIP = { top: 46, bottom: 240, h: 26, w: 216, spine: 18, indent: 34 };
   /** 엣지 문구 알약: 아래 끝이 엣지 위 42(노드 위 끝 37 바로 위), 폭은 열 간격(240) 안. 줄바꿈하고 줄이지 않는다. */
   const PILL = { gap: 42, w: 230, h: 160 };
   /** 오른쪽 폰 알림창 자리(그래프와 같은 SVG 안, foreignObject). */
@@ -82,6 +82,8 @@
 
   /** 속도별 노드 최소 강조 시간(ms) — 화면 전용. */
   const SPEEDS = { slow: 1500, normal: 800, fast: 300 };
+  /** 한 단계씩: 넘길 때 판단 노드의 세 장면(갈림길 → 간 길 → 다음 엣지) 사이 간격(ms). */
+  const STEP_PHASE = 280;
 
   /**
    * 시연 상태.
@@ -99,6 +101,12 @@
     exitEls: new Map(),
     // 재생 세대: 새 실행·처음부터 다시 보기마다 1 오른다. 진행 중이던 play() 는 세대가 바뀌면 손을 뗀다.
     gen: 0,
+    // 한 단계씩: step 이면 노드마다 [다음]을 기다린다(gate). advance 는 기다리지 않고 한 번 넘길 몫.
+    step: false, gate: null, advance: 0,
+    // 지금 보이는 자리: traces 안 사건 번호(cur)와 그 그래프의 노드 번호(ni). [이전]이 여기서 한 칸 뒤로 간다.
+    cur: -1, ni: -1,
+    // 대기열을 도는 재생 묶음의 세대(같은 세대는 하나만 돈다).
+    looping: -1,
   };
 
   /**
@@ -264,8 +272,8 @@
   }
 
   /**
-   * 노드 아래 갈림길 칩 묶음 + 노드에서 간 칩으로 가는 짧은 연결선.
-   * 칩은 한 줄(22) — 넘치는 글은 칩 제목(마우스오버)과 자막으로 본다.
+   * 노드 아래 갈림길 칩 묶음: 노드 밑에서 내려오는 줄기 하나에 칩마다 가지를 달고(나무 모양),
+   * 간 칩까지의 줄기·가지만 강조색으로 덧그린다. 칩은 한 줄 — 넘치는 글은 칩 제목(마우스오버)과 자막.
    * @param {Object} n
    * @param {[number, number]} at
    * @returns {SVGElement|null}
@@ -274,11 +282,33 @@
     const shown = visibleBranches(n);
     if (!shown.length) return null;
     const [cx, cy] = at;
-    const g = svg("g", { class: "dm-chips", "data-id": n.id });
+    // 출구처럼 차례를 탄다(markExits): 대기면 숨김 → 나타남 → 간 칩에 불. 정적 그림은 서버 상태 그대로.
+    const g = svg("g", { class: "dm-chips", "data-id": n.id, "data-state": n.state });
+    const list0 = D.exitEls.get(n.id) || [];
+    list0.push(g);
+    D.exitEls.set(n.id, list0);
     const top = cy + CHIP.top;
     const left = cx - NODE_W / 2;
+    // 줄기는 노드 바닥의 곧은 부분(둥근 모서리 12 안쪽)에서 내려오고, 칩은 그 오른쪽에 붙는다.
+    const spine = left + CHIP.spine;
+    const chipX = left + CHIP.indent;
+    const mid = (i) => top + i * CHIP.h + CHIP.h / 2;
+    const from = cy + NODE_H / 2;
+    const tree = svg("path", {
+      d: "M" + spine + "," + from + " L" + spine + "," + mid(shown.length - 1)
+        + shown.map((_, i) => " M" + spine + "," + mid(i) + " L" + chipX + "," + mid(i)).join(""),
+      class: "dm-chip-tree",
+    });
+    g.appendChild(tree);
+    const i = shown.findIndex((b) => b.taken);
+    if (i >= 0) {
+      g.appendChild(svg("path", {
+        d: "M" + spine + "," + from + " L" + spine + "," + mid(i) + " L" + chipX + "," + mid(i),
+        class: "dm-chip-link",
+      }));
+    }
     const fo = svg("foreignObject", {
-      x: left, y: top, width: CHIP.w, height: CHIP.bottom - CHIP.top, class: "dm-chips-box",
+      x: chipX, y: top, width: CHIP.w - CHIP.indent, height: CHIP.bottom - CHIP.top, class: "dm-chips-box",
     });
     const list = el("div", "dm-chip-list");
     shown.forEach((b) => {
@@ -290,18 +320,6 @@
       list.appendChild(chip);
     });
     fo.appendChild(list);
-    const i = shown.findIndex((b) => b.taken);
-    if (i >= 0) {
-      // 노드 아래 → 칩 묶음 왼쪽 바깥 통로 → 간 칩 가운데(다른 칩을 가로지르지 않는다).
-      const lane = left - 8;
-      const mid = top + i * CHIP.h + CHIP.h / 2;
-      const startX = left + 10;
-      g.appendChild(svg("path", {
-        d: "M" + startX + "," + (cy + NODE_H / 2) + " L" + startX + "," + (top - 6) + " L" + lane + ","
-          + (top - 6) + " L" + lane + "," + mid + " L" + left + "," + mid,
-        class: "dm-chip-link",
-      }));
-    }
     g.appendChild(fo);
     return g;
   }
@@ -936,6 +954,8 @@
         g.setAttribute("data-state", "pending");
         const meta = g.querySelector(".dm-node-time");
         if (meta) setTime(meta, "");
+        const chips = g.querySelector(".dm-chips");
+        if (chips) chips.setAttribute("data-state", "pending");
       }
       D.nodeEls.set(n.id, g);
       nodes.appendChild(g);
@@ -1179,6 +1199,7 @@
   function timeLabel(n) {
     const real = typeof n.real_ms === "number" ? n.real_ms : null;
     if (isModelNode(n)) return real === null ? "실제 시간 없음" : "실제 " + fmtMs(real);
+    if (D.step) return real === null ? "" : "실제 " + fmtMs(real); // 넘기는 동안은 시연 시간이 없다
     const demo = "시연 " + (holdOf(n) / 1000).toFixed(1) + "초";
     return real === null ? demo : "실제 " + fmtMs(real) + " · " + demo;
   }
@@ -1250,12 +1271,60 @@
   }
 
   /**
+   * 노드 하나를 기다림 없이 끝난 모습으로 둔다([이전]으로 되돌아간 자리 앞의 노드·건너뛴 노드).
+   * 폰 알림창에 생기는 일(onEnter·onLeave)도 차례대로 한다.
+   * @param {Object} t
+   * @param {Object} n
+   * @param {Object|undefined} next
+   */
+  function settle(t, n, next) {
+    const link = n.id === D.paneNode ? D.edgeEls.get("__pane__") : null;
+    if (n.state === "skipped") {
+      mark(n.id, "skipped");
+      markEdge(n.id, "skipped");
+      markExits(n.id, "skipped");
+      if (link) link.setAttribute("data-state", "skipped");
+      return;
+    }
+    const meta = D.nodeEls.get(n.id).querySelector(".dm-node-time");
+    if (meta) setTime(meta, timeLabel(n));
+    onEnter(t, n);
+    const fin = n.state === "end" ? "end" : "done";
+    markExits(n.id, fin);
+    if (next && next.state !== "skipped") markEdge(next.id, next.state === "end" ? "end" : "done");
+    mark(n.id, fin);
+    if (link) link.setAttribute("data-state", "done");
+    onLeave(t, n);
+  }
+
+  /**
+   * 한 단계씩일 때 [다음]을 기다린다. 건너뛰기·넘길 몫이 있으면 바로 지나간다.
+   * @returns {Promise<void>}
+   */
+  function gate() {
+    if (D.skip) return Promise.resolve();
+    if (D.advance > 0) {
+      D.advance -= 1;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      D.gate = () => {
+        D.gate = null;
+        resolve();
+      };
+      showWaiting();
+    });
+  }
+
+  /**
    * trace 하나를 재생한다. 노드마다 강조 시간 = max(실제, 속도의 최소)를 셋으로 나눠
    * ① 출구 엣지·후보 부채가 나타나고 ② 간 갈림길에 불이 들어오고 ③ 다음 본선 엣지와 그 문구 알약에
    * 불이 들어온다. 동작 줄이기면 셋을 한 번에 바꾼다. 마지막 장면은 간 길·알약을 그대로 남긴다.
+   * 한 단계씩이면 세 장면을 짧게 보이고 ③ 뒤에서 [다음]을 기다린다.
    * @param {Object} t
+   * @param {number} [startAt] 이 번호 앞의 노드는 끝난 모습으로 바로 둔다([이전]으로 온 자리)
    */
-  async function play(t) {
+  async function play(t, startAt) {
     const gen = D.gen;
     D.skip = false;
     enterDay(t);
@@ -1266,16 +1335,13 @@
     for (let i = 0; i < drawn.length; i += 1) {
       const n = drawn[i];
       const next = drawn[i + 1];
-      if (n.state === "skipped") {
-        mark(n.id, "skipped");
-        markEdge(n.id, "skipped");
-        markExits(n.id, "skipped");
-        if (n.id === D.paneNode && D.edgeEls.get("__pane__")) {
-          D.edgeEls.get("__pane__").setAttribute("data-state", "skipped");
-        }
+      if (n.state === "skipped" || i < (startAt || 0)) {
+        settle(t, n, next);
         continue;
       }
+      D.ni = i;
       mark(n.id, "current");
+      showWaiting();
       follow(D.nodeEls.get(n.id));
       const meta = D.nodeEls.get(n.id).querySelector(".dm-node-time");
       if (meta) setTime(meta, timeLabel(n));
@@ -1284,15 +1350,16 @@
       if (n.id === D.paneNode && D.edgeEls.get("__pane__")) {
         D.edgeEls.get("__pane__").setAttribute("data-state", "current");
       }
-      const third = holdOf(n) / 3;
+      const third = () => (D.step ? STEP_PHASE : holdOf(n) / 3);
       markExits(n.id, "shown");                                   // ① 갈 수 있던 길이 나타난다
-      if (!calm) await wait(third);
+      if (!calm) await wait(third());
       if (gen !== D.gen) return; // 새 실행·다시 보기가 시작됐다 — 낡은 카드를 새 창에 넣지 않는다
       markExits(n.id, n.state === "end" ? "end" : "done");        // ② 간 길에 불
-      if (!calm) await wait(third);
+      if (!calm) await wait(third());
       if (gen !== D.gen) return;
       if (next && next.state !== "skipped") markEdge(next.id, next.state === "end" ? "end" : "done"); // ③ 다음 본선 + 알약
-      await wait(calm ? holdOf(n) : third);
+      if (D.step) await gate();
+      else await wait(calm ? holdOf(n) : third());
       if (gen !== D.gen) return;
       mark(n.id, n.state === "end" ? "end" : "done");
       if (n.id === D.paneNode && D.edgeEls.get("__pane__")) {
@@ -1301,24 +1368,130 @@
       onLeave(t, n);
     }
     if (gen !== D.gen) return;
-    await wait(SPEEDS[D.speed] / 2);
+    if (!D.step) await wait(SPEEDS[D.speed] / 2);
   }
 
-  /** 대기열을 도착 순서대로 재생한다(덮개가 열려 있는 동안). */
-  async function loop() {
-    if (D.playing) return;
+  /**
+   * 대기열을 도착 순서대로 재생한다(덮개가 열려 있는 동안). 같은 세대에서는 하나만 돈다.
+   * @param {Object} [first] 대기열보다 먼저 재생할 trace([이전]으로 되돌아간 사건)
+   * @param {number} [startAt] first 를 이 노드부터 재생한다
+   */
+  async function loop(first, startAt) {
+    const gen = D.gen;
+    if (D.looping === gen) return;
+    D.looping = gen;
     D.playing = true;
     try {
-      while (D.open && D.queue.length) {
-        const t = D.queue.shift();
+      let t = first || null;
+      while (D.open && gen === D.gen) {
+        if (!t) {
+          if (!D.queue.length) break;
+          t = D.queue.shift();
+        }
+        D.cur = D.traces.indexOf(t);
+        D.ni = -1; // 앞 사건의 노드 번호를 새 사건에 들고 가지 않는다(노드 수가 다르다)
         showWaiting();
-        await play(t);
+        await play(t, t === first ? startAt : 0);
+        if (gen !== D.gen) return;
         D.played += 1;
+        t = null;
       }
     } finally {
-      D.playing = false;
-      showWaiting();
+      if (D.looping === gen) {
+        D.looping = -1;
+        D.playing = false;
+        showWaiting();
+      }
     }
+  }
+
+  /**
+   * trace 가 그리는 노드(좌표표에 있는 것만 — render 와 같은 집합).
+   * @param {Object} t
+   * @returns {Object[]}
+   */
+  function drawnOf(t) {
+    const table = LAYOUTS[layoutOf(t)] || {};
+    return (t.nodes || []).filter((n) => table[n.id]);
+  }
+
+  /**
+   * 지금 자리의 한 칸 앞(건너뛴 노드는 세지 않는다). 앞 사건으로 넘어가면 그 사건의 마지막 노드.
+   * @returns {[number, number]|null}
+   */
+  function prevPos() {
+    let ti = D.cur;
+    let ni = D.ni - 1;
+    while (ti >= 0 && ti < D.traces.length) {
+      const list = drawnOf(D.traces[ti]);
+      ni = ni === null ? list.length - 1 : Math.min(ni, list.length - 1);
+      for (; ni >= 0; ni -= 1) if (list[ni].state !== "skipped") return [ti, ni];
+      ti -= 1;
+      ni = null;
+    }
+    return null;
+  }
+
+  /**
+   * 한 단계씩 / 자동 속도를 고른다(세그먼트와 [이전]·[다음]이 같이 부른다).
+   * @param {string|null} v slow·normal·fast·step
+   */
+  function setMode(v) {
+    const seg = $("demoSpeed");
+    const mode = v === "slow" || v === "fast" || v === "step" ? v : "normal";
+    for (const o of seg.querySelectorAll("button")) {
+      o.setAttribute("aria-checked", o.getAttribute("data-speed") === mode ? "true" : "false");
+    }
+    D.step = mode === "step";
+    if (!D.step) {
+      D.speed = /** @type {"slow"|"normal"|"fast"} */ (mode);
+      D.advance = 0;
+      if (D.gate) D.gate(); // 기다리던 자리에서 자동으로 이어 간다
+    }
+    showWaiting();
+  }
+
+  /** [다음 ›]: 한 단계씩으로 바꾸고 한 노드 앞으로. 재생이 끝났으면 기다리는 사건부터. */
+  function stepNext() {
+    if (!D.step) setMode("step");
+    if (D.gate) {
+      D.gate();
+      return;
+    }
+    if (D.playing) {
+      // 아직 세 장면을 보이는 중: 이 노드를 바로 마치고 다음 노드에서 멈춘다.
+      D.advance = 1;
+      if (D.wake) D.wake();
+      return;
+    }
+    if (D.queue.length && D.open) loop();
+  }
+
+  /** [‹ 이전]: 한 단계씩으로 바꾸고 한 노드 뒤로(앞 사건까지). 알림창도 그 자리까지 다시 쌓는다. */
+  function stepPrev() {
+    const at = prevPos();
+    if (!at) return;
+    if (!D.step) setMode("step");
+    const [ti, ni] = at;
+    D.gen += 1;
+    D.skip = true;
+    if (D.wake) D.wake();
+    if (D.gate) D.gate();
+    D.advance = 0;
+    D.cards = new Map();
+    D.feedDay = null;
+    if (D.feed) clear(D.feed);
+    for (let k = 0; k < ti; k += 1) {
+      const t = D.traces[k];
+      enterDay(t);
+      drawnOf(t).forEach((n) => {
+        if (n.state === "skipped") return;
+        onEnter(t, n);
+        onLeave(t, n);
+      });
+    }
+    D.queue = D.traces.slice(ti + 1);
+    loop(D.traces[ti], ni);
   }
 
   /** '대기 n건'(지금 재생 중인 것은 빼고). */
@@ -1326,6 +1499,11 @@
     $("demoQueue").textContent = "대기 " + D.queue.length + "건";
     /** @type {HTMLButtonElement} */ ($("demoSkip")).disabled = !D.playing;
     /** @type {HTMLButtonElement} */ ($("demoReplay")).disabled = !D.traces.length;
+    /** @type {HTMLButtonElement} */ ($("demoPrev")).disabled = !prevPos();
+    /** @type {HTMLButtonElement} */ ($("demoNext")).disabled = !(D.playing || D.queue.length);
+    const t = D.cur >= 0 ? D.traces[D.cur] : null;
+    $("demoStep").textContent = t && D.ni >= 0
+      ? "사건 " + (D.cur + 1) + "/" + D.traces.length + " · 단계 " + (D.ni + 1) + "/" + drawnOf(t).length : "";
   }
 
   /** 재생 중인 것을 멈추고(세대 올림) 알림창·그래프를 비운다. 받아 둔 trace 목록은 부르는 쪽이 정한다. */
@@ -1336,8 +1514,12 @@
     D.cards = new Map();
     D.feedDay = null;
     D.played = 0;
+    D.cur = -1;
+    D.ni = -1;
+    D.advance = 0;
     D.skip = true;
     if (D.wake) D.wake();
+    if (D.gate) D.gate();
     if (D.feed) clear(D.feed);
     clear($("demoSvg"));
     $("demoOutcome").textContent = "";
@@ -1359,6 +1541,7 @@
     if (!D.playing) return;
     D.skip = true;
     if (D.wake) D.wake();
+    if (D.gate) D.gate();
   }
 
   /**
@@ -1405,12 +1588,7 @@
   function setupSpeed() {
     const seg = $("demoSpeed");
     for (const b of seg.querySelectorAll("button")) {
-      b.addEventListener("click", () => {
-        for (const o of seg.querySelectorAll("button")) o.setAttribute("aria-checked", "false");
-        b.setAttribute("aria-checked", "true");
-        const v = b.getAttribute("data-speed");
-        D.speed = v === "slow" || v === "fast" ? v : "normal";
-      });
+      b.addEventListener("click", () => setMode(b.getAttribute("data-speed")));
     }
   }
 
@@ -1418,9 +1596,17 @@
     $("demoClose").addEventListener("click", close);
     $("demoSkip").addEventListener("click", skip);
     $("demoReplay").addEventListener("click", replay);
+    $("demoPrev").addEventListener("click", stepPrev);
+    $("demoNext").addEventListener("click", stepNext);
     setupSpeed();
     document.addEventListener("keydown", (e) => {
-      if (D.open && e.key === "Escape") close();
+      if (!D.open) return;
+      if (e.key === "Escape") close();
+      else if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+        e.preventDefault();
+        if (e.key === "ArrowRight") stepNext();
+        else stepPrev();
+      }
     });
     // 화면 폭이 640px 를 넘나들면 쉬는 동안의 그래프를 새 배치로 다시 그린다(재생 중이면 다음 trace 부터).
     const mq = window.matchMedia ? window.matchMedia(NARROW_MQ) : null;
@@ -1496,7 +1682,7 @@
   }
 
   /** @type {any} */ (window).LiotDemo = { open: open, close: close, push: push, reset: reset, render: render,
-    skip: skip, replay: replay, captionOf: captionOf, overlapCheck: overlapCheck, state: D };
+    skip: skip, replay: replay, next: stepNext, prev: stepPrev, mode: setMode, captionOf: captionOf, overlapCheck: overlapCheck, state: D };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();

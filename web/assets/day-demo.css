@@ -21,11 +21,15 @@ body.dm-lock {
 
 .dm-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--s4);
-  padding: var(--s4) var(--s6);
+  gap: var(--s2) var(--s4);
+  padding: var(--s3) var(--s6);
   border-bottom: 1px solid var(--hair);
+}
+/* 조작 줄은 오른쪽으로 모으고, 결과 한 줄은 그 아래 줄 전체(잘리지 않게) */
+.dm-head .dy-seg {
+  margin-left: auto;
 }
 .dm-title {
   font-size: 20px;
@@ -33,13 +37,11 @@ body.dm-lock {
   letter-spacing: -0.01em;
 }
 .dm-outcome {
-  flex: 1;
-  min-width: 0;
+  order: 10;
+  flex-basis: 100%;
+  min-height: 1.4em;
   font-size: 14px;
   color: var(--ink-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .dm-body {
@@ -134,10 +136,51 @@ body.dm-lock {
   color: var(--ink);
   font-weight: 600;
 }
+/* 노드 밑 묶음(나무 모양): 칩 24 높이에 글을 가운데로, 줄기·가지는 가는 회색, 간 길만 강조색 */
+.dm-chip-list .dm-chip {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  margin-bottom: 2px;
+  padding: 0 12px;
+  border-radius: 12px;
+  line-height: 1;
+}
+.dm-chip-list .dm-chip-taken {
+  background: rgba(0, 113, 227, 0.06);
+}
+.dm-svg[data-kind="safety"] .dm-chip-list .dm-chip-taken {
+  background: rgba(215, 0, 21, 0.05);
+}
+/* 차례: 대기(숨김) → 나타남(간 칩도 아직 회색) → 간 칩·줄기에 불. 건너뛴 노드는 흐리게 */
+.dm-chips[data-state="pending"] {
+  opacity: 0;
+}
+.dm-chips[data-state="skipped"] {
+  opacity: 0.35;
+}
+.dm-chips[data-state="shown"] .dm-chip-link,
+.dm-chips[data-state="skipped"] .dm-chip-link {
+  opacity: 0;
+}
+.dm-chips[data-state="shown"] .dm-chip-taken,
+.dm-chips[data-state="skipped"] .dm-chip-taken {
+  border: 1px solid var(--hair);
+  background: var(--bg);
+  color: var(--ink-3);
+  font-weight: 400;
+}
+.dm-chip-tree {
+  fill: none;
+  stroke: var(--hair-2);
+  stroke-width: 1.25;
+}
 .dm-chip-link {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 1.5;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* ── 엣지 문구 알약: 서버 edge_ko 그대로, 줄바꿈하고 줄이지 않는다 ─────────────────── */
@@ -369,7 +412,10 @@ body.dm-lock {
   .dm-anim .dm-node,
   .dm-anim .dm-node-box,
   .dm-anim .dm-edge,
-  .dm-anim .dm-exit {
+  .dm-anim .dm-exit,
+  .dm-anim .dm-chips,
+  .dm-anim .dm-chip,
+  .dm-anim .dm-chip-link {
     transition: opacity 0.25s ease, fill 0.25s ease, stroke 0.25s ease;
   }
   .dm-anim .dm-card {
@@ -439,6 +485,23 @@ body.dm-lock {
 }
 .dm-head .dy-seg {
   flex: none;
+}
+/* 한 단계씩: [‹ 이전] 사건·단계 [다음 ›] — 키보드 ←·→ 도 같다 */
+.dm-stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex: none;
+}
+.dm-step-btn {
+  min-width: 64px;
+}
+.dm-step-count {
+  min-width: 128px;
+  font-size: 13px;
+  color: var(--ink-2);
+  text-align: center;
+  white-space: nowrap;
 }
 .dm-card-tag {
   font-size: 11.5px;

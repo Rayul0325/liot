@@ -135,6 +135,12 @@
           <button type="button" class="dy-seg-btn" role="radio" aria-checked="false" data-speed="slow">느리게</button>
           <button type="button" class="dy-seg-btn" role="radio" aria-checked="true" data-speed="normal">보통</button>
           <button type="button" class="dy-seg-btn" role="radio" aria-checked="false" data-speed="fast">빠르게</button>
+          <button type="button" class="dy-seg-btn" role="radio" aria-checked="false" data-speed="step">한 단계씩</button>
+        </div>
+        <div class="dm-stepper" role="group" aria-label="단계 넘기기">
+          <button type="button" class="dy-btn dy-btn-quiet dm-step-btn" id="demoPrev" disabled aria-label="이전 단계">‹ 이전</button>
+          <span class="dm-step-count tabnum" id="demoStep" aria-live="polite"></span>
+          <button type="button" class="dy-btn dy-btn-quiet dm-step-btn" id="demoNext" disabled aria-label="다음 단계">다음 ›</button>
         </div>
         <span class="dm-queue tabnum" id="demoQueue">대기 0건</span>
         <button type="button" class="dy-btn dy-btn-quiet" id="demoSkip" disabled>건너뛰기</button>
