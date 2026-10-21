@@ -241,7 +241,7 @@
    * @returns {string}
    */
   function chipText(b) {
-    return b.value_ko ? b.label_ko + " · " + b.value_ko : b.label_ko;
+    return b.value_ko && b.value_ko !== b.label_ko ? b.label_ko + " · " + b.value_ko : b.label_ko;
   }
 
   /**
@@ -405,7 +405,10 @@
     const list = el("div", "dm-reasons");
     branches.forEach((b) => {
       const chip = el("div", "dm-chip dm-branch" + (b.taken ? " dm-chip-taken dm-branch-taken" : "")
-        + (b.exit ? " dm-chip-exit" : ""), chipText(b));
+        + (b.exit ? " dm-chip-exit" : ""));
+      // 이름 한 번 + 값은 둘째 줄(값이 이름과 같으면 이름만).
+      chip.appendChild(el("span", "dm-chip-label", b.label_ko));
+      if (b.value_ko && b.value_ko !== b.label_ko) chip.appendChild(el("span", "dm-chip-value", b.value_ko));
       chip.dataset.node = n.id;
       chip.dataset.key = b.key;
       chip.title = chipText(b);
@@ -490,7 +493,7 @@
         label.dataset.key = String(key);
         if (!b) label.classList.remove("dm-branch"); // 서버 갈림길이 없으면 세지 않는다(건너뜀)
         box.appendChild(label);
-        if (b && b.value_ko) box.appendChild(el("div", "dm-sink-value", b.value_ko));
+        if (b && b.value_ko && b.value_ko !== b.label_ko) box.appendChild(el("div", "dm-sink-value", b.value_ko));
         fo.appendChild(box);
         one.appendChild(fo);
         g.appendChild(one);

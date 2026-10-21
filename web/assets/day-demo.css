@@ -275,6 +275,14 @@ body.dm-lock {
   height: auto;
   white-space: normal;
 }
+.dm-chip-value {
+  display: block;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.dm-reasons .dm-chip:not(.dm-chip-taken) .dm-chip-value {
+  display: none; /* 간 칩만 둘째 줄을 보인다 — 나머지는 제목(마우스오버)으로 */
+}
 .dm-exit:not([data-state="done"]):not([data-state="end"]):not([data-state="current"]) .dm-chip-taken,
 .dm-exit:not([data-state="done"]):not([data-state="end"]):not([data-state="current"]) .dm-branch-taken {
   border-color: var(--hair);
