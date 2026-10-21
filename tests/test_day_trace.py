@@ -498,7 +498,7 @@ def test_no_trait_words_in_safety_and_feedback_traces(seed7: tuple[DaySim, Event
 # ── 문구: trace 설명에 영문 열거값이 새지 않는다 ──────────────────────────────
 
 # 허용: 모델 id(provider:model, 예 jev:jev-latest·anthropic:claude-haiku-5-5), 단위 ms, 모델 이름 luna.
-_ALLOWED_ASCII = {"ms", "luna"}
+_ALLOWED_ASCII = {"ms", "luna", "Jev"}
 
 
 def _ascii_words(text: str) -> set[str]:
@@ -726,3 +726,272 @@ def test_ladder_says_stopped_when_the_resident_already_acked(tmp_path: Path) -> 
         ack = next(d for st, d in events if st == "feedback" and d["id"] == t["proposal_id"])
         assert ack["signal"] == "ok" and (ack["day"], ack["hhmm"]) == (first["day"], first["hhmm"])
         assert t["nodes"][3]["detail_ko"] == "확인돼 재알림 멈춤"
+
+
+# ── 갈림길·엣지 문구(편의·침묵) ──────────────────────────────────────────────
+
+_FIXED_BRANCHES = {
+    "rules": day_sim._RULES_BRANCHES, "gate1": day_sim._GATE1_BRANCHES,
+    "judge": day_sim._JUDGE_BRANCHES, "gate": day_sim._GATE_BRANCHES,
+}
+
+
+def _spy_comfort(monkeypatch: pytest.MonkeyPatch) -> list[tuple[dict[str, Any], Any, dict[str, Any]]]:
+    """편의 trace 조립마다 (재료, 그때의 평가 결과, 만든 trace) 를 남긴다."""
+    seen: list[tuple[dict[str, Any], Any, dict[str, Any]]] = []
+    real = DaySim._comfort_trace
+
+    def spy(self: DaySim, rec: _TraceRecorder, p: dict[str, Any]) -> dict[str, Any]:
+        evaluation = rec.evaluation
+        out = real(self, rec, p)
+        seen.append((p, evaluation, out))
+        return out
+
+    monkeypatch.setattr(DaySim, "_comfort_trace", spy)
+    return seen
+
+
+def _taken(node: dict[str, Any]) -> dict[str, Any]:
+    taken: list[dict[str, Any]] = [b for b in node["branches"] if b["taken"]]
+    assert len(taken) == 1, node
+    return taken[0]
+
+
+def _node_of(trace: dict[str, Any], nid: str) -> dict[str, Any]:
+    return next(n for n in trace["nodes"] if n["id"] == nid)
+
+
+def test_comfort_branch_sets_match_the_tables_with_exactly_one_taken(
+    seed1: tuple[DaySim, Events], seed7: tuple[DaySim, Events], tmp_path: Path,
+) -> None:
+    cloud = _run(DaySim(seed=7, days=2, models="cloud", cloud=_kit(tmp_path), trace=True))
+    count = 0
+    for events in (seed1[1], seed7[1], cloud):
+        for t in _traces(events):
+            if t["kind"] not in ("comfort", "silent"):
+                continue
+            for n in t["nodes"]:
+                assert set(n) >= {"branches", "edge_ko"}
+                if n["id"] in _FIXED_BRANCHES and n["state"] != "skipped":
+                    assert [b["key"] for b in n["branches"]] == [
+                        k for k, _, _ in _FIXED_BRANCHES[n["id"]]]
+                    _taken(n)
+                    count += 1
+                if n["state"] == "skipped":
+                    assert n["branches"] == [] and n["edge_ko"] is None
+    assert count > 20
+
+
+def test_silent_traces_take_the_exit_where_they_ended(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _spy_comfort(monkeypatch)
+    _run(DaySim(seed=1, days=4, trace=True))
+    _run(DaySim(seed=9, days=7, trace=True))  # 점수 침묵이 나는 씨앗
+    ends = set()
+    for p, _ev, t in seen:
+        if t["kind"] != "silent":
+            continue
+        end = _end(t)
+        ends.add(end)
+        node = _node_of(t, str(end))
+        taken = _taken(node)
+        assert taken["exit"] and node["edge_ko"] is None
+        if end == "rules":
+            why = p["decision"].suppressed_by
+            assert taken["key"] == (why if why in day_sim._SILENCE_KO else "unknown")
+            assert taken["value_ko"].endswith("마지막으로 본 규칙의 사유")
+        if end == "score":
+            assert taken["key"] == "noop"
+    assert {"rules", "score"} <= ends
+
+
+def test_gate1_and_judge_exits_follow_the_recorded_values(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    import dataclasses
+
+    from liot.core.risk import RiskTier as RT
+
+    real = day_sim._TimedGuardrail.evaluate
+
+    def high(self: Any, candidate: Any, ctx: Any = None) -> Gate1Result:
+        out = real(self, candidate, ctx)
+        if candidate.category not in ("leak", "gas"):
+            out = dataclasses.replace(out, floor_tier=RT.DUSK)
+            self.recorder.note((candidate.entity_id, "comfort"), gate1=out)
+        return out
+
+    monkeypatch.setattr(day_sim._TimedGuardrail, "evaluate", high)
+    events = _run(DaySim(seed=7, days=1, trace=True))
+    g1 = [t for t in _traces(events) if t["kind"] == "silent" and _end(t) == "gate1"]
+    assert g1
+    for t in g1:
+        taken = _taken(_node_of(t, "gate1"))
+        assert taken["key"] == "ceiling" and taken["value_ko"] == "하한 땅거미 > 능동 상한 숨결 → 침묵"
+
+
+def test_score_branches_are_the_evaluation_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _spy_comfort(monkeypatch)
+    _run(DaySim(seed=7, days=3, trace=True))
+    checked = 0
+    for _p, ev, t in seen:
+        node = _node_of(t, "score")
+        if ev is None:
+            continue
+        values = {b["key"]: b["value_ko"] for b in node["branches"]}
+        for key, value in values.items():
+            if key.startswith("c"):
+                assert value == f"{ev.scored[int(key[1:])].final_score}"
+        taken = _taken(node)
+        noop = next(i for i, ac in enumerate(ev.scored) if ac.origin == "noop")
+        assert taken["key"] == ("noop" if ev.selected_index == noop else f"c{ev.selected_index}")
+        if t["kind"] == "comfort":
+            sel = ev.scored[ev.selected_index]
+            sign = ">" if sel.final_score > ev.scored[noop].final_score else "≥"
+            assert f" {sel.final_score} {sign} 아무것도 안 하기 {ev.scored[noop].final_score}" in (
+                node["edge_ko"])
+            assert node["edge_ko"].endswith("· 출처: 규칙 줄")
+        checked += 1
+    assert checked >= 5
+
+
+def test_route_edge_is_the_required_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _spy_comfort(monkeypatch)
+    _run(DaySim(seed=7, days=3, trace=True))
+    routes = [(p["result"].proposal, _node_of(t, "route")) for p, _e, t in seen if t["kind"] == "comfort"]
+    assert routes
+    for prop, node in routes:
+        confirm = day_sim._CONFIRMATION_KO[prop.required_confirmation]
+        assert node["edge_ko"] == f"{prop.risk_tier.label_ko} → {confirm}"
+
+
+def test_judge_edge_fake_and_cloud_success(seed7: tuple[DaySim, Events], tmp_path: Path) -> None:
+    fake = [_node_of(t, "judge") for t in _traces(seed7[1]) if t["kind"] == "comfort"]
+    assert fake and all(n["edge_ko"] == "가짜 판정(확률 없음)" for n in fake)
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=_kit(tmp_path), trace=True)
+    cloud = [_node_of(t, "judge") for t in _traces(_run(sim)) if t["kind"] == "comfort"]
+    assert cloud
+    heads = set()
+    for n in cloud:
+        # FakeJev 는 가장 낮은 선택지를 답한다 — 하한이 그보다 높은 후보는 injection_suspect 다.
+        head = n["edge_ko"].split(" · ")[0]
+        heads.add("injection" if head == "모델이 하한보다 낮게 답해 하한 유지" else head[:3])
+        assert head.startswith("최종 ") and "(하한 " in head or head.startswith("모델이 하한보다")
+        assert " · Jev 최댓값 " in n["edge_ko"]
+        assert n["edge_ko"].endswith(("% 일치", "% 불일치", "% —"))
+    assert heads == {"최종 ", "injection"}  # 두 경우가 실제 실행에서 모두 나온다
+
+
+def test_judge_edge_names_luna_when_it_could_not_compare(tmp_path: Path) -> None:
+    from liot.luna_shadow import LunaConfig, LunaShadow
+
+    class BrokenLuna:
+        def post(self, request: Any, *, timeout_s: float) -> dict[str, Any]:
+            raise RuntimeError("luna down")
+
+    kit = _kit(tmp_path)
+    kit.luna = LunaShadow(LunaConfig("logprobs", "gpt-6-luna", 1.0), "k", transport=BrokenLuna())
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=kit, trace=True)
+    edges = [_node_of(t, "judge")["edge_ko"] for t in _traces(_run(sim)) if t["kind"] == "comfort"]
+    assert edges
+    reasons = {r["reason_ko"] for r in sim.luna_results}
+    for e in edges:
+        assert " · Jev 최댓값 " in e and any(e.endswith(r) for r in reasons if r)
+
+
+def test_judge_ceiling_value_when_the_cloud_judge_fails(tmp_path: Path) -> None:
+    class Down(FakeJev):
+        def post(self, payload: dict[str, Any], *, timeout_s: float) -> dict[str, Any]:
+            raise RuntimeError("jev down")
+
+    kit = _kit(tmp_path)
+    kit.judge = JevBackend(transport=Down())
+    events = _run(DaySim(seed=7, days=1, models="cloud", cloud=kit, trace=True))
+    ends = [t for t in _traces(events) if t["kind"] == "silent" and _end(t) == "judge"]
+    assert ends
+    for t in ends:
+        node = _node_of(t, "judge")
+        taken = _taken(node)
+        assert taken["key"] == "ceiling" and node["edge_ko"] is None
+        assert taken["value_ko"] == "모델 응답 없음 → 안전하게 올림(땅거미) → 상한이라 침묵"
+
+
+def test_judge_edge_after_the_call_cap_switches_to_the_fake(tmp_path: Path) -> None:
+    sim = DaySim(seed=7, days=2, models="cloud", cloud=_kit(tmp_path, call_cap=3), trace=True)
+    edges = [_node_of(t, "judge")["edge_ko"] for t in _traces(_run(sim)) if t["kind"] == "comfort"]
+    assert "상한 도달 · 가짜 판정(확률 없음)" in edges
+
+
+def test_judge_text_for_injection_suspect_and_unreadable_probabilities(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from liot.core.risk import RiskTier as RT
+
+    sim = DaySim(seed=7, days=1, models="cloud", cloud=_kit(tmp_path), trace=True)
+    assert sim._kit is not None and sim._kit.judge is not None
+    model_id = sim._kit.judge.model_id
+    gate1 = SimpleNamespace(floor_tier=RT.BREATH)
+    sus = SimpleNamespace(model_id=model_id, gate2_verdict="injection_suspect", degraded=False,
+                          risk_tier=RT.BREATH,
+                          model_probs={"tier": {"ambient": 0.8, "breath": 0.2}})
+    assert sim._judge_text_ko(sus, gate1, "light.x", "07:00") == (  # type: ignore[arg-type]
+        "모델이 하한보다 낮게 답해 하한 유지 · Jev 최댓값 잔잔 80%")
+    odd = SimpleNamespace(model_id=model_id, gate2_verdict="concur", degraded=False,
+                          risk_tier=RT.BREATH, model_probs={"tier": {"???": 1.0}})
+    assert sim._judge_text_ko(odd, gate1, "light.x", "07:00") == "최종 숨결(하한 숨결)"  # type: ignore[arg-type]
+
+
+def test_branch_text_has_no_ascii_trait_words_or_device_ids(
+    seed1: tuple[DaySim, Events], seed7: tuple[DaySim, Events], tmp_path: Path,
+) -> None:
+    cloud = _run(DaySim(seed=7, days=2, models="cloud", cloud=_kit(tmp_path), trace=True))
+    texts: list[str] = []
+    for events in (seed1[1], seed7[1], cloud):
+        for t in _traces(events):
+            for n in t["nodes"]:
+                texts.append(n["edge_ko"] or "")
+                for b in n["branches"]:
+                    texts += [b["label_ko"], b["value_ko"] or ""]
+    leaked: set[str] = set()
+    for text in texts:
+        leaked |= _ascii_words(text)
+        assert not any(w in text for w in TRAIT_WORDS)
+        assert "sensor." not in text and "light." not in text
+    assert leaked == set()
+
+
+@pytest.mark.parametrize("name", ["_score_branches", "_judge_text_ko", "_luna_ko", "_branch_title"])
+def test_branch_builder_errors_never_change_the_run(
+    name: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(*a: Any, **kw: Any) -> Any:
+        raise RuntimeError("branch builder broke")
+
+    monkeypatch.setattr(DaySim, name, boom)
+    on = DaySim(seed=7, days=3, trace=True)
+    off = DaySim(seed=7, days=3)
+    on_events, off_events = _run(on), _run(off)
+    assert [(st, d) for st, d in on_events if st != "trace"] == off_events
+    assert on.summary() == off.summary()
+
+
+def test_a_value_outside_the_table_takes_unknown() -> None:
+    for taken in ("budget_v2", None, ""):
+        out = day_sim._branches(day_sim._RULES_BRANCHES, taken)
+        assert [b["key"] for b in out if b["taken"]] == ["unknown"]
+    out = day_sim._branches(day_sim._GATE_BRANCHES, "DIGEST", {"DIGEST": "x"})
+    assert [(b["key"], b["value_ko"]) for b in out if b["taken"]] == [("DIGEST", "x")]
+
+
+def test_score_edge_uses_greater_or_equal_on_a_tie(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _spy_comfort(monkeypatch)
+    sim = DaySim(seed=7, days=1, trace=True)
+    _run(sim)
+    ev = next(e for _p, e, t in seen if t["kind"] == "comfort" and e is not None)
+    noop = next(i for i, ac in enumerate(ev.scored) if ac.origin == "noop")
+    sel = ev.scored[ev.selected_index]
+    tied = ev.model_copy(deep=True)
+    tied.scored[noop] = tied.scored[noop].model_copy(update={"final_score": sel.final_score})
+    _branches, edge = sim._score_branches(tied)
+    assert edge is not None and f"{sel.final_score} ≥ 아무것도 안 하기 {sel.final_score}" in edge
+    _branches, edge = sim._score_branches(ev)
+    assert edge is not None and " > 아무것도 안 하기 " in edge

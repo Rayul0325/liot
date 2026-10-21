@@ -1057,6 +1057,7 @@ class DaySim:
                 "judgment": judged, "changed": len(changed),
                 "weather_ko": weather_line_ko(step.weather),
                 "sim_id": self._by_pid.get(result.proposal.proposal_id) if result else None,
+                "hhmm": hhmm,
             }
 
         transport.phase = "phase2"
@@ -1582,7 +1583,7 @@ class DaySim:
             return None
         if result is not None and judgment.judgment_id != result.proposal.judgment_id:
             return None
-        return {"risk_tier": judgment.risk_tier, "model_id": judgment.model_id}
+        return {"risk_tier": judgment.risk_tier, "model_id": judgment.model_id, "judgment": judgment}
 
     def _emit_step_traces(self) -> None:
         """이번 단계의 trace 사건을 낸다(잠자지 않는 내보내기). 조립 실패는 실행을 멈추지 않는다."""
@@ -1624,8 +1625,16 @@ class DaySim:
         else:
             rules_ko = (f"성립: {titles[0]}" + (f" 외 {len(titles) - 1}개" if len(titles) > 1 else "")
                         if titles else "성립한 규칙")
+        # 규칙 갈림길: 기록된 suppressed_by 그대로(마지막으로 본 규칙의 사유뿐이다).
+        why_key = None if end != "rules" else getattr(decision, "suppressed_by", None)
+        rule_taken = "next" if end != "rules" else why_key
+        rule_values: dict[str, str | None] = {}
+        if end == "rules" and why_key in _SILENCE_KO:
+            rule_values[str(why_key)] = f"{_SILENCE_KO[str(why_key)]} · 마지막으로 본 규칙의 사유"
         nodes.append(_node("rules", rules_ko, real_s=rec.rules_s,
-                           state="end" if end == "rules" else "done"))
+                           state="end" if end == "rules" else "done",
+                           branches=_branches(_RULES_BRANCHES, rule_taken, rule_values),
+                           edge_ko=None if end == "rules" else f"맞은 규칙 {len(matched)}개"))
 
         def tail(after: str) -> None:
             ids = list(_COMFORT_NODES[_COMFORT_NODES.index(after) + 1:])
@@ -1649,8 +1658,10 @@ class DaySim:
                     f" · 아무것도 안 하기 {noop}" if noop is not None else "")
         else:
             score_ko = "점수 기록 없음"
+        score_branches, score_edge = self._score_branches(evaluation)
         nodes.append(_node("score", score_ko, real_s=rec.evaluation_s,
-                           state="end" if end == "score" else "done"))
+                           state="end" if end == "score" else "done", branches=score_branches,
+                           edge_ko=None if end == "score" else score_edge))
         if end == "score":
             tail("score")
             return self._trace_event(rec, "silent", "main", None, nodes, silence)
@@ -1660,8 +1671,26 @@ class DaySim:
                     f"하한 {gate1.floor_tier.label_ko}" + (" · 차단" if gate1.blocked else ""))
         if end == "gate1":
             gate1_ko += " — 먼저 제안할 수 없는 확인 강도라 침묵"
+        # 1차 안전 검사 갈림길: 갈래는 기록된 Gate1Result.blocked·floor_tier 로 정한다(문자열 아님).
+        if gate1 is None:
+            gate1_taken = None
+        elif end == "gate1":
+            gate1_taken = ("blocked" if gate1.blocked
+                           else "ceiling" if gate1.floor_tier > PROACTIVE_TIER_CEILING else None)
+        else:
+            gate1_taken = ("next" if not gate1.blocked and gate1.floor_tier <= PROACTIVE_TIER_CEILING
+                           else None)
+        gate1_values: dict[str, str | None] = {}
+        if gate1 is not None and gate1_taken == "blocked":
+            gate1_values["blocked"] = f"차단 · 하한 {gate1.floor_tier.label_ko} → 침묵"
+        elif gate1 is not None and gate1_taken == "ceiling":
+            gate1_values["ceiling"] = (f"하한 {gate1.floor_tier.label_ko} > 능동 상한 "
+                                       f"{PROACTIVE_TIER_CEILING.label_ko} → 침묵")
         nodes.append(_node("gate1", gate1_ko, real_s=keyed.get("gate1_s"),
-                           state="end" if end == "gate1" else "done"))
+                           state="end" if end == "gate1" else "done",
+                           branches=_branches(_GATE1_BRANCHES, gate1_taken, gate1_values),
+                           edge_ko=(f"하한 {gate1.floor_tier.label_ko} · 상한 안"
+                                    if gate1 is not None and gate1_taken == "next" else None)))
         if end == "gate1":
             tail("gate1")
             return self._trace_event(rec, "silent", "main", None, nodes, silence)
@@ -1673,19 +1702,36 @@ class DaySim:
         judge_ko = "판정 기록 없음" if tier is None else f"최종 확인 강도 {tier.label_ko}"
         if end == "judge":
             judge_ko += " — 먼저 제안하기엔 높아 침묵"
+        judged: Judgment | None = None if judgment is None else judgment.get("judgment")
+        judge_text = None if judged is None else self._judge_text_ko(judged, gate1, entity, p["hhmm"])
+        if judged is None:
+            judge_taken = None
+        elif end == "judge":
+            judge_taken = "ceiling" if judged.risk_tier > PROACTIVE_TIER_CEILING else None
+        else:
+            judge_taken = "next" if judged.risk_tier <= PROACTIVE_TIER_CEILING else None
         nodes.append(_node("judge", judge_ko, real_s=judge_s,
                            model=None if judgment is None else judgment["model_id"],
-                           state="end" if end == "judge" else "done"))
+                           state="end" if end == "judge" else "done",
+                           branches=_branches(_JUDGE_BRANCHES, judge_taken,
+                                              {"ceiling": judge_text} if judge_taken == "ceiling"
+                                              else {}),
+                           edge_ko=judge_text if judge_taken == "next" else None))
         if end == "judge" or result is None:
             tail("judge")
             return self._trace_event(rec, "silent", "main", None, nodes, silence)
 
         prop = result.proposal
-        nodes.append(_node("route", f"{prop.risk_tier.label_ko} · "
-                           f"{_CONFIRMATION_KO.get(prop.required_confirmation, '확인 강도 기록 없음')}"))
+        confirm_ko = _CONFIRMATION_KO.get(prop.required_confirmation, "확인 강도 기록 없음")
+        nodes.append(_node("route", f"{prop.risk_tier.label_ko} · {confirm_ko}",
+                           edge_ko=f"{prop.risk_tier.label_ko} → {confirm_ko}"))
         gate_ko = _GATE_KO.get(result.decision, result.decision)
         suppressed = result.decision not in ("IMMEDIATE", "DIGEST")
-        nodes.append(_node("gate", gate_ko, state="end" if suppressed else "done"))
+        nodes.append(_node("gate", gate_ko, state="end" if suppressed else "done",
+                           branches=_branches(_GATE_BRANCHES, result.decision,
+                                              {"SUPPRESS": "사유 기록 없음"}
+                                              if result.decision == "SUPPRESS" else {}),
+                           edge_ko=None if suppressed else gate_ko))
         sim_id = p["sim_id"]
         rec_view = self._records.get(sim_id or "", {})
         title = rec_view.get("title_ko", "")
@@ -1707,6 +1753,90 @@ class DaySim:
                                    model=rec_view.get("reason_model")))
         return self._trace_event(rec, "comfort", "main", sim_id, nodes, None,
                                  outcome_ko=rec_view.get("line_ko", gate_ko))
+
+    def _branch_title(self, candidate: CandidateAction) -> str:
+        """갈림길 칩 이름: 규칙 제목, 없으면 기기 이름(기기 id 는 쓰지 않는다)."""
+        rule = self._rules.get(_rule_of(candidate.params) or "")
+        if rule is not None and rule.title_ko:
+            return rule.title_ko
+        name = self._reg.device_name(candidate.entity_id) if self._reg is not None else ""
+        return f"{name} 제안" if name and name != candidate.entity_id else "후보 행동"
+
+    def _score_branches(
+        self, evaluation: EvaluationResult | None,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """점수 갈림길: 후보 상위 3개(선택 포함) + 아무것도 안 하기. 값은 평가 결과 그대로."""
+        if evaluation is None or not evaluation.scored:
+            return _branches((_UNKNOWN,), None), None
+        scored = evaluation.scored
+        sel = evaluation.selected_index
+        noop_idx = next((i for i, ac in enumerate(scored) if is_noop(ac.candidate)), None)
+        ranked = sorted((i for i in range(len(scored)) if i != noop_idx),
+                        key=lambda i: -scored[i].final_score)[:3]
+        if sel != noop_idx and sel not in ranked:
+            ranked = [*ranked[:2], sel]
+        table: list[tuple[str, str, bool]] = [
+            (f"c{i}", self._branch_title(scored[i].candidate), False) for i in ranked]
+        values: dict[str, str | None] = {f"c{i}": f"{scored[i].final_score}" for i in ranked}
+        if noop_idx is not None:
+            table.append(("noop", "아무것도 안 하기", True))
+            values["noop"] = f"{scored[noop_idx].final_score}"
+        table.append(_UNKNOWN)
+        taken = "noop" if sel == noop_idx else f"c{sel}"
+        edge = None
+        if sel != noop_idx:
+            chosen = scored[sel]
+            edge = f"{self._branch_title(chosen.candidate)} {chosen.final_score}"
+            if noop_idx is not None:
+                noop_score = scored[noop_idx].final_score
+                # 같은 점수면 앞 후보를 고른다(evaluator.py:229, max 의 첫 값) — 그래서 '≥'.
+                edge += f" {'>' if chosen.final_score > noop_score else '≥'} 아무것도 안 하기 {noop_score}"
+            edge += f" · 출처: {_origin_ko(chosen.origin)}"
+        return _branches(tuple(table), taken, values), edge
+
+    def _luna_ko(self, entity: str, hhmm: str) -> str | None:
+        """같은 단계·같은 기기의 luna 비교 기록(단계 끝 그림자) — 없으면 None."""
+        luna = next((r for r in reversed(self.luna_results)
+                     if r.get("entity_id") == entity and r["day"] == self._day
+                     and r["hhmm"] == hhmm), None)
+        if luna is None:
+            return None
+        probs = (luna.get("luna") or {}).get("tier") or {}
+        if luna.get("status") != "ok" or not probs:
+            return str(luna.get("reason_ko") or "luna 미접근")
+        top = max(probs, key=lambda k: probs[k])
+        agree = (luna.get("agree") or {}).get("tier")
+        agree_ko = "—" if agree is None else ("일치" if agree else "불일치")
+        return f"luna {float(probs[top]) * 100:.0f}% {agree_ko}"
+
+    def _judge_text_ko(self, judgment: Judgment, gate1: Gate1Result | None, entity: str,
+                       hhmm: str) -> str:
+        """판정 문구: 최종 단계와 모델 답(Jev 최댓값)을 나눠 적는다. 기록된 값만 읽는다."""
+        kit = self._kit
+        if kit is None:
+            return "가짜 판정(확률 없음)"
+        if kit.judge is None or judgment.model_id != kit.judge.model_id:
+            # 상한에 닿아 가짜 판정기로 바뀌었다(_RecordingJudge.model_id — 그때 고른 쪽 이름).
+            return "상한 도달 · 가짜 판정(확률 없음)"
+        if judgment.gate2_verdict == "degraded_fail_safe" or judgment.degraded:
+            return (f"모델 응답 없음 → 안전하게 올림({judgment.risk_tier.label_ko})"
+                    " → 상한이라 침묵")
+        parts: list[str] = []
+        floor = gate1.floor_tier if gate1 is not None else None
+        if judgment.gate2_verdict == "injection_suspect":
+            parts.append("모델이 하한보다 낮게 답해 하한 유지")
+        else:
+            parts.append(f"최종 {judgment.risk_tier.label_ko}"
+                         + (f"(하한 {floor.label_ko})" if floor is not None else ""))
+        jev = (judgment.model_probs or {}).get("tier") or {}
+        if jev:
+            top = max(jev, key=lambda k: jev[k])
+            with contextlib.suppress(Exception):
+                parts.append(f"Jev 최댓값 {RiskTier.from_str(top).label_ko} {float(jev[top]) * 100:.0f}%")
+        luna = self._luna_ko(entity, hhmm)
+        if luna:
+            parts.append(luna)
+        return " · ".join(parts)
 
     def _trace_event(self, rec: _TraceRecorder, kind: str, part: str, proposal_id: str | None,
                      nodes: list[dict[str, Any]], silence: dict[str, Any] | None, *,
@@ -2222,14 +2352,76 @@ _CONFIRMATION_KO = {"none": "확인 불필요", "light": "가벼운 확인", "ex
                     "double": "이중 확인"}
 
 
+# ── 갈림길(branches) — 노드에서 나가는 길. (key, 한국어 이름, 출구 여부) ─────────────
+# 표에 없는 값이 오면 'unknown'(기록 없음)이 간 길이 된다 — 간 길은 늘 정확히 하나다.
+_UNKNOWN = ("unknown", "기록 없음", True)
+# 규칙: ProactiveDecision.suppressed_by 값(proactive.py:301-364, validate_proactive_candidate
+# proactive.py:136-151). budget·no_match 는 규칙이 하나도 맞지 않을 때만 나며, 그때는 후보가 없어
+# trace 를 내지 않는다(이 그림에는 흐린 갈림길로만 남는다).
+_RULES_BRANCHES: tuple[tuple[str, str, bool], ...] = (
+    ("next", "다음으로", False),
+    ("cooldown", "잠시 쉬는 중", True),
+    ("rejected", "30일 쉬는 중", True),
+    ("budget", "제안 수 다 씀", True),
+    ("no_match", "조건 안 맞음", True),
+    ("tier_ceiling", "확인 강도 상한", True),
+    ("safety_target", "안전 기기", True),
+    ("not_allowed", "먼저 제안할 수 없는 행동", True),
+    ("capability_mismatch", "기기 종류 불일치", True),
+    _UNKNOWN,
+)
+# 1차 안전 검사: Gate1Result.blocked·floor_tier 와 능동 상한(app.py:403-414).
+_GATE1_BRANCHES: tuple[tuple[str, str, bool], ...] = (
+    ("next", "상한 안", False),
+    ("ceiling", "능동 상한", True),
+    ("blocked", "차단", True),
+    _UNKNOWN,
+)
+# 위험 판정: 판정 뒤 능동 상한(app.py:449-455).
+_JUDGE_BRANCHES: tuple[tuple[str, str, bool], ...] = (
+    ("next", "상한 안", False),
+    ("ceiling", "판정 뒤 상한", True),
+    _UNKNOWN,
+)
+# 알림 게이트: GateDecision(notifier.py:59) = DispatchResult.decision. 보류 사유는 서비스가 내주지 않는다.
+_GATE_BRANCHES: tuple[tuple[str, str, bool], ...] = (
+    ("IMMEDIATE", "바로 폰 알림", False),
+    ("DIGEST", "모아보기", False),
+    ("SUPPRESS", "보류", True),
+    _UNKNOWN,
+)
+# 후보 출처(ActionCandidate.origin, contracts.py:303 — 여러 줄이 같으면 '+'로 합친다,
+# proposal_lines.py:290) → 한국어.
+_ORIGIN_KO = {"rule": "규칙 줄", "line_a": "학습 줄", "line_b": "언어 모델 줄", "llm": "언어 모델 줄"}
+
+
+def _branches(table: tuple[tuple[str, str, bool], ...], taken: str | None,
+              values: dict[str, str | None] | None = None) -> list[dict[str, Any]]:
+    """표의 갈림길 전부. ``taken`` 이 표에 없으면 unknown 이 간 길이다(정확히 하나)."""
+    keys = {k for k, _, _ in table}
+    hit = taken if taken in keys else "unknown"
+    values = values or {}
+    return [{"key": k, "label_ko": label, "value_ko": values.get(k), "taken": k == hit,
+             "exit": is_exit} for k, label, is_exit in table]
+
+
+def _origin_ko(origin: str) -> str:
+    parts = [_ORIGIN_KO.get(part.split(":", 1)[0]) for part in origin.split("+") if part]
+    if not parts or not all(parts):
+        return "출처 기록 없음"
+    return "+".join(x for x in dict.fromkeys(parts) if x)
+
+
 def _ms(seconds: float | None) -> float | None:
     return None if seconds is None else round(seconds * 1000.0, 2)
 
 
 def _node(nid: str, detail_ko: str, *, real_s: float | None = None, state: str = "done",
-          model: str | None = None) -> dict[str, Any]:
+          model: str | None = None, branches: list[dict[str, Any]] | None = None,
+          edge_ko: str | None = None) -> dict[str, Any]:
     return {"id": nid, "label_ko": _NODE_KO.get(nid, nid), "detail_ko": detail_ko,
-            "real_ms": _ms(real_s), "model": model, "state": state}
+            "real_ms": _ms(real_s), "model": model, "state": state,
+            "branches": list(branches or []), "edge_ko": edge_ko}
 
 
 def _silence_end(decision: ProactiveDecision | None, evaluation: EvaluationResult | None,
