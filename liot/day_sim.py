@@ -1864,8 +1864,13 @@ class DaySim:
             parts.append(luna)
         return " · ".join(parts)
 
-    def _safety_model_text_ko(self, row: dict[str, Any], entity: str, hhmm: str) -> str:
-        """안전 2단계 판정 값(model → severity 엣지): Jev 최댓값(단계·파급도)과 luna. 기록만 읽는다."""
+    def _safety_model_text_ko(self, row: dict[str, Any], entity: str, hhmm: str,
+                              floor_tier: RiskTier | None = None) -> str:
+        """안전 2단계 판정 값(model → severity 엣지): Jev 최댓값(단계·파급도)과 luna. 기록만 읽는다.
+
+        Jev 최댓값이 하한(첫 경보 단계 · 행의 파급도 하한)보다 낮으면 반영되지 않았다고 적는다 —
+        LLMJudge 는 하한 아래 답을 무시한다(escalate_only).
+        """
         kit = self._kit
         if kit is None:
             return "가짜 판정(확률 없음)"
@@ -1873,10 +1878,22 @@ class DaySim:
             return "모델 응답 없음 · 하한 유지"
         if kit.judge is None or row["model_id"] != kit.judge.model_id:
             return "상한 도달 · 가짜 판정(확률 없음)"
-        parts = [x for x in (_jev_ko(row["model_probs"], "tier"),
-                             _jev_ko(row["model_probs"], "severity"),
-                             self._luna_ko(entity, hhmm)) if x]
-        return " · ".join(parts) if parts else "확률 기록 없음"
+        probs = row["model_probs"]
+        parts: list[str | None] = [_jev_ko(probs, "tier")]
+        top = _jev_top(probs, "tier")
+        with contextlib.suppress(Exception):
+            if parts[0] and top is not None and floor_tier is not None and RiskTier.from_str(top) < floor_tier:
+                parts.append(f"하한({floor_tier.label_ko}) 아래라 반영 안 됨")
+        parts.append(_jev_ko(probs, "severity"))
+        sev_top = _jev_top(probs, "severity")
+        sev_floor: SeverityLevel | None = row.get("severity_floor")
+        with contextlib.suppress(Exception):
+            if parts[-1] and sev_top is not None and sev_floor is not None and (
+                    SeverityLevel.from_str(sev_top) < sev_floor):
+                parts.append(f"파급도 하한({sev_floor.label_ko}) 아래라 반영 안 됨")
+        parts.append(self._luna_ko(entity, hhmm))
+        shown = [x for x in parts if x]
+        return " · ".join(shown) if shown else "확률 기록 없음"
 
     def _trace_event(self, rec: _TraceRecorder, kind: str, part: str, proposal_id: str | None,
                      nodes: list[dict[str, Any]], silence: dict[str, Any] | None, *,
@@ -1923,8 +1940,9 @@ class DaySim:
             _node("first_alert", "읽기부터 첫 경보 전송까지 "
                   + ("—" if first_s is None else f"{first_s * 1000.0:.1f}ms") + " · 모델 없이",
                   real_s=first_s,
+                  # 노드의 real_ms 와 같은 반올림 값에서 만든다 — 두 값이 갈리지 않는다.
                   edge_ko="모델 없이 즉시" + ("" if first_s is None
-                                           else f" · {first_s * 1000.0:.1f}ms")),
+                                           else f" · {_ms(first_s):.1f}ms")),
             _node("phone", "폰에 바로 경보"),
         ]
         emit(self._trace_event(rec, "safety", "main", sim_id, nodes, None,
@@ -2018,8 +2036,8 @@ class DaySim:
             nodes = [_node("model", model_ko, real_s=model_s,
                            model=None if row is None else row["model_id"],
                            branches=model_branches,
-                           edge_ko=None if row is None else self._safety_model_text_ko(row, eid,
-                                                                                       s["hhmm"]))]
+                           edge_ko=None if row is None else self._safety_model_text_ko(
+                               row, eid, s["hhmm"], first.risk_tier))]
             if row is not None and row["severity"] is not None:
                 sev_ko = f"파급도 {row['severity'].label_ko}"
                 if row["severity_floor"] is not None:
@@ -2529,6 +2547,12 @@ def _json_probs(raw: Any) -> dict[str, dict[str, float]] | None:
     except (TypeError, ValueError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def _jev_top(probs: dict[str, dict[str, float]] | None, question: str) -> str | None:
+    """Jev 답의 최댓값 선택지 id(없으면 None)."""
+    answer = (probs or {}).get(question) or {}
+    return max(answer, key=lambda k: answer[k]) if answer else None
 
 
 def _jev_ko(probs: dict[str, dict[str, float]] | None, question: str) -> str | None:

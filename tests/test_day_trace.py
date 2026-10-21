@@ -1041,9 +1041,7 @@ def test_safety_and_feedback_branch_sets_match_the_tables(
             if t["kind"] == "safety" and t["part"] == "main":
                 assert _node_of(t, "classify")["edge_ko"] == "이상 값 → 안전 경보 경로"
                 first = _node_of(t, "first_alert")
-                # 문구는 잰 초에서 바로 소수 첫째 자리로, real_ms 는 소수 둘째 자리 — 반올림 차이 0.05 까지.
-                shown = re.fullmatch(r"모델 없이 즉시 · (\d+\.\d)ms", first["edge_ko"])
-                assert shown and abs(float(shown.group(1)) - first["real_ms"]) <= 0.051
+                assert first["edge_ko"] == f"모델 없이 즉시 · {first['real_ms']:.1f}ms"
 
 
 def test_followup_model_edges_fake_and_cloud(seed7: tuple[DaySim, Events], tmp_path: Path) -> None:
@@ -1156,11 +1154,14 @@ def test_refused_tap_takes_the_refused_branch_with_the_choice() -> None:
 def test_pref_edges_equal_independent_reads_around_taps_and_ticks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import datetime
+
     from liot.layers.l2_context.feature_vector import NEUTRAL_PREF, load_cells
     from liot.service import LiotService
 
     taps: dict[str, tuple[float, float]] = {}
-    ticks: list[tuple[dict[str, str], dict[str, float], dict[str, float]]] = []
+    # 틱마다 (집 지역 날짜·시각, 제안 → 셀, 직전 셀, 직후 셀).
+    ticks: dict[tuple[str, str], tuple[dict[str, str], dict[str, float], dict[str, float]]] = {}
     real_route, real_tick = LiotService._route_feedback, LiotService.run_tick
 
     async def route(self: LiotService, request_line: str) -> Any:
@@ -1174,9 +1175,11 @@ def test_pref_edges_equal_independent_reads_around_taps_and_ticks(
         return out
 
     async def tick(self: LiotService) -> Any:
+        local = self.clock.local_dt()
         cells, cell_of = await load_cells(self.prefs), dict(self._prop_cell)
         out = await real_tick(self)
-        ticks.append((cell_of, cells, await load_cells(self.prefs)))
+        ticks[(local.date().isoformat(), local.strftime("%H:%M"))] = (
+            cell_of, cells, await load_cells(self.prefs))
         return out
 
     monkeypatch.setattr(LiotService, "_route_feedback", route)
@@ -1190,15 +1193,19 @@ def test_pref_edges_equal_independent_reads_around_taps_and_ticks(
         pid = sim._tracked[t["proposal_id"]].pid
         edge = _node_of(t, "feedback")["edge_ko"]
         if _taken(_node_of(t, "phone"))["key"] == "expired":
-            # 만료는 그 단계 틱의 직전·직후 값(같은 틱의 다른 만료 감쇠 포함).
-            candidates = {f"이 제안 칸 선호 {b.get(c[pid], NEUTRAL_PREF):.2f} → "
-                          f"{a.get(c[pid], NEUTRAL_PREF):.2f} · 같은 순간 다른 만료의 감쇠 포함"
-                          for c, b, a in ticks if pid in c and b != a}
-            assert edge in candidates
+            # 만료는 그 만료가 일어난 단계(trace 의 날·시각)의 틱 직전·직후 값이다.
+            day, hhmm = t["clock_ko"].split("일차 ")
+            date = (datetime.date.fromisoformat(day_sim.START_DATE)
+                    + datetime.timedelta(days=int(day) - 1)).isoformat()
+            cell_of, before, after = ticks[(date, hhmm)]
+            key = cell_of[pid]
+            assert edge == (f"이 제안 칸 선호 {before.get(key, NEUTRAL_PREF):.2f} → "
+                            f"{after.get(key, NEUTRAL_PREF):.2f} · 같은 순간 다른 만료의 감쇠 포함")
+            assert before.get(key, NEUTRAL_PREF) != after.get(key, NEUTRAL_PREF)
             exp_n += 1
         else:
-            before, after = taps[pid]
-            assert edge == f"이 제안 칸 선호 {before:.2f} → {after:.2f}"
+            tap_before, tap_after = taps[pid]
+            assert edge == f"이 제안 칸 선호 {tap_before:.2f} → {tap_after:.2f}"
             tap_n += 1
     assert tap_n >= 3 and exp_n >= 1
 
@@ -1281,3 +1288,59 @@ def test_pref_reads_happen_only_in_trace_runs(monkeypatch: pytest.MonkeyPatch) -
     assert calls["n"] == 0
     _run(DaySim(seed=7, days=2, trace=True))
     assert calls["n"] > 0
+
+
+def test_gate1_blocked_takes_the_blocked_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    import dataclasses
+
+    real = day_sim._TimedGuardrail.evaluate
+
+    def blocked(self: Any, candidate: Any, ctx: Any = None) -> Gate1Result:
+        out = real(self, candidate, ctx)
+        if candidate.category not in ("leak", "gas"):  # 편의 후보를 가드레일이 막았다고 치자(하한은 그대로)
+            out = dataclasses.replace(out, blocked=True)
+            self.recorder.note((candidate.entity_id, "comfort"), gate1=out)
+        return out
+
+    monkeypatch.setattr(day_sim._TimedGuardrail, "evaluate", blocked)
+    sim = DaySim(seed=7, days=1, trace=True)
+    events = _run(sim)
+    ends = [t for t in _traces(events) if t["kind"] == "silent" and _end(t) == "gate1"]
+    assert ends and not sim.proposals
+    for t in ends:
+        node = _node_of(t, "gate1")
+        taken = _taken(node)
+        assert taken["key"] == "blocked" and node["edge_ko"] is None
+        assert re.fullmatch(r"차단 · 하한 \S+ → 침묵", taken["value_ko"])
+
+
+def test_safety_model_edge_says_when_jev_sat_below_the_floor(tmp_path: Path) -> None:
+    kit = _kit(tmp_path)
+    kit.judge = JevBackend(transport=_RaiseFirstSituation())
+    follow = _followups(_run(DaySim(seed=7, days=3, models="cloud", cloud=kit, trace=True)))
+    edges = [_node_of(t, "model")["edge_ko"] for t in follow]
+    assert len(edges) == 3
+    # 첫 상황: Jev 가 가장 높은 답(불씨·위험) — 하한 아래가 아니다.
+    assert "아래라 반영 안 됨" not in edges[0] and edges[0].startswith("Jev 최댓값 불씨 ")
+    # 나머지: FakeJev 의 가장 낮은 답(잔잔·기록만) — 첫 경보 단계(불씨)와 파급도 하한 아래다.
+    for e in edges[1:]:
+        assert e.startswith("Jev 최댓값 잔잔 40% · 하한(불씨) 아래라 반영 안 됨 · 파급도 최댓값 기록만 40% · ")
+        assert "파급도 하한(" in e and e.count("아래라 반영 안 됨") == 2
+
+
+def test_first_alert_edge_uses_the_same_rounded_ms_as_the_node() -> None:
+    # 반올림 경계 값: 2.6549ms → real_ms 2.65. 잰 초에서 바로 쓰면 '2.7', 같은 반올림 값에서는 '2.6'.
+    import datetime
+    from types import SimpleNamespace
+
+    sim = DaySim(seed=7, days=1, trace=True)
+    out: list[dict[str, Any]] = []
+    sim._trace_emit = out.append
+    p = SimpleNamespace(proposal_id="pid-1", risk_tier=RiskTier.EMBER, severity=None,
+                        judgment_id="j-1", situation_id="s-1")
+    transport = SimpleNamespace(sent_at={"pid-1": 10.0026549})
+    step = SimpleNamespace(at_local=datetime.datetime(2026, 6, 1, 13, 0))
+    sim._emit_safety_main(transport, step, day_sim.LEAK, "leak", "누수", "p1", p, 10.0)  # type: ignore[arg-type]
+    first = _node_of(out[0], "first_alert")
+    assert first["real_ms"] == round(0.0026549 * 1000.0, 2)
+    assert first["edge_ko"] == f"모델 없이 즉시 · {first['real_ms']:.1f}ms"
