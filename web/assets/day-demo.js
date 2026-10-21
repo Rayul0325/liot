@@ -23,7 +23,7 @@
    * — 다음 열 칩과 24 띄운다(왼쪽 바깥 8 은 간 칩 연결선 통로). */
   const CHIP = { top: 40, bottom: 240, h: 22, w: 216 };
   /** 엣지 문구 알약: 아래 끝이 엣지 위 42(노드 위 끝 37 바로 위), 폭은 열 간격(240) 안. 줄바꿈하고 줄이지 않는다. */
-  const PILL = { gap: 42, w: 230, h: 90 };
+  const PILL = { gap: 42, w: 230, h: 160 };
   /** 오른쪽 폰 알림창 자리(그래프와 같은 SVG 안, foreignObject). */
   const PANE = { x: 1240, y: 40, w: 340, h: 680 };
   /** 좁은 화면(day.css 와 같은 640px): 노드를 한 줄로 세우고 설명은 오른쪽, 폰은 그래프 아래. */
@@ -55,6 +55,21 @@
   const SINK = { w: 110, h: 28 };
   /** 편의 판단 노드의 출구 모양: 위 길 · 아래 길 · 점수 부채 · 알림 게이트 싱크. */
   const EXIT_OF = { rules: "top", gate1: "top", score: "fan", judge: "bottom", gate: "sinks" };
+  /**
+   * 한 줄 배치(안전 followup·피드백)의 출구: 노드 아래 길(y 470)로 가는 점선 화살표 하나.
+   * main 은 본선으로 가는 갈림길(그 칩은 그리지 않는다 — 본선 알약이 말한다). 나머지가 출구다.
+   */
+  const ROW_LANE_Y = 470;
+  // followup: 2단계 판정의 갈림길이지만 길은 '따라가는 알림' 노드에서 갈린다 — 보냈으면 그 노드에서 폰
+  // 창으로(폰 연결선), 아니면 아래 '따라가는 알림 없음' 길로. 파급도·사다리는 어느 쪽이든 그대로 돈다.
+  const ROW_EXITS = {
+    followup: { model: { from: "followup", dx: -30, x0: 20, x1: 560, list: [300, 255],
+      label: "따라가는 알림 없음", main: ["sent"] } },
+    feedback: { phone: { dx: 30, x0: 800, x1: 1220, label: "반영되지 않음",
+      main: ["accepted", "expired", "dismissed"] } },
+  };
+  /** followup 의 폰 창 연결선은 노드 아래로 돌아 나간다(위로 돌면 앞 엣지 문구 알약을 가로지른다). */
+  const ROW_PANE_Y = 430;
   /** 점수 후보 부채(점수 노드 오른쪽 아래). */
   const FAN = { x: 640, y: 282, w: 260, h: 190, noopLane: 920 };
 
@@ -263,8 +278,9 @@
     });
     const list = el("div", "dm-chip-list");
     shown.forEach((b) => {
-      const chip = el("div", "dm-chip" + (b.taken ? " dm-chip-taken" : "") + (b.exit ? " dm-chip-exit" : ""),
-        chipText(b));
+      const chip = el("div", "dm-chip dm-branch" + (b.taken ? " dm-chip-taken dm-branch-taken" : "")
+        + (b.exit ? " dm-chip-exit" : ""), chipText(b));
+      chip.dataset.node = n.id;
       chip.dataset.key = b.key;
       chip.title = chipText(b);
       list.appendChild(chip);
@@ -363,7 +379,55 @@
    * @returns {Object[]}
    */
   function exitBranches(n) {
+    const row = rowExitOf(n);
+    if (row) return visibleBranches(n).filter((b) => !row.main.includes(b.key));
     return visibleBranches(n).filter((b) => b.exit || b.key === "DIGEST");
+  }
+
+  /**
+   * 한 줄 배치의 출구 설정(없으면 null). 지금 그리는 trace 의 종류로 찾는다.
+   * @param {Object} n
+   * @returns {{from?: string, dx: number, x0: number, x1: number, list?: number[], label: string,
+   *   main: string[]}|null}
+   */
+  function rowExitOf(n) {
+    const kind = D.shown ? layoutOf(D.shown) : "";
+    const table = /** @type {Record<string, Record<string, any>>} */ (ROW_EXITS)[kind];
+    return (table && table[n.id]) || null;
+  }
+
+  /**
+   * 한 줄 배치의 출구: 노드 아래 길로 가는 점선 화살표 + 길 + 길 아래 이유 칩.
+   * @param {Object} n
+   * @param {Record<string, [number, number]>} table
+   * @param {boolean} final
+   * @returns {SVGElement|null}
+   */
+  function rowExitEl(n, table, final) {
+    const cfg = rowExitOf(n);
+    if (!cfg) return null;
+    const [cx, cy] = table[cfg.from || n.id] || table[n.id];
+    const g = exitGroup(n, final);
+    const x = cx + cfg.dx;
+    arrow([[x, cy + NODE_H / 2], [x, ROW_LANE_Y]], "dm-exit").forEach((p) => g.appendChild(p));
+    const lane = svg("g", { class: "dm-lane" + (tookExit(n) ? " dm-lane-taken" : ""),
+      "data-state": final ? n.state : "pending" });
+    lane.appendChild(svg("path", { d: "M" + cfg.x0 + "," + ROW_LANE_Y + " L" + cfg.x1 + "," + ROW_LANE_Y,
+      class: "dm-lane-line" }));
+    // 길 이름은 화살표가 닿는 쪽의 반대 끝(화살표가 글을 가로지르지 않게).
+    const atEnd = x < (cfg.x0 + cfg.x1) / 2;
+    const label = svg("text", { x: atEnd ? cfg.x1 - 4 : cfg.x0 + 4, y: ROW_LANE_Y - 8, class: "dm-lane-label",
+      "text-anchor": atEnd ? "end" : "start" });
+    label.textContent = cfg.label;
+    lane.appendChild(label);
+    if (tookExit(n)) (D.exitEls.get(n.id) || []).push(lane);
+    g.appendChild(lane);
+    const branches = exitBranches(n);
+    if (branches.length) {
+      const [lx, lw] = cfg.list || [x + 8, Math.min(cfg.x1 - (x + 8), 320)];
+      g.appendChild(reasonList(n, branches, lx, ROW_LANE_Y + 6, lw, 110));
+    }
+    return g;
   }
 
   /**
@@ -475,7 +539,13 @@
     } else if (kind === "bottom") {
       const x = cx + 30;
       arrow([[x, cy + NODE_H / 2], [x, LANE.bottom]], "dm-exit").forEach((p) => g.appendChild(p));
-      if (branches.length) g.appendChild(reasonList(n, branches, x + 8, LANE.bottom + 6, 320, 54));
+      // 아래 길 밑은 viewBox 끝(760)까지 60 뿐이라, 이유 칩은 길 바로 위(노드 아래 ~ 길)에 붙인다.
+      const top = cy + NODE_H / 2 + 5;
+      if (branches.length) {
+        const fo = reasonList(n, branches, x + 8, top, SINKS.DIGEST - SINK.w / 2 - 8 - (x + 8), LANE.bottom - 4 - top);
+        fo.classList.add("dm-reasons-up");
+        g.appendChild(fo);
+      }
     } else {
       // 알림 게이트: 모아보기·보류 싱크로 가는 두 출구. 간 쪽만 강조한다.
       [["DIGEST", -20], ["SUPPRESS", 20]].forEach(([key, dx]) => {
@@ -817,9 +887,16 @@
       }
       box.appendChild(lanesEl(drawn, Boolean(final)));
     }
+    const rowBranching = !thin && Boolean(/** @type {Record<string, any>} */ (ROW_EXITS)[kind]);
+    if (rowBranching) {
+      drawn.forEach((n) => {
+        const x = rowExitEl(n, table, Boolean(final));
+        if (x) exits.appendChild(x);
+      });
+    }
     for (let i = 0; i < drawn.length; i += 1) {
       const n = drawn[i];
-      const g = nodeEl(n, table[n.id], thin, !branching);
+      const g = nodeEl(n, table[n.id], thin, !branching && !(rowBranching && rowExitOf(n)));
       if (!final) {
         g.setAttribute("data-state", "pending");
         const meta = g.querySelector(".dm-node-time");
@@ -832,8 +909,11 @@
         const e = edge(route(table[prev.id], table[n.id]), final ? n.state : "pending",
           thin ? null : prev.edge_ko);
         // 출구로 간 판단 노드 다음의 본선, 바로 알림이 아닌 알림 게이트 다음의 본선은 불을 켜지 않는다.
-        if (branching && (tookExit(prev) || (prev.id === "gate" && !(prev.branches || []).some(
-          (b) => b.key === "IMMEDIATE" && b.taken)))) e.classList.add("dm-edge-off");
+        const prevRow = rowBranching ? rowExitOf(prev) : null;
+        if (((branching || (prevRow && !prevRow.from)) && tookExit(prev)) || (branching && prev.id === "gate"
+          && !(prev.branches || []).some((b) => b.key === "IMMEDIATE" && b.taken))) {
+          e.classList.add("dm-edge-off");
+        }
         D.edgeEls.set(n.id, e);
         edges.appendChild(e);
       }
@@ -844,11 +924,15 @@
       // 같은 줄 오른쪽에 다른 노드가 있으면(이유 작성) 위로 빠져나가 그 노드를 넘는다.
       const blocked = drawn.some((n) => n !== target && table[n.id][1] === y && table[n.id][0] > x);
       const pts = /** @type {[number, number][]} */ (
-        blocked ? [[x, y - NODE_H / 2], [x, y - NODE_H / 2 - 26], [PANE.x, y - NODE_H / 2 - 26]]
-          : [[x + NODE_W / 2, y], [PANE.x, y]]);
+        kind === "followup" ? [[x, y + NODE_H / 2], [x, ROW_PANE_Y], [PANE.x, ROW_PANE_Y]]
+          : blocked ? [[x, y - NODE_H / 2], [x, y - NODE_H / 2 - 26], [PANE.x, y - NODE_H / 2 - 26]]
+            : [[x + NODE_W / 2, y], [PANE.x, y]]);
       const link = edge(t.kind === "feedback" ? pts.slice().reverse() : pts,
         final ? target.state : "pending");
       link.classList.add("dm-edge-pane");
+      // followup: 2단계 판정이 따라가는 알림을 보내지 않았으면 폰 연결선은 불을 켜지 않는다.
+      const model = kind === "followup" ? drawn.find((n) => n.id === "model") : undefined;
+      if (model && tookExit(model)) link.classList.add("dm-edge-off");
       D.edgeEls.set("__pane__", link);
       edges.appendChild(link);
     }
@@ -1124,8 +1208,71 @@
     showWaiting();
   }
 
+  /**
+   * 겹침 검사(시험·확인용): 지금 그린 그래프에서 노드·칩·문구 알약·후보 알약·싱크·길 이름·점수 글·
+   * 폰 창의 경계 상자가 서로 교차하는 쌍, viewBox 밖으로 나간 요소, 자기 foreignObject 밖으로 넘친
+   * (잘린) 글 상자를 센다. 엣지 선은 뺀다.
+   * @returns {{pairs: number, outside: number, clipped: number, details: Array<Array<string|number>>}}
+   */
+  function overlapCheck() {
+    const box = /** @type {SVGSVGElement} */ (/** @type {unknown} */ ($("demoSvg")));
+    const ctm = box.getScreenCTM();
+    const vb = box.viewBox.baseVal;
+    const pt = (x, y) => {
+      const q = box.createSVGPoint();
+      q.x = x;
+      q.y = y;
+      return ctm ? q.matrixTransform(ctm) : q;
+    };
+    const a0 = pt(vb.x, vb.y);
+    const a1 = pt(vb.x + vb.width, vb.y + vb.height);
+    const kinds = [["node", ".dm-node-box"], ["chip", ".dm-chip"], ["pill", ".dm-pill:not(.dm-fan-pill)"],
+      ["fan", ".dm-fan-pill"], ["sink", ".dm-sink-card"], ["lane", ".dm-lane-label"],
+      ["score", ".dm-fan-score"], ["time", ".dm-node-time"], ["pane", ".dm-pane"]];
+    /** @type {Array<[string, DOMRect, Element]>} */
+    const items = [];
+    for (const [name, sel] of kinds) {
+      for (const node of box.querySelectorAll(sel)) {
+        const r = node.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) items.push([name, r, node]);
+      }
+    }
+    const details = [];
+    let pairs = 0;
+    let outside = 0;
+    let clipped = 0;
+    const tol = 0.5;
+    for (const [name, r, node] of items) {
+      const fo = node.closest("foreignObject");
+      if (!fo || name === "pane") continue;
+      const f = fo.getBoundingClientRect();
+      if (r.left < f.left - tol || r.right > f.right + tol || r.top < f.top - tol || r.bottom > f.bottom + tol) {
+        clipped += 1;
+        details.push(["clipped", name, Math.round(r.left), Math.round(r.top)]);
+      }
+    }
+    for (let i = 0; i < items.length; i += 1) {
+      const [na, ra, ea] = items[i];
+      if (ra.left < a0.x - tol || ra.top < a0.y - tol || ra.right > a1.x + tol || ra.bottom > a1.y + tol) {
+        outside += 1;
+        details.push(["outside", na, Math.round(ra.left), Math.round(ra.top)]);
+      }
+      for (let j = i + 1; j < items.length; j += 1) {
+        const [nb, rb, eb] = items[j];
+        // 노드 상자와 그 안의 시간 글은 한 몸이다.
+        if ((na === "time" || nb === "time") && (ea.closest(".dm-node") === eb.closest(".dm-node"))) continue;
+        if (ra.left < rb.right - tol && rb.left < ra.right - tol && ra.top < rb.bottom - tol
+          && rb.top < ra.bottom - tol) {
+          pairs += 1;
+          details.push([na, nb, Math.round(ra.left), Math.round(ra.top), Math.round(rb.left), Math.round(rb.top)]);
+        }
+      }
+    }
+    return { pairs: pairs, outside: outside, clipped: clipped, details: details.slice(0, 20) };
+  }
+
   /** @type {any} */ (window).LiotDemo = { open: open, close: close, push: push, reset: reset, render: render,
-    skip: skip, replay: replay, captionOf: captionOf, state: D };
+    skip: skip, replay: replay, captionOf: captionOf, overlapCheck: overlapCheck, state: D };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();

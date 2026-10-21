@@ -268,6 +268,10 @@ body.dm-lock {
   gap: 2px 6px;
   font-family: var(--font);
 }
+.dm-reasons-up .dm-reasons {
+  height: 100%;
+  align-content: flex-end;
+}
 .dm-reasons .dm-chip {
   margin-bottom: 0;
 }
