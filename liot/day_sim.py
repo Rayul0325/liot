@@ -1674,12 +1674,12 @@ class DaySim:
         if evaluation is not None:
             noop = next((ac.final_score for ac in evaluation.scored if is_noop(ac.candidate)), None)
             if end == "score":
-                score_ko = f"아무것도 안 하기가 이김({noop})"
+                score_ko = f"아무것도 안 하기가 이김({_score_ko(noop)})"
             else:
                 sel = evaluation.scored[evaluation.selected_index]
                 label = self._title(_rule_of(sel.candidate.params), sel.candidate.entity_id)
-                score_ko = f"{label} {sel.final_score}" + (
-                    f" · 아무것도 안 하기 {noop}" if noop is not None else "")
+                score_ko = f"{label} {_score_ko(sel.final_score)}" + (
+                    f" · 아무것도 안 하기 {_score_ko(noop)}" if noop is not None else "")
         else:
             score_ko = "점수 기록 없음"
         score_branches, score_edge = self._score_branches(evaluation)
@@ -1827,20 +1827,21 @@ class DaySim:
             ranked = [*ranked[:2], sel]
         table: list[tuple[str, str, bool]] = [
             (f"c{i}", self._branch_title(scored[i].candidate), False) for i in ranked]
-        values: dict[str, str | None] = {f"c{i}": f"{scored[i].final_score}" for i in ranked}
+        values: dict[str, str | None] = {f"c{i}": _score_ko(scored[i].final_score) for i in ranked}
         if noop_idx is not None:
             table.append(("noop", "아무것도 안 하기", True))
-            values["noop"] = f"{scored[noop_idx].final_score}"
+            values["noop"] = _score_ko(scored[noop_idx].final_score)
         table.append(_UNKNOWN)
         taken = "noop" if sel == noop_idx else f"c{sel}"
         edge = None
         if sel != noop_idx:
             chosen = scored[sel]
-            edge = f"{self._branch_title(chosen.candidate)} {chosen.final_score}"
+            edge = f"{self._branch_title(chosen.candidate)} {_score_ko(chosen.final_score)}"
             if noop_idx is not None:
                 noop_score = scored[noop_idx].final_score
                 # 같은 점수면 앞 후보를 고른다(evaluator.py:229, max 의 첫 값) — 그래서 '≥'.
-                edge += f" {'>' if chosen.final_score > noop_score else '≥'} 아무것도 안 하기 {noop_score}"
+                edge += (f" {'>' if chosen.final_score > noop_score else '≥'} 아무것도 안 하기 "
+                         f"{_score_ko(noop_score)}")
             edge += f" · 출처: {_origin_ko(chosen.origin)}"
         return _branches(tuple(table), taken, values), edge
 
@@ -2551,6 +2552,11 @@ _APPLY_BRANCHES: tuple[tuple[str, str, bool], ...] = (
 )
 
 _FEEDBACK_KO = {k: label for k, label, _ in _CHOICE_BRANCHES}
+
+
+def _score_ko(score: float | None) -> str:
+    """점수는 늘 소수 셋째 자리까지(0.350 · 0.348) — 자리 수가 달라 같아 보이거나 달라 보이지 않게."""
+    return "—" if score is None else f"{score:.3f}"
 
 
 def _clock_ko(hhmm: str) -> str:

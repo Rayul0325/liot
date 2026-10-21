@@ -840,14 +840,14 @@ def test_score_branches_are_the_evaluation_values(monkeypatch: pytest.MonkeyPatc
         values = {b["key"]: b["value_ko"] for b in node["branches"]}
         for key, value in values.items():
             if key.startswith("c"):
-                assert value == f"{ev.scored[int(key[1:])].final_score}"
+                assert value == f"{ev.scored[int(key[1:])].final_score:.3f}"
         taken = _taken(node)
         noop = next(i for i, ac in enumerate(ev.scored) if ac.origin == "noop")
         assert taken["key"] == ("noop" if ev.selected_index == noop else f"c{ev.selected_index}")
         if t["kind"] == "comfort":
             sel = ev.scored[ev.selected_index]
             sign = ">" if sel.final_score > ev.scored[noop].final_score else "≥"
-            assert f" {sel.final_score} {sign} 아무것도 안 하기 {ev.scored[noop].final_score}" in (
+            assert f" {sel.final_score:.3f} {sign} 아무것도 안 하기 {ev.scored[noop].final_score:.3f}" in (
                 node["edge_ko"])
             assert node["edge_ko"].endswith("· 출처: 규칙 줄")
         checked += 1
@@ -1001,7 +1001,7 @@ def test_score_edge_uses_greater_or_equal_on_a_tie(monkeypatch: pytest.MonkeyPat
     tied = ev.model_copy(deep=True)
     tied.scored[noop] = tied.scored[noop].model_copy(update={"final_score": sel.final_score})
     _branches, edge = sim._score_branches(tied)
-    assert edge is not None and f"{sel.final_score} ≥ 아무것도 안 하기 {sel.final_score}" in edge
+    assert edge is not None and f"{sel.final_score:.3f} ≥ 아무것도 안 하기 {sel.final_score:.3f}" in edge
     _branches, edge = sim._score_branches(ev)
     assert edge is not None and " > 아무것도 안 하기 " in edge
 
