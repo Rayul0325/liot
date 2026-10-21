@@ -690,7 +690,9 @@
   function captionOf(n) {
     const taken = (n.branches || []).find((b) => b.taken);
     let line = n.label_ko + " — " + n.detail_ko;
-    if (taken && taken.value_ko) line += " · " + chipText(taken);
+    // 설명이 간 갈림길 이름으로 시작하면(예: '반영되지 않음(403)') 같은 말을 되풀이하지 않고 갈림길 글로 쓴다.
+    if (taken && taken.value_ko && n.detail_ko.startsWith(taken.label_ko)) line = n.label_ko + " — " + chipText(taken);
+    else if (taken && taken.value_ko) line += " · " + chipText(taken);
     if (n.edge_ko) line += " → " + n.edge_ko;
     return line;
   }

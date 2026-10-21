@@ -2551,8 +2551,18 @@ _APPLY_BRANCHES: tuple[tuple[str, str, bool], ...] = (
 )
 
 _FEEDBACK_KO = {k: label for k, label, _ in _CHOICE_BRANCHES}
+
+
+def _clock_ko(hhmm: str) -> str:
+    """'HH:MM' → '오전 9시' · '오후 2시 15분' · '밤 10시 30분'(분이 0 이면 뺀다)."""
+    hour, minute = (int(x) for x in hhmm.split(":"))
+    part = "오전" if hour < 12 else "오후" if hour < 18 else "밤"
+    shown = hour % 12 or 12
+    return f"{part} {shown}시" + (f" {minute}분" if minute else "")
+
+
 # 모아보기는 끊긴 출구가 아니라 폰으로 가는 두 번째 길이다 — 거주자가 밤에 한 번 연다(TRAY_REVIEW_AT).
-_DIGEST_ROUTE_KO = f"밤 {int(TRAY_REVIEW_AT.split(':')[0]) - 12}시 모아보기로"
+_DIGEST_ROUTE_KO = f"{_clock_ko(TRAY_REVIEW_AT)} 모아보기로"
 
 # 후보 출처(ActionCandidate.origin, contracts.py:303 — 여러 줄이 같으면 '+'로 합친다,
 # proposal_lines.py:290) → 한국어.

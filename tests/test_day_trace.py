@@ -1495,3 +1495,13 @@ def test_expired_phone_edge_and_the_rules_exit_value_are_pinned(
     for t in rules:
         taken = _taken(_node_of(t, "rules"))
         assert taken["value_ko"] == "마지막으로 본 규칙의 사유"
+
+
+def test_clock_text_for_the_tray_review_route() -> None:
+    assert day_sim._clock_ko("22:00") == "밤 10시"
+    assert day_sim._clock_ko("22:30") == "밤 10시 30분"
+    assert day_sim._clock_ko("09:00") == "오전 9시"
+    assert day_sim._clock_ko("12:05") == "오후 12시 5분"
+    assert day_sim._clock_ko("00:00") == "오전 12시"
+    route = day_sim._DIGEST_ROUTE_KO
+    assert route == day_sim._clock_ko(day_sim.TRAY_REVIEW_AT) + " 모아보기로"
