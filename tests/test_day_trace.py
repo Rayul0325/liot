@@ -1401,3 +1401,28 @@ def test_outcome_lines_have_no_ascii_enum_words(
     outcome = next(t["outcome_ko"] for t in _traces(gate1_silent) if t["kind"] == "silent"
                    and _end(t) == "gate1")
     assert outcome.endswith("건너뜀: 하한 땅거미 > 능동 상한 숨결 → 침묵")
+
+
+def test_feedback_main_edge_names_the_applied_answer() -> None:
+    sim = DaySim(seed=7, days=1, trace=True)
+    events: Events = []
+
+    def emit(stage: str, data: dict[str, Any]) -> None:
+        events.append((stage, data))
+        if stage == "proposal" and data["id"] == "p1":
+            sim.enqueue_feedback("p1", "dismissed")
+            sim.enqueue_feedback("p1", "accepted")  # 거절된다
+
+    asyncio.run(sim.run(emit))
+    keys = set()
+    for t in _traces(events):
+        if t["kind"] != "feedback" or len(t["nodes"]) != 3:
+            continue
+        phone = _node_of(t, "phone")
+        taken = _taken(phone)
+        keys.add(taken["key"])
+        if taken["key"] == "refused":
+            assert phone["edge_ko"] is None
+        else:
+            assert phone["edge_ko"] == taken["label_ko"]
+    assert {"dismissed", "refused"} <= keys and keys & {"accepted", "expired"}

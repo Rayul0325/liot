@@ -2117,7 +2117,8 @@ class DaySim:
             pref_ko = ("선호 변화 기록 없음" if pref is None
                        else f"이 제안 칸 선호 {pref[0]:.2f} → {pref[1]:.2f}")
             nodes = [_node("phone", f"아무도 누르지 않아 만료 — {title}",
-                           branches=_branches(_FEEDBACK_BRANCHES, "expired")),
+                           branches=_branches(_FEEDBACK_BRANCHES, "expired"),
+                           edge_ko=_FEEDBACK_KO["expired"]),
                      _node("feedback", "만료 신호 반영",
                            edge_ko=pref_ko + " · 같은 순간 다른 만료의 감쇠 포함"),
                      _node("prefs", "이번 단계 판단부터 반영")]
@@ -2126,7 +2127,9 @@ class DaySim:
                        else f"이 제안 칸 선호 {pref[0]:.2f} → {pref[1]:.2f}")
             nodes = [_node("phone", f"{who} [{signal_ko}] — {title}",
                            branches=_branches(_FEEDBACK_BRANCHES, signal if ok else "refused",
-                                              {} if ok else {"refused": f"[{signal_ko}]"})),
+                                              {} if ok else {"refused": f"[{signal_ko}]"}),
+                           # 반영된 응답은 본선(phone → feedback) 문구, 거절은 출구 갈림길 값.
+                           edge_ko=_FEEDBACK_KO.get(signal) if ok else None),
                      _node("feedback", "서명 링크 확인 → 반영" if ok else f"반영되지 않음({code})",
                            state="done" if ok else "end", edge_ko=pref_ko if ok else None),
                      _node("prefs", "다음 판단부터 반영" if ok else "건너뜀",
@@ -2534,6 +2537,8 @@ _FEEDBACK_BRANCHES: tuple[tuple[str, str, bool], ...] = (
     ("refused", "반영되지 않음", True),
     _UNKNOWN,
 )
+
+_FEEDBACK_KO = {k: label for k, label, _ in _FEEDBACK_BRANCHES}
 
 # 후보 출처(ActionCandidate.origin, contracts.py:303 — 여러 줄이 같으면 '+'로 합친다,
 # proposal_lines.py:290) → 한국어.
