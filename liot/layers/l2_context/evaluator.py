@@ -4,11 +4,16 @@
 무행동)를 고른다. 점수는 두 갈래로 합성된다:
 
   결정론(권위):
-    - safety_risk = catalog.risk_for(...) 정규화. **LLM 이 제출한 값은 무시하고
+    - safety_risk = catalog.risk_for(...) 를 max(0, 단계−1)/2 로 정규화한다
+      (AMBIENT·BREATH 0, DUSK 0.5, EMBER 1.0 → 가중 0.5 를 곱하면 감점 0·0·0.25·0.5).
+      위험도는 확인 강도와 능동 BREATH 상한이 이미 따로 다루므로, 고르기에서는 사람
+      확인이 필요한 단계(DUSK 이상)만 깎는다. **LLM 이 제출한 값은 무시하고
       카탈로그 값으로 덮어쓴다** — 안전은 결정론적 가드레일/카탈로그가 권위.
+    - expected_effect = 규칙이 선언한 benefit(있으면 그대로) 또는 기본값 + 외기 보정.
     - energy_cost = capability 고정표.
     - user_preference_fit = FeedbackStore(최근 거절 → 감점).
-    - 외기 반응 = ExternalContext(외기 나쁨 → 환기 감점·청정기 가점 등).
+    - 외기 반응 = ExternalContext.pm25(한국 등급: 좋음 ≤15 · 나쁨 ≥36 — 공기질의 단일
+      척도. 나쁨 → 환기 감점·청정기 가점, 좋음 → 환기 가점).
     - final_score = Σ(가중치·항목).
   LLM(설명):
     - reason 텍스트만(점수 가중 0). 외부 송신 금지.
@@ -22,6 +27,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from liot.core.contracts import (
+    PM25_BAD_MIN,
+    PM25_GOOD_MAX,
     ActionCandidate,
     CandidateSet,
     EvaluationResult,
@@ -64,9 +71,7 @@ _ENERGY_COST: dict[str, float] = {
     "notify": 0.0,
 }
 
-# 외기 임계.
-_AQI_BAD = 100
-_AQI_GOOD = 50
+# 외기 임계(공기질은 contracts 의 PM2.5 등급 경계를 쓴다).
 _COLD_C = 5.0
 
 _DEFAULT_EFFECT = 0.70
@@ -115,7 +120,8 @@ class CandidateEvaluator:
         tier = self.catalog.risk_for(
             ac.candidate.capability, ac.candidate.action, ac.candidate.params
         )
-        return int(tier) / 3.0  # AMBIENT0..EMBER3 → 0..1
+        # AMBIENT·BREATH 0 · DUSK 0.5 · EMBER 1.0 — 사람 확인이 드는 단계만 깎는다.
+        return max(0, int(tier) - 1) / 2.0
 
     def _score_one(
         self, ac: ActionCandidate, external: ExternalContext | None
@@ -140,18 +146,21 @@ class CandidateEvaluator:
         safety = self._safety_risk(ac)
         pref = ac.user_preference_fit  # 평가 전 FeedbackStore 가 미리 채움
 
-        # ── 외기 반응(결정론) ─────────────────────────────────────────
-        if external is not None and not external.degraded:
-            aqi = external.outdoor_aqi
+        if ac.declared_benefit is not None:
+            # 규칙이 선언한 기대 효과 — 규칙 조건이 이미 외기를 읽었으므로 보정하지 않는다.
+            effect = ac.declared_benefit
+        elif external is not None and not external.degraded:
+            # ── 외기 반응(결정론, PM2.5 등급) ───────────────────────────
+            pm25 = external.pm25
             temp = external.outdoor_temp_c
-            if aqi is not None:
+            if pm25 is not None:
                 if _is_ventilation(cap, action):
-                    if aqi >= _AQI_BAD:
+                    if pm25 >= PM25_BAD_MIN:
                         effect -= 0.30  # 바깥이 나쁘면 환기는 역효과
                         disturb += 0.30
-                    elif aqi < _AQI_GOOD:
+                    elif pm25 <= PM25_GOOD_MAX:
                         effect += 0.30  # 바깥이 맑으면 환기가 최선
-                if _is_purifier(cap) and aqi >= _AQI_BAD:
+                if _is_purifier(cap) and pm25 >= PM25_BAD_MIN:
                     effect += 0.20  # 바깥이 나쁘면 청정기가 낫다
             if temp is not None and temp <= _COLD_C and _is_heating(cap, action):
                 effect += 0.20

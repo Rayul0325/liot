@@ -33,5 +33,5 @@ Not this module's scope: deciding abnormal vs normal (core severity table), open
 
 - `tests/test_ha_bridge.py` covers unit flows with `FakeHAConnection`, a real websockets round-trip against a loopback mock HA server, and gas event → EMBER proposal end-to-end.
 - `tests/test_disposition.py` pins that a stream of non-safety sensor changes produces zero proposals.
-- When touching `normalize`, add cases for both directions of every new token and re-run the severity table tests (`0`/`0.0` normal, `"unavailable"` abnormal).
+- When touching `normalize`, add cases for both directions of every new token and re-run the severity table tests (`0`/`0.0` normal, `"unavailable"`/`"unknown"` = hold/unmonitorable, garbled strings abnormal).
 - When touching `infer_category`, assert each safety device_class still maps to its safety category.

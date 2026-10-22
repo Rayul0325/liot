@@ -134,9 +134,12 @@ class CandidateSet(BaseModel):                 # 무행동 후보 필수(validat
     # selected(속성) / selected_action() / selected_is_noop()
 
 class ExternalContext(BaseModel):              # 외부 데이터(외기) 조회 결과
-    outdoor_temp_c: float|None; outdoor_aqi: int|None
+    outdoor_temp_c: float|None; outdoor_aqi: int|None   # aqi 는 실험실 입력 호환용
+    pm25: float|None (≥0, ㎍/㎥ — 공기질 단일 척도, 없고 aqi 만 있으면 EPA 구간표로 유도)
+    cloud_cover: float|None (0~1)
     source: str = "fake"; fetched_at: str; degraded: bool = False
     def to_structured(self) -> dict            # fetched_at 제외(재현성) — 틱 트리거에 병합
+    def rule_facts(self) -> dict               # 능동 규칙 external: 조건용. degraded 면 {"degraded": True}
 
 class EvaluationResult(BaseModel):             # 평가·선택 산출물(감사/영속)
     scored: list[ActionCandidate]; selected_index: int; rationale: str

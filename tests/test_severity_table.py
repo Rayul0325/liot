@@ -19,6 +19,7 @@ from liot.core.severity import (
     SeverityResult,
     SeverityTable,
     damage_rank,
+    is_unmonitorable,
     load_severity_table,
     severity_sort_key,
 )
@@ -332,11 +333,33 @@ def test_boolean_numeric_zero_is_normal(
 
 
 @pytest.mark.parametrize("category", BOOLEAN_CATEGORIES)
-@pytest.mark.parametrize("value", ["unavailable", None, "", 3.0, float("nan")])
+@pytest.mark.parametrize("value", [None, "", "??garbled??", 3.0, float("nan")])
 def test_boolean_unnormalizable_is_abnormal(
     table: SeverityTable, category: str, value: object
 ) -> None:
     assert table.is_abnormal(category, value) is True
+    assert is_unmonitorable(value) is False
+
+
+@pytest.mark.parametrize("category", [*BOOLEAN_CATEGORIES, "high_temp", "co2"])
+@pytest.mark.parametrize("value", ["unavailable", "unknown"])
+def test_unavailable_unknown_is_unmonitorable(
+    table: SeverityTable, category: str, value: str
+) -> None:
+    # HA 연결 상태 문자열은 '판정 보류' — 이상도 정상도 아니다(위험 상황을 열지 않는다).
+    assert is_unmonitorable(value) is True
+    assert table.is_abnormal(category, value) is False
+
+
+def test_unmonitorable_needs_the_exact_normalized_string(tmp_path: Path) -> None:
+    # 정규화기가 소문자·공백 제거를 마친 값만 본다. 비슷한 문자열·비문자열은 보류가 아니다.
+    for value in ("unavailable!", "unavail", "Unavailable", True, 0.0, None):
+        assert is_unmonitorable(value) is False
+    # fail-closed 표에서도 보류는 보류다(연결 상태는 표와 무관하다).
+    failed = load_severity_table(str(tmp_path / "missing.yaml"))
+    assert failed.load_failed
+    assert failed.is_abnormal("gas", "unavailable") is False
+    assert failed.is_abnormal("gas", "garbled") is True
 
 
 def test_high_temp_threshold(table: SeverityTable) -> None:

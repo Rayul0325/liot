@@ -17,6 +17,9 @@
     LIOT_FEEDBACK_ALLOW_DEV_KEY : dev 키인 채로 수신구를 여는 로컬 확인용 탈출구
                           (기본 꺼짐. 켜면 위조 가능한 서명을 받아들인다).
     LIOT_TICK_SECONDS   : 능동 틱 주기(기본 300).
+    LIOT_HOME_TZ        : 집 시간대(IANA 이름, 기본 'Asia/Seoul'). 시간대 버킷(아침·낮·저녁·밤,
+                          야간 정숙)과 능동 예산의 '하루'를 이 지역 시각으로 센다. 모르는
+                          이름이면 기동 시 ValueError(한국어 한 줄)로 멈춘다.
     LIOT_FEEDBACK_HOST/PORT : 피드백 수신구(기본 127.0.0.1:8099; 0=비활성).
 
 데몬은 절대 액추에이터를 호출하지 않는다(제안-만). HA 로는 읽기만, 외부로는
@@ -31,7 +34,7 @@ import sys
 from typing import Protocol
 
 from liot.app import LiotApp
-from liot.core.clock import Clock
+from liot.core.clock import Clock, resolve_tz
 from liot.core.env import env_flag
 from liot.db.database import init_db
 from liot.layers.l3_judgment.llm_judge import build_llm_backend
@@ -51,6 +54,8 @@ class FeedbackServing(Protocol):
 
 __all__ = [
     "DEFAULT_DB_PATH",
+    "DEFAULT_HOME_TZ",
+    "resolve_home_tz",
     "resolve_db_path",
     "feedback_block_reason",
     "open_feedback_endpoint",
@@ -135,6 +140,25 @@ async def open_feedback_endpoint(
     return server
 
 
+DEFAULT_HOME_TZ = "Asia/Seoul"
+
+
+def resolve_home_tz(raw: str | None) -> str:
+    """``LIOT_HOME_TZ`` 값 → 검증된 IANA 시간대 이름. 비었으면 기본 Asia/Seoul.
+
+    모르는 이름은 ``ValueError``(한국어 한 줄)로 기동을 멈춘다 — 조용히 UTC 로 돌면 한국
+    아침이 '밤'으로 판정돼 야간 정숙·시간대 예산이 엉뚱한 시각에 걸린다.
+    """
+    name = (raw or "").strip() or DEFAULT_HOME_TZ
+    try:
+        resolve_tz(name)
+    except ValueError:
+        raise ValueError(
+            f"LIOT_HOME_TZ 를 알 수 없습니다: {name!r} — IANA 시간대 이름을 쓰세요(예: Asia/Seoul)."
+        ) from None
+    return name
+
+
 async def _amain() -> int:
     home_id = os.environ.get("LIOT_HOME_ID", "singleton").strip() or "singleton"
     db_path = resolve_db_path()
@@ -147,7 +171,8 @@ async def _amain() -> int:
     fb_port = int(os.environ.get("LIOT_FEEDBACK_PORT", "8099") or "8099")
     allow_dev_key = env_flag("LIOT_FEEDBACK_ALLOW_DEV_KEY")
 
-    clock = Clock()
+    home_tz = resolve_home_tz(os.environ.get("LIOT_HOME_TZ"))
+    clock = Clock(tz=home_tz)
     db = await init_db(db_path, durable=True)
 
     # HA 연결(있으면): 카테고리 맵 주입 + 센서 스트림.
@@ -184,7 +209,8 @@ async def _amain() -> int:
     print(
         f"[LIOT] backend={app.judge.backend.model_id} "
         f"ntfy={'on' if transport else 'sanitize-only'} "
-        f"exec={'ON' if executor else 'off(제안-만)'} tick={tick_seconds}s db={db_path}"
+        f"exec={'ON' if executor else 'off(제안-만)'} tick={tick_seconds}s db={db_path} "
+        f"tz={home_tz}"
     )
 
     fb_server = await open_feedback_endpoint(

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import string
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,8 +42,13 @@ __all__ = [
     "derive_proactive_allowed",
     "ALLOWED_PROACTIVE_MATCH_KEYS",
     "ALLOWED_PREDICATE_OPS",
+    "ALLOWED_EXTERNAL_KEYS",
+    "ALLOWED_EXTERNAL_OPS",
     "ProactiveRuleError",
     "StatePredicate",
+    "ExternalPredicate",
+    "REASON_PLACEHOLDERS",
+    "render_reason",
     "ProactiveRule",
     "ProactiveLimits",
     "ProactiveRuleSet",
@@ -95,6 +101,32 @@ ALLOWED_PROACTIVE_MATCH_KEYS: frozenset[str] = frozenset({"time_bucket", "occupa
 
 # 상태 술어의 닫힌 비교자 어휘. 표현식/스크립트/임의 연산 불가.
 ALLOWED_PREDICATE_OPS: frozenset[str] = frozenset({"eq", "ne", "lt", "le", "gt", "ge"})
+
+# 외부(날씨) 조건이 읽을 수 있는 값과 비교자. 값은 전부 실수라 순서 비교만 둔다
+# (실수 같음 비교는 함정이다). 외부 맥락이 없거나 degraded 면 조건은 성립하지 않는다.
+ALLOWED_EXTERNAL_KEYS: frozenset[str] = frozenset({"pm25", "cloud_cover", "outdoor_temp_c"})
+ALLOWED_EXTERNAL_OPS: frozenset[str] = frozenset({"lt", "le", "gt", "ge"})
+
+# 이유 한 줄(reason_ko) 틀이 쓸 수 있는 자리표시자. 값은 발의 순간의 맥락 사실에서 채운다.
+# 틀은 규칙 메타데이터와 시뮬레이션 사건에만 실린다 — ntfy 페이로드에는 들어가지 않는다.
+REASON_PLACEHOLDERS: frozenset[str] = frozenset({"pm25", "cloud_pct", "outdoor_temp_c"})
+_MISSING = "?"
+
+
+def _reason_values(facts: Mapping[str, Any]) -> dict[str, str]:
+    ext = facts.get("external")
+    ext = ext if isinstance(ext, Mapping) and not ext.get("degraded", True) else {}
+    pm25, cloud, temp = ext.get("pm25"), ext.get("cloud_cover"), ext.get("outdoor_temp_c")
+    return {
+        "pm25": _MISSING if pm25 is None else f"{float(pm25):.0f}",
+        "cloud_pct": _MISSING if cloud is None else f"{float(cloud) * 100:.0f}",
+        "outdoor_temp_c": _MISSING if temp is None else f"{float(temp):.1f}",
+    }
+
+
+def render_reason(template: str, facts: Mapping[str, Any]) -> str:
+    """이유 틀을 맥락 값으로 채운다. 값이 없으면 '?' (로더가 자리표시자를 이미 검증)."""
+    return template.format_map(_reason_values(facts)) if template else ""
 
 DEFAULT_PROACTIVE_DIR = Path(__file__).resolve().parents[3] / "config" / "proactive"
 
@@ -150,6 +182,35 @@ class StatePredicate:
 
 
 @dataclass(frozen=True)
+class ExternalPredicate:
+    """외부 맥락 값에 대한 단일 술어: external[key] <op> value (순서 비교만).
+
+    외부 맥락이 없거나(None) degraded 이거나 그 값이 비어 있으면 거짓 — 모르는 날씨로
+    발의하지 않는다(Proactive-Safe-Silent).
+    """
+
+    key: str
+    op: str
+    value: float
+
+    def holds(self, external: Mapping[str, Any] | None) -> bool:
+        if not isinstance(external, Mapping) or external.get("degraded", True):
+            return False
+        have = external.get(self.key)
+        if isinstance(have, bool) or not isinstance(have, (int, float)):
+            return False
+        if self.op == "lt":
+            return have < self.value
+        if self.op == "le":
+            return have <= self.value
+        if self.op == "gt":
+            return have > self.value
+        if self.op == "ge":
+            return have >= self.value
+        return False  # pragma: no cover - 로더가 op 를 이미 검증
+
+
+@dataclass(frozen=True)
 class ProactiveRule:
     """단일 능동 규칙: match(enum facts) + state(술어들) 가 모두 성립하면
     (capability, action, target_entity, params) 후보를 발의한다."""
@@ -163,14 +224,31 @@ class ProactiveRule:
     params: dict[str, Any]
     ttl_minutes: int
     description: str = ""
+    external: tuple[ExternalPredicate, ...] = ()
+    # 규칙이 선언한 기대 효과(0~1, 선택). 평가기가 이 후보의 효과 점수로 쓴다.
+    benefit: float | None = None
+    # 발의할 수 있는 집 지역 시(hour) 목록(비면 제한 없음). 시간대 버킷보다 좁게 잡을 때.
+    hours: tuple[int, ...] = ()
+    # 이유 한 줄 틀(한국어). 자리표시자는 REASON_PLACEHOLDERS 만.
+    reason_ko: str = ""
+    # 사람이 읽는 행동 제목(한국어, 자리표시자 없음). 화면·시뮬레이션 사건용 — ntfy 에는 없다.
+    title_ko: str = ""
 
     def matches(self, facts: Mapping[str, Any], entities: Mapping[str, Any]) -> bool:
-        """match 키 전부 일치(정규화 비교) AND 모든 상태 술어 성립."""
+        """match 키 전부 일치(정규화 비교) AND 모든 상태 술어 AND 모든 외부 술어 성립.
+
+        외부 술어는 ``facts["external"]``(ExternalContext.rule_facts)을 읽는다.
+        """
         for key, want in self.match.items():
             have = facts.get(key)
             if have is None or _norm(have) != _norm(want):
                 return False
-        return all(p.holds(entities) for p in self.state)
+        if self.hours and facts.get("local_hour") not in self.hours:
+            return False
+        if not all(p.holds(entities) for p in self.state):
+            return False
+        ext = facts.get("external")
+        return all(p.holds(ext) for p in self.external)
 
 
 @dataclass(frozen=True)
@@ -192,6 +270,11 @@ class ProactiveRuleSet:
     ruleset_hash: str
     limits: ProactiveLimits = field(default_factory=ProactiveLimits)
     sources: tuple[str, ...] = field(default_factory=tuple)
+
+    @property
+    def uses_hours(self) -> bool:
+        """시(hour) 제한 규칙이 있는가 — 있을 때만 생성기가 local_hour 를 사실에 싣는다."""
+        return any(r.hours for r in self.rules)
 
     def matching(
         self, facts: Mapping[str, Any], entities: Mapping[str, Any]
@@ -228,6 +311,83 @@ def _parse_predicate(raw: Any, rule_id: str, idx: int) -> StatePredicate:
     return StatePredicate(entity_id=entity, op=op, value=value)
 
 
+def _parse_external(raw: Any, rule_id: str, idx: int) -> ExternalPredicate:
+    if not isinstance(raw, dict):
+        raise ProactiveRuleError(
+            f"rule {rule_id!r}: external[{idx}] must be a mapping {{key, op, value}}"
+        )
+    unknown = set(raw.keys()) - {"key", "op", "value"}
+    if unknown:
+        raise ProactiveRuleError(
+            f"rule {rule_id!r}: external[{idx}] unknown keys {sorted(unknown)}"
+        )
+    key = _norm(raw.get("key", ""))
+    op = _norm(raw.get("op", ""))
+    value = raw.get("value")
+    if key not in ALLOWED_EXTERNAL_KEYS:
+        raise ProactiveRuleError(
+            f"rule {rule_id!r}: external[{idx}] key {key!r} not in "
+            f"{sorted(ALLOWED_EXTERNAL_KEYS)}"
+        )
+    if op not in ALLOWED_EXTERNAL_OPS:
+        raise ProactiveRuleError(
+            f"rule {rule_id!r}: external[{idx}] op {op!r} not in closed vocabulary "
+            f"{sorted(ALLOWED_EXTERNAL_OPS)}"
+        )
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ProactiveRuleError(
+            f"rule {rule_id!r}: external[{idx}] value must be a number"
+        )
+    return ExternalPredicate(key=key, op=op, value=float(value))
+
+
+def _parse_hours(raw: Any, rule_id: str) -> tuple[int, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not raw:
+        raise ProactiveRuleError(f"rule {rule_id!r}: hours must be a non-empty list of 0..23")
+    out: list[int] = []
+    for h in raw:
+        if isinstance(h, bool) or not isinstance(h, int) or not 0 <= h <= 23:
+            raise ProactiveRuleError(f"rule {rule_id!r}: hours must be integers 0..23")
+        out.append(h)
+    return tuple(sorted(set(out)))
+
+
+def _parse_reason(raw: Any, rule_id: str) -> str:
+    if raw is None:
+        return ""
+    if not isinstance(raw, str):
+        raise ProactiveRuleError(f"rule {rule_id!r}: reason_ko must be a string")
+    try:
+        names = {name for _, name, _, _ in string.Formatter().parse(raw) if name is not None}
+    except ValueError as exc:
+        raise ProactiveRuleError(f"rule {rule_id!r}: reason_ko is malformed: {exc}") from exc
+    bad = names - REASON_PLACEHOLDERS
+    if bad:
+        raise ProactiveRuleError(
+            f"rule {rule_id!r}: reason_ko placeholders {sorted(bad)} not in "
+            f"{sorted(REASON_PLACEHOLDERS)}"
+        )
+    return raw.strip()
+
+
+def _parse_title(raw: Any, rule_id: str) -> str:
+    if raw is None:
+        return ""
+    if not isinstance(raw, str) or "{" in raw or "}" in raw:
+        raise ProactiveRuleError(f"rule {rule_id!r}: title_ko must be plain text")
+    return raw.strip()
+
+
+def _parse_benefit(raw: Any, rule_id: str) -> float | None:
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not 0.0 <= raw <= 1.0:
+        raise ProactiveRuleError(f"rule {rule_id!r}: benefit must be a number in 0..1")
+    return float(raw)
+
+
 def _parse_rule(
     raw: dict[str, Any], idx: int, *, allowed: frozenset[tuple[str, str]] | None = None
 ) -> ProactiveRule:
@@ -261,7 +421,13 @@ def _parse_rule(
         raise ProactiveRuleError(f"rule {rule_id!r}: 'state' must be a list")
     state = tuple(_parse_predicate(p, rule_id, i) for i, p in enumerate(state_raw))
 
-    if not match and not state:
+    # ── external: 날씨 값의 닫힌 순서 비교 ─────────────────────────────
+    ext_raw = raw.get("external", []) or []
+    if not isinstance(ext_raw, list):
+        raise ProactiveRuleError(f"rule {rule_id!r}: 'external' must be a list")
+    external = tuple(_parse_external(p, rule_id, i) for i, p in enumerate(ext_raw))
+
+    if not match and not state and not external:
         raise ProactiveRuleError(
             f"rule {rule_id!r}: requires at least one match key or state predicate "
             "(unconditional proactive rules are nag-by-construction)"
@@ -312,6 +478,11 @@ def _parse_rule(
         params=dict(params_raw),
         ttl_minutes=ttl,
         description=str(raw.get("description", "")),
+        external=external,
+        benefit=_parse_benefit(raw.get("benefit"), rule_id),
+        hours=_parse_hours(raw.get("hours"), rule_id),
+        reason_ko=_parse_reason(raw.get("reason_ko"), rule_id),
+        title_ko=_parse_title(raw.get("title_ko"), rule_id),
     )
 
 
@@ -390,6 +561,16 @@ def _compute_hash(name: str, version: str, rules: tuple[ProactiveRule, ...]) -> 
                 "target": r.target_entity,
                 "params": dict(sorted(r.params.items())),
                 "ttl_minutes": r.ttl_minutes,
+                # 새 항목은 있을 때만 싣는다 — 없는 규칙의 해시(출처 식별자)는 예전 그대로.
+                **(
+                    {"external": [{"key": p.key, "op": p.op, "value": p.value}
+                                  for p in r.external]}
+                    if r.external else {}
+                ),
+                **({"benefit": r.benefit} if r.benefit is not None else {}),
+                **({"hours": list(r.hours)} if r.hours else {}),
+                **({"reason_ko": r.reason_ko} if r.reason_ko else {}),
+                **({"title_ko": r.title_ko} if r.title_ko else {}),
             }
             for r in rules
         ],

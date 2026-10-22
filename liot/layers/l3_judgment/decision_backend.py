@@ -42,6 +42,12 @@ __all__ = [
     "DecisionTransport",
     "HTTPDecisionTransport",
     "DecisionBackend",
+    "DECISION_SYSTEM",
+    "EvidenceBuilder",
+    "SEVERITY_QUESTION",
+    "TIER_QUESTION",
+    "argmax_option",
+    "option_prompt",
     "read_option_probs",
     "build_decision_backend",
 ]
@@ -106,6 +112,43 @@ _SEVERITY_QUESTION = _Question(
 )
 
 
+# 다른 판정 백엔드(Jev 등)도 같은 질문·선택지를 쓴다 — 문구를 복제하지 않게 공개한다.
+TIER_QUESTION = _TIER_QUESTION
+SEVERITY_QUESTION = _SEVERITY_QUESTION
+
+
+class EvidenceBuilder:
+    """모델에 보낼 증거 문자열을 만든다 — 결정 백엔드와 다른 원격 판정 백엔드가 같이 쓴다.
+
+    payload 조립은 OllamaBackend 의 규칙(식별자 차단·params 투영)을 그대로 빌리고(전송 없음),
+    ``emit_external(Destination.LLM)`` 을 한 번 지난 뒤 생성형 지시(system)를 뺀 JSON 이다.
+    egress 가 거부하면 ``LLMUnavailable``(→ degraded, 보내지 않는다).
+    """
+
+    def __init__(self, model: str = "evidence", *, alias: AliasMap | None = None) -> None:
+        self.alias = alias
+        self._payload_builder = OllamaBackend(model, _NoSendTransport(), alias=alias)
+
+    def build(
+        self, candidate: CandidateAction, ctx: ContextSnapshot | None, gate1_floor: RiskTier
+    ) -> str:
+        payload = self._payload_builder._build_payload(candidate, ctx, gate1_floor)
+        # ── SE-D3: 단일 egress 통과(가명화 + PII 그물). 못 보내면 degraded. ──
+        try:
+            sanitized = emit_external(
+                Destination.LLM,
+                payload,
+                trace_id=(ctx.trace_id if ctx else "no-ctx"),
+                alias=self.alias,
+            )
+        except EgressViolation as exc:
+            raise LLMUnavailable(f"egress blocked outbound decision payload: {exc}") from exc
+        # 생성형 지시(system)는 빼고 데이터만 evidence 로 싣는다(측정과 같은 형태).
+        return json.dumps(
+            {k: v for k, v in sanitized.items() if k != "system"}, ensure_ascii=False
+        )
+
+
 @runtime_checkable
 class DecisionTransport(Protocol):
     """llama.cpp 서버 호출 추상화. JSON 본문을 POST 하고 JSON 객체를 돌려준다."""
@@ -155,12 +198,15 @@ class _NoSendTransport:
         raise LLMUnavailable("payload builder must not send")
 
 
-def read_option_probs(top_logprobs: object, option_ids: Sequence[str]) -> dict[str, float]:
+def read_option_probs(
+    top_logprobs: object, option_ids: Sequence[str], *, missing: str = "gap"
+) -> dict[str, float]:
     """top_logprobs 에서 선택지 글자(A, B, …)만 골라 softmax 한 확률표를 만든다.
 
     - 토큰이 글자와 **정확히** 같을 때만 그 글자로 친다(측정과 같은 규칙).
     - 유한하지 않은 logprob 은 본 적 없는 것으로 친다.
-    - top-k 밖 글자는 ``min(본 logprob) - 2``.
+    - top-k 밖 글자: ``missing="gap"`` 이면 ``min(본 logprob) - 2``(llama.cpp, top 40),
+      ``missing="zero"`` 이면 확률 0(OpenAI top 5 — 아주 작은 글자는 아예 빠져 온다, 2026-10-20 측정).
     - 선택지 글자가 하나도 없거나 형식이 틀리면 ``LLMUnavailable``.
     반환: {선택지 id: 확률}, option_ids 순서.
     """
@@ -178,11 +224,23 @@ def read_option_probs(top_logprobs: object, option_ids: Sequence[str]) -> dict[s
             or not isinstance(logprob, (int, float))
         ):
             raise LLMUnavailable("top_logprobs entry has no str token / numeric logprob")
-        if math.isfinite(logprob):
-            seen[token] = float(logprob)
+        try:
+            value = float(logprob)  # 너무 큰 정수는 OverflowError — 형식 오류로 친다
+        except OverflowError:
+            raise LLMUnavailable("top_logprobs entry logprob overflows a float") from None
+        if math.isfinite(value):
+            seen[token] = value
+    if missing not in ("gap", "zero"):
+        raise ValueError(f"missing must be 'gap' or 'zero': {missing!r}")
     letters = _LETTERS[: len(option_ids)]
     if not any(letter in seen for letter in letters):
         raise LLMUnavailable("no option letter in top_logprobs")
+    if missing == "zero":
+        present = [seen[letter] for letter in letters if letter in seen]
+        mz = max(present)
+        w = [math.exp(seen[letter] - mz) if letter in seen else 0.0 for letter in letters]
+        total = sum(w)
+        return {oid: x / total for oid, x in zip(option_ids, w, strict=True)}
     floor = min(seen.values()) - _MISSING_LOGPROB_GAP
     z = [seen.get(letter, floor) for letter in letters]
     mz = max(z)
@@ -198,6 +256,26 @@ def _argmax(probs: dict[str, float]) -> str:
         if p > probs[best]:
             best = oid
     return best
+
+
+def option_prompt(question: _Question, evidence: str) -> str:
+    """4지선다 사용자 턴(JSON): 증거·기준·글자 붙은 선택지. 다른 글자 판독기(luna 그림자)도 쓴다."""
+    return json.dumps(
+        {
+            "evidence": evidence,
+            "criterion": question.criterion,
+            "options": [
+                {"letter": letter, "description": f"{oid} — {desc}"}
+                for letter, (oid, desc) in zip(_LETTERS, question.options, strict=True)
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+
+# 다른 글자 판독기가 같은 고정 지시와 같은 argmax 규칙을 쓰도록 공개한다.
+DECISION_SYSTEM = _SYSTEM
+argmax_option = _argmax
 
 
 def _summary(probs: dict[str, dict[str, float]]) -> str:
@@ -224,41 +302,16 @@ class DecisionBackend:
         self.timeout_s = timeout_s
         self.model_id = f"decision:{model}"
         # 모델 입력은 기존 Gate2 payload 와 같아야 한다 — 조립 규칙(식별자 차단·params
-        # 투영)을 복제하지 않고 OllamaBackend 의 것을 그대로 쓴다. 전송은 하지 않는다.
-        self._payload_builder = OllamaBackend(model, _NoSendTransport(), alias=alias)
+        # 투영)을 복제하지 않고 OllamaBackend 의 것을 그대로 쓴다(EvidenceBuilder). 전송 없음.
+        self._evidence_builder = EvidenceBuilder(model, alias=alias)
 
     def _evidence(
         self, candidate: CandidateAction, ctx: ContextSnapshot | None, gate1_floor: RiskTier
     ) -> str:
-        payload = self._payload_builder._build_payload(candidate, ctx, gate1_floor)
-        # ── SE-D3: 단일 egress 통과(가명화 + PII 그물). 못 보내면 degraded. ──
-        try:
-            sanitized = emit_external(
-                Destination.LLM,
-                payload,
-                trace_id=(ctx.trace_id if ctx else "no-ctx"),
-                alias=self.alias,
-            )
-        except EgressViolation as exc:
-            raise LLMUnavailable(f"egress blocked outbound decision payload: {exc}") from exc
-        # 생성형 지시(system)는 빼고 데이터만 evidence 로 싣는다(측정과 같은 형태).
-        return json.dumps(
-            {k: v for k, v in sanitized.items() if k != "system"}, ensure_ascii=False
-        )
+        return self._evidence_builder.build(candidate, ctx, gate1_floor)
 
     def _ask(self, question: _Question, evidence: str) -> dict[str, float]:
-        user = json.dumps(
-            {
-                "evidence": evidence,
-                "criterion": question.criterion,
-                "options": [
-                    {"letter": letter, "description": f"{oid} — {desc}"}
-                    for letter, (oid, desc) in zip(_LETTERS, question.options, strict=True)
-                ],
-            },
-            ensure_ascii=False,
-        )
-        content = _TURN.format(system=_SYSTEM, user=user)
+        content = _TURN.format(system=_SYSTEM, user=option_prompt(question, evidence))
         tok = self.transport.post(
             "/tokenize",
             {"content": content, "add_special": False, "parse_special": True},

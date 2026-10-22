@@ -168,6 +168,7 @@ def assert_execution_gated() -> None:
          (개입 하한) — 실험 조건이 안전 확인 강도를 무르게 만들 수 없다.
       5) 카탈로그 파생 확장분(extra_executable)을 주입해도 FORBIDDEN_OPEN 은 어떤
          실효 실행집합에도 없고, 안전 카테고리는 확장 주입 상태에서도 AUTO 가 아니다.
+      7) 실행 대상이 아닌 capability(권유 advice)는 확장 주입으로도 실행되지 않는다(맨 끝에서 검사).
       6) 원탭 예외(T4) — 개입 하한의 **유일한** 명시 예외가 상수 밖으로 새지 않는다:
          a) ONE_TAP_SAFE_ACTIONS 는 frozenset 이고 SAFETY_EXECUTABLE 의 부분집합.
          b) 원탭 밖의 안전 행동(확장 주입·여는 방향 포함)은 단일 확인(CONFIRM)도
@@ -182,6 +183,7 @@ def assert_execution_gated() -> None:
         from ..layers.l4_execution.executor import (  # 지연 임포트(순환 회피)
             COMFORT_EXECUTABLE,
             FORBIDDEN_OPEN,
+            NON_EXECUTABLE_CAPABILITIES,
             ONE_TAP_SAFE_ACTIONS,
             SAFETY_EXECUTABLE,
             ExecDecision,
@@ -321,6 +323,23 @@ def assert_execution_gated() -> None:
                     f"원탭 예외 위반(조건 {intervention.condition}): {cap}.{act} → "
                     f"{prop.risk_tier.name}+{prop.required_confirmation} "
                     f"(기대 EMBER+{expected})"
+                )
+
+    # (7) 실행 대상이 아닌 capability(권유 advice)는 확장 주입으로도 실행집합에 들어가지 않고,
+    #     활성 정책에서도 어떤 티어든 알림만이다.
+    for cap in sorted(NON_EXECUTABLE_CAPABILITIES):
+        extra_ne = frozenset({(cap, "ventilate")})
+        if any(c == cap for c, _ in effective_comfort(extra_ne)):
+            raise InvariantError(f"실행 불가 capability {cap!r} 가 실효 실행집합에 들어감 — 위반")
+        pol_ne = ExecutionPolicy(enabled=True, extra_executable=extra_ne)
+        ne_probe = CandidateAction(
+            capability=cap, action="ventilate", category="info",
+            entity_id=f"{cap}.probe", params={},
+        )
+        for tier in RiskTier:
+            if pol_ne.decide(ne_probe, tier) != ExecDecision.NOTIFY_ONLY:
+                raise InvariantError(
+                    f"실행 불가 capability {cap!r} 가 {tier.name} 에서 실행으로 결정됨 — 위반"
                 )
 
 

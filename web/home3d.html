@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LIOT 가상 집</title>
+    <meta
+      name="description"
+      content="센서 하나의 값이 거주자·보호자 폰에 어떤 알림으로, 언제 닿는지 3D 가상 집에서 재생한다. 모든 문구와 시각은 서버의 실제 코드가 계산한다."
+    />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="color-scheme" content="light" />
+    <link rel="stylesheet" href="assets/home3d.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231d1d1f'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='-apple-system,sans-serif' font-size='17' font-weight='600' fill='%23fff'%3EL%3C/text%3E%3C/svg%3E"
+    />
+  </head>
+  <body class="h3-body">
+    <header class="hdr">
+      <span class="hdr-wordmark">LIOT</span>
+      <nav class="hdr-right" aria-label="화면 이동">
+        <a class="hdr-link" href="app.html">관제실</a>
+        <a class="hdr-link" href="safety.html">집·보호자 설정</a>
+        <a class="hdr-link" href="day.html">하루 시뮬레이션</a>
+        <div class="hdr-status" id="status" data-state="loading">
+          <span class="hdr-dot" aria-hidden="true"></span>
+          <span class="hdr-status-text" id="statusText">불러오는 중…</span>
+        </div>
+      </nav>
+    </header>
+
+    <main class="h3-layout" id="layout" data-phone="resident">
+      <div class="h3-head">
+        <h1 class="h3-title">가상 집</h1>
+        <p class="h3-sub">센서 하나가 거주자와 보호자의 폰에 닿기까지</p>
+      </div>
+
+      <section class="h3-controls" aria-label="시나리오 고르기">
+        <div class="h3-picker" role="radiogroup" aria-label="시나리오" id="scenarioPicker"></div>
+        <div class="h3-toggles">
+          <label class="h3-switch">
+            <input type="checkbox" id="vulnerableToggle" />
+            <span class="h3-switch-text">취약 거주자</span>
+            <span class="h3-switch-track" aria-hidden="true"></span>
+          </label>
+          <div class="h3-field">
+            <span class="h3-seg-label" aria-hidden="true">동의한 보호자</span>
+            <div class="h3-seg" role="radiogroup" aria-label="동의한 보호자 수" id="guardianSeg"></div>
+          </div>
+        </div>
+        <p class="h3-summary" id="scenarioSummary" aria-live="polite"></p>
+      </section>
+
+      <div class="h3-tabs" role="tablist" aria-label="폰 고르기" id="phoneTabs">
+        <button
+          class="h3-tab"
+          type="button"
+          role="tab"
+          id="tabResident"
+          data-who="resident"
+          aria-controls="residentPhone"
+          aria-selected="true"
+        >
+          거주자 폰 <span class="h3-badge tabnum" data-role="badge">0</span>
+        </button>
+        <button
+          class="h3-tab"
+          type="button"
+          role="tab"
+          id="tabGuardian"
+          data-who="guardian"
+          aria-controls="guardianPhone"
+          aria-selected="false"
+        >
+          보호자 폰 <span class="h3-badge tabnum" data-role="badge">0</span>
+        </button>
+      </div>
+
+      <aside class="h3-phone" id="residentPhone" data-who="resident" aria-label="거주자 폰">
+        <div class="h3-phone-frame">
+          <div class="h3-screen">
+            <div class="h3-phone-bar">
+              <span class="h3-phone-who">거주자 폰</span>
+              <span class="h3-phone-clock tabnum" data-role="clock">0초</span>
+            </div>
+            <div class="h3-feed" data-role="feed" aria-live="polite"></div>
+            <p class="h3-phone-empty" data-role="empty">아직 알림이 없어요</p>
+          </div>
+        </div>
+      </aside>
+
+      <section class="h3-home" aria-label="3D 가상 집">
+        <div class="h3-stage" id="homeStage" tabindex="0" aria-describedby="homeHint">
+          <div class="h3-overlay" id="homeOverlay" aria-hidden="false"></div>
+        </div>
+        <div class="h3-home-foot">
+          <ul class="h3-legend" aria-label="점 색 안내">
+            <li><span class="h3-swatch sev-3" aria-hidden="true"></span>위험</li>
+            <li><span class="h3-swatch sev-2" aria-hidden="true"></span>경고</li>
+            <li><span class="h3-swatch sev-1" aria-hidden="true"></span>주의</li>
+            <li><span class="h3-swatch is-unmonitorable" aria-hidden="true"></span>감시 불가</li>
+            <li><span class="h3-swatch is-normal" aria-hidden="true"></span>정상</li>
+          </ul>
+          <p class="h3-hint" id="homeHint">끌거나 방향키로 돌려 보세요</p>
+        </div>
+      </section>
+
+      <aside class="h3-phone" id="guardianPhone" data-who="guardian" aria-label="보호자 폰">
+        <div class="h3-phone-frame">
+          <div class="h3-screen">
+            <div class="h3-phone-bar">
+              <span class="h3-phone-who">보호자 폰</span>
+              <span class="h3-phone-clock tabnum" data-role="clock">0초</span>
+            </div>
+            <div class="h3-feed" data-role="feed" aria-live="polite"></div>
+            <p class="h3-phone-empty" data-role="empty">아직 알림이 없어요</p>
+          </div>
+        </div>
+      </aside>
+
+      <section class="h3-timeline" aria-label="타임라인">
+        <div class="h3-tl-controls">
+          <button class="h3-btn h3-play" type="button" id="playBtn" aria-pressed="false">
+            재생
+          </button>
+          <button class="h3-btn h3-btn-quiet" type="button" id="restartBtn">처음부터</button>
+          <div class="h3-field">
+            <span class="h3-seg-label" aria-hidden="true">속도</span>
+            <div class="h3-seg" role="radiogroup" aria-label="재생 속도" id="speedSeg"></div>
+          </div>
+          <span class="h3-clock tabnum" id="clock">0초</span>
+        </div>
+        <div class="h3-tl-track" id="tlTrack">
+          <div class="h3-tl-rail" aria-hidden="true">
+            <div class="h3-tl-fill" id="tlFill"></div>
+          </div>
+          <div class="h3-tl-marks" id="tlMarks" aria-hidden="true"></div>
+          <input
+            class="h3-tl-range"
+            id="tlRange"
+            type="range"
+            min="0"
+            max="420"
+            step="1"
+            value="0"
+            aria-label="재생 위치(초)"
+          />
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="assets/home3d.js"></script>
+  </body>
+</html>

@@ -864,7 +864,8 @@ async def test_home_alias_rejected_by_egress_falls_back_to_default_alias() -> No
         await _advance(svc, clock, 90)
         msgs = _to(transport, gtopic)
         assert len(msgs) == 1 and msgs[0]["home_alias"] == "우리 집"
-        assert "010" not in json.dumps(msgs, ensure_ascii=False)
+        # 서명·id 의 무작위 16진수가 "010" 을 우연히 담을 수 있으니 별칭 원문 전체로 본다.
+        assert "010-1234-5678" not in json.dumps(msgs, ensure_ascii=False)
     finally:
         await db.close()
 

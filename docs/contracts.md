@@ -136,6 +136,70 @@ HTTP 헤더: `Title: LIOT`, `Priority`(파급도 라벨 기준), `Tags: rotating
 | `POST /api/feedback` | `cell`(`<시간대>\|<재실>\|<능력>:<행동>`, 최대 200자), `signal`(`accepted`·`dismissed`·`expired`·`ignored`) | `{ok, cell, signal, before, after}` · 400(형식 오류, 셀 512칸 초과 시 새 셀 거부) |
 | `POST /api/directive` | `{text, source?(chat), until?(ISO8601)}` 또는 `{reset: true}` | `{ok, parsed: [지시], active: [지시]}` · 400 `field: until`(만료 시각을 해석 못 하면 아무것도 저장하지 않는다) |
 
+### 3c. 3D 가상 집 시나리오 `POST /api/home3d/scenario`
+
+DB 를 읽지도 쓰지도 않는 순수 계산이다. 실제 파급도 표·사다리 규칙·ntfy 송신 문구로 한 센서 값의 알림 타임라인을 만든다.
+
+- 요청: `{entity_id, value, vulnerable_resident?: bool=false, consented_guardians?: 0|1|2=0, ack_at_s?: number, opened_at?: ISO}`. `opened_at` 을 주면 같은 시나리오를 다시 요청해도 카드의 시각이 바뀌지 않는다.
+- 응답: `{ok, opened_at, entity_id, category, situation_ko, state(abnormal·unmonitorable·normal), severity, markers, horizon_s, acked_at_s, events}`. `events[]` = `{t_s, who(resident·guardian), guardian, kind(alert·realert·forward·guidance_119·unmonitorable), title, body, priority, severity_ko, actions[{label_ko, role, stops_ladder, target}]}` — `body`·`priority`·버튼은 실제 송신 코드가 만든 그대로다.
+- 규칙: 위험이면 1분마다 재알림(화면은 420초에서 자름), 보호자 전달은 90초(하한 위험 + 동의 보호자 ≥1), 119 안내는 390초. 경고면 600·1200·1800초 재알림만. `ack_at_s` 뒤 사건은 없다. 기본 게이트(알림 켜짐·음소거 없음)와 집 별칭 `우리 집` 을 가정한다.
+- 오류: 미등록 엔티티 `400 {ok:false, error, field:"entity_id"}`, 안전 센서가 아닌 엔티티도 400.
+
+### 3d. 하루 시뮬레이션 `/api/day/*`
+
+임시 SQLite 위의 실제 `LiotService` 를 집 시간대(Asia/Seoul) 15분 단계로 돌린다(`liot/day_sim.py`). 데몬 DB·실제 ntfy·HA 와 무관하고, 끝나면 임시 DB 를 지운다. 모든 경로는 `/api/safety/*` 와 같은 이 기기 검사를 거친다(POST 는 쓰기 검사 — JSON + 이 기기 Origin). 실행은 한 번에 하나, 최근 3개만 메모리에 남는다.
+
+- `POST /api/day/run` `{days: 1–7 = 3, seed: int = 7, persona: "default", pace_ms?: 0–500 = 0, models?: "fake" | "cloud" = "fake", trace?: bool = false}` → `200 {ok, run_id, days, seed, persona, pace_ms, models?, trace?}`(`models` 는 cloud 일 때만, `trace` 는 켰을 때만 `true` — `meta` 도 같다). `trace` 가 bool 이 아니면 400(`field: "trace"`). 모르는 항목·범위 밖 값 400, 진행 중이면 409, cloud 설정(`config/models.yaml`)을 못 읽으면 503. fake 는 결정적(같은 씨앗 = 같은 사건)이고 cloud 는 아니다.
+- `GET /api/day/keys` → `{ok, status(ok·missing·refused), reason_ko, keys: [{name, present}], present, total}`. 키 **이름과 있음 여부만** — 값은 응답에 없다. 권한이 600 보다 넓은 비밀 파일은 읽지 않고 `refused`.
+- `GET /api/day/stream?run=<id>&from=<seq>` → `text/event-stream`. 메시지 = `id: <seq>` · `event: <stage>` · `data: <json>`. `Last-Event-ID` 가 있으면 그 다음부터, 없으면 `from`(기본 1)부터 보관분을 먼저 보내고 `done` 까지 이어 보낸다. 사건이 없으면 15초마다 `: keepalive`. 단계: `day.start` · `step`(바뀐 것이 있을 때와 매시 정각) · `proposal`(`id`=`p<n>`, `scene`, `tier`, `decision` IMMEDIATE·DIGEST·SUPPRESS, `destination` phone·tray·blocked, `score`, `reason_ko`, `matched_rules`) · `digest` · `feedback`(`signal` accepted·dismissed·ok·expired, `source` persona·viewer·timeout, `status`) · `safety`(`kind` first_alert·realert·guidance_119·resolved·normal) · `day.end`(`metrics`) · `error` · `done`(`stopped`, `failed`, `summary`).
+- cloud 실행에만 더 붙는 것(fake 실행에는 키 자체가 없다):
+  - 사건 단계: `models.status`(`status[{part, part_ko, state cloud·fake·pending, model, reason_ko}]`, `note_ko`, `usage`) · `models.fallback`(`reason` calls·run_cost·day_cost·usage_unreadable·usage_unwritable, `line_ko`, `usage` — 상한에 처음 닿은 단계에서 한 번) · `judge`(`id`, `judge{model_id, served_model, luna_status, luna_reason_ko, questions[{question, question_ko, options[{id, label_ko, jev, luna, jev_pct_ko, luna_pct_ko}], jev_choice, luna_choice, agree, agree_ko}]}`) · `memory`(`verb` seed·recall·remember, `verb_ko`, `who` house·resident, `who_ko`, `title_ko`, `rule`, `ok`, `source_ko`, `line_ko`).
+  - `proposal`: `reason_source` model·template, `reason_model`, `memory_used[]`, 템플릿이면 `reason_fallback`(invalid_output·transport·bad_response·egress·trait_in_input·cap·timeout·no_kit·no_template)·`reason_fallback_ko`, 폰 알림·모아보기에서 거주자가 정했으면 `decided_by`(model·persona_table)·`decided_by_ko`, 성향 표면 `reaction_fallback`·`reaction_fallback_ko`, 판정이 붙으면 `judge`. `feedback`(거주자·모아보기): `decided_by`·`decided_by_ko`·`reaction_fallback(_ko)`. `day.end`: `usage`(실행 누계), `usage_day{day, calls, avg_seconds, usd, calls_ko, avg_ko, usd_ko}`.
+  - `summary.models{mode, status[], usage{calls, call_cap, run_usd, run_cap_usd, day_usd, day_cap_usd, avg_seconds, by_kind, unknown_price_calls, estimated_calls, tripped}, fallback_ko, days[], luna_compared, luna_tier_agree_rate}`, `summary.memory[]`, `summary.luna[]`. 비용은 `config/models.yaml` 가격표로 낸 **추정**이다.
+- `trace: true` 실행에만 붙는 것(시연 모드용 — 끈 실행에는 사건도 키도 없고, fake 출력은 trace 를 켜기 전과 바이트 단위로 같다 — `scripts/day_fingerprint.py`):
+  - 사건 단계 `trace` = `{trace_id: "t<n>", kind, part, proposal_id?, nodes[], outcome_ko, day, clock_ko}`. `pace_ms` 를 기다리지 않고 바로 나간다(재생 속도는 화면이 정한다). `seq` 는 다른 사건과 같은 열이다.
+  - `kind`·`part`·노드 순서(서버가 정한다 — 화면은 표에 없는 id 를 그리지 않는다):
+    - `comfort`·`main` — 편의 제안 한 틱: `sense, rules, score, context, gate1, judge, route, gate, phone`, cloud 면 뒤에 `reason`. 그 단계 끝(luna 비교 뒤)에 나간다. `proposal_id` = `p<n>`.
+    - `silent`·`main` — 같은 노드 순서로, 침묵한 곳(`rules`·`score`·`gate1`·`judge` 중 하나)이 `state: "end"` 이고 뒤는 `skipped`. `proposal_id` 없음. 같은 규칙·같은 까닭의 침묵은 처음 한 번만.
+    - `safety`·`main` — 첫 경보: `sense, classify, floor, first_alert, phone`. 그 상황의 `safety` `first_alert` 사건 바로 뒤에 나간다. 잰 시간은 `first_alert`(센서 읽기 시작 → 그 상황 첫 송신) 하나뿐이고, `floor` 설명의 괄호는 1단계 판단의 파급도 하한 출처(표·거주자 설정)다.
+    - `safety`·`followup` — 2단계 뒤: `model, severity, followup, ladder`. 그 단계 끝에 상황마다 하나. `followup` 은 그 상황(situation_id)에 2단계가 올린 후속 제안이 실제로 송신됐는지, `ladder` 는 단계 끝의 사다리 상태(`재알림 예약 HH:MM` · `확인돼 재알림 멈춤` · `재알림 예약 없음`). 2단계가 마감을 넘기면 `model.real_ms` 는 null 이다.
+    - `feedback`·`feedback` — 누름·만료가 적용된 자리 바로 뒤(그 `feedback` 사건 다음): 편의 `phone, feedback, prefs`, 안전 확인 `phone, ack`.
+  - 노드 = `{id, label_ko, detail_ko, real_ms, model, state, branches, edge_ko}`. `state` = done·end·skipped. `real_ms` 는 그 단계를 실제로 잰 시간(ms, 소수 둘째 자리)이고, 재지 않은 노드는 null 이다 — 화면의 딜레이는 `max(real_ms, 속도별 최소)` 로 화면만 늘린다. `model` 은 판정·이유 모델 id(없으면 null).
+  - 갈림길(분기 그래프용, trace 실행에만):
+    - `branches` = 그 노드에서 **나가는** 길 `[{key, label_ko, value_ko, taken, exit}]`(출발 노드 기준). 판단 노드가 아니거나 건너뛴(skipped) 노드는 `[]`. 목록은 노드별 고정 표(아래)이고 `taken` 은 늘 정확히 하나 — 기록된 값이 표에 없으면 `unknown`(이름 "기록 없음", `exit: true`)이 간 길이다. `exit: true` = 본선을 벗어나는 출구(화면은 이 표시만으로 출구를 그린다 — 다시 가르지 않는다). `value_ko` 는 간 길에만 붙는 값(없으면 null).
+    - `edge_ko` = 이 노드에서 다음 노드로 가는 **간** 엣지 위 문구. 마지막 노드·건너뛴 노드·출구로 끝난 노드는 null.
+    - 값은 기록된 것만 읽는다(다시 계산하지 않는다). 기록이 없으면 지어내지 않고 "…기록 없음"으로 둔다: 갈림길 `unknown`("기록 없음"), 보류 사유("사유 기록 없음" — 알림 게이트는 사유를 내주지 않는다), 선호("선호 변화 기록 없음"), Jev 확률("확률 기록 없음"), 후보 출처("출처 기록 없음"), 2단계 not_sent("올렸는지 기록 없음" — '그대로'와 '올렸지만 상황이 닫힘'은 서비스가 둘 다 전송 없이 None 을 돌려 기록으로 가를 수 없다).
+  - 노드별 갈림길 표(`key` · exit — `liot/day_sim.py` 의 `_*_BRANCHES` 상수, 근거 주석이 옆에 있다):
+
+    | 노드 | 갈림길 (exit 이면 *) | 간 길의 값 · 이 노드의 `edge_ko` |
+    |---|---|---|
+    | `rules` | `next` · `cooldown`* `rejected`* `budget`* `no_match`* `tier_ceiling`* `safety_target`* `not_allowed`* `capability_mismatch`* `unknown`* | 간 길 = 기록된 `suppressed_by`, 값 "마지막으로 본 규칙의 사유"(그 값은 마지막 규칙의 사유뿐이다). `budget`·`no_match` 는 규칙이 하나도 안 맞을 때만 나며 그때는 trace 가 없다. edge "맞은 규칙 n개" |
+    | `score` | 후보 `c<i>`(평가 결과 상위 3개 — 고른 후보 포함, i = `scored` 순번, 값 = 그 `final_score`) · `noop`*(아무것도 안 하기) · `unknown`* | 간 길 = `selected_index`. edge "<고른 후보> 0.390 > 아무것도 안 하기 0.350 · 출처: 규칙 줄"(점수는 후보 값·노드 설명과 같이 늘 소수 셋째 자리, 같은 점수면 "≥" — 평가기는 같은 점수면 앞 후보를 고른다. 출처 = `origin` 의 규칙 줄·학습 줄·언어 모델 줄) |
+    | `gate1` | `next` · `ceiling`* · `blocked`* · `unknown`* | 갈래는 기록된 `Gate1Result.blocked`·`floor_tier` 로. 값 "하한 땅거미 > 능동 상한 숨결 → 침묵" · "차단 · 하한 잔잔 → 침묵". edge "하한 잔잔 · 상한 안" |
+    | `judge` | `next` · `ceiling`* · `unknown`* | 판정 문구(본선이면 edge, 상한이면 `ceiling` 값): 가짜 "가짜 판정(확률 없음)" · 상한 전환 "상한 도달 · 가짜 판정(확률 없음)" · cloud 실패 "모델 응답 없음 → 안전하게 올림(땅거미) → 상한이라 침묵" · injection_suspect "모델이 하한보다 낮게 답해 하한 유지 · Jev 최댓값 잔잔 80% · luna …" · 그 밖 "최종 숨결(하한 잔잔) · Jev 최댓값 숨결 90% · luna 97% 일치"(luna 를 못 견줬으면 그 기록의 짧은 사유, 예 "luna 미접근 · 응답 해석 실패") |
+    | `route` | — | edge "<단계> → <확인 강도>"(`proposal.required_confirmation`), 라우터가 기기 기준으로 올렸으면(`proposal.risk_tier` ≠ `judgment.risk_tier`) "판정 잔잔 → 기기 기준 숨결로 올림 → 가벼운 확인" |
+    | `gate` | `IMMEDIATE` · `DIGEST`(모아보기 — 출구가 아니라 폰으로 가는 두 번째 길) · `SUPPRESS`*(값 "사유 기록 없음") · `unknown`* | edge: 바로 알림 "바로 폰 알림", 모아보기 "밤 10시 모아보기로"(`TRAY_REVIEW_AT`), 보류 null(폰은 건너뜀) |
+    | 안전 `classify` · `first_alert` | — | edge "이상 값 → 안전 경보 경로" · "모델 없이 즉시 · 1.4ms"(노드 `real_ms` 와 같은 반올림 값) |
+    | followup `model` | `sent` · `not_sent`* · `deadline`* · `error`* · `unknown`* | 갈래: 행 없음 → unknown, degraded+"제한시간" → deadline, 그 밖 degraded → error, 아니면 그 상황의 다른 제안이 실제로 송신됐는지. edge: 가짜·상한 전환·실패("모델 응답 없음 · 하한 유지") 또는 "Jev 최댓값 잔잔 40% · 하한(불씨) 아래라 반영 안 됨 · 파급도 최댓값 기록만 40% · 파급도 하한(경고) 아래라 반영 안 됨 · luna 87% 불일치"(최댓값이 첫 경보 단계·행의 파급도 하한과 같으면 '아래' 문구는 없다). `severity` 의 edge = 간 `model` 갈래 이름 |
+    | followup `ladder` | `scheduled`(값 HH:MM) · `acked` · `none` · `unknown`* | 단계 끝 사다리(`next_fire_at`·`acked`) |
+    | 피드백 `phone` | `accepted` · `expired` · `dismissed` · `unknown`* | 거주자가 고른 것만. edge = 고른 응답 이름(도움됐어요 · 무시·만료 · 그만해 → 30일 쉬기) — 거절돼도 같다 |
+    | 피드백 `feedback` | `applied` · `refused`*(값 "서버 응답 403") · `unknown`* | 서명 링크 경로가 받아들였는가. edge(→ `prefs`) "이 제안 칸 선호 0.50 → 0.65"(누름은 `_route_feedback` 바로 앞뒤, 만료는 `run_tick` 바로 앞뒤의 `load_cells` 읽기 — 만료면 " · 같은 순간 다른 만료의 감쇠 포함"), 못 읽으면 "선호 변화 기록 없음", 거절이면 null(`prefs` 는 건너뜀) |
+    | 안전 확인 `phone` · `ack` | — | — |
+
+  - 1차 안전 검사·판정 뒤 침묵의 `outcome_ko` 는 앱 `silence_reason` 원문(영문 열거값) 대신 같은 기록 필드로 만든 한국어다("… — 건너뜀: 하한 땅거미 > 능동 상한 숨결 → 침묵"). trace 를 끈 사건(`step` 의 `line_ko`)은 그대로다.
+  - luna 를 견주지 못한 사유(`reason_ko`, `judge` 사건의 `luna_reason_ko` 포함)는 짧은 한국어다 — "luna 미접근 · 설정에서 꺼짐 / 호출 주소 미확인(0단계) / 키 없음 / 송신 검사 / 호출 상한 / 호출 실패 / 응답 해석 실패 / 시간 초과 / 비교 중 오류". 예외 원문은 싣지 않는다.
+  - 모든 `detail_ko`·`edge_ko`·갈림길 `label_ko`·`value_ko`·`outcome_ko` 는 한국어이고 기기 id·거주자 특성 낱말이 없으며, 영문 열거값 없음(단, 모델 이름 provider:model·ms·luna·Jev 는 표시용으로 허용)(`tests/test_day_trace.py`).
+  - 기록이 실패해도 실행은 그대로다(trace 만 빠진다) — 첫 경보는 기록을 기다리지 않는다.
+  - `summary.luna[]` 의 `entity_id` 는 trace 실행에만 있다.
+- `GET /api/day/runs/<id>` → `{ok, run_id, status(running·stopping·done·stopped·failed), event_count, meta, summary{seed, days, persona, metrics[], proposals[], safety[]}, error}`. 날짜별 `metrics` = `{day, proposals, pushes(IMMEDIATE), digests, suppressed, accepted, dismissed, expired, accept_rate(= accepted / pushes, 폰 알림이 없으면 null), safety_alerts, scenes}` — 서버가 기록에서 센다.
+- `POST /api/day/stop` `{}` → `{ok, run_id, status:"stopping"}`. 지금 단계는 끝까지 가고 `done.stopped = true` 로 끝난다. 진행 중 실행이 없으면 409.
+- `POST /api/day/feedback` `{run, proposal_id: "p<n>", signal: accepted|dismissed}` → `202 {ok, queued}`. 시뮬레이터 스레드가 다음 단계 경계에서 폰 서명 링크와 같은 실제 피드백 경로로 적용한다(결과는 `feedback` 사건). 없는 실행 404, 끝난 실행 409, 잘못된 값 400.
+- 이유 한 줄(`reason_ko`)은 이 사건에만 있다. ntfy 페이로드 필드는 바뀌지 않는다.
+
+### 감시 불가 알림(데몬 → 거주자)
+
+HA 가 안전 센서를 `unavailable`·`unknown` 으로 보내면 상황 요약 형식으로 거주자 토픽에만 한 건 간다. `situation_label` = `<센서 종류> 센서 · 감시 불가(연결 끊김)`, `severity_label` = `주의`, 확인 링크 없음. 보호자에게는 가지 않는다.
+
 ## 4. Home Assistant 입력(HA → 데몬)
 
 - 연결: `LIOT_HA_URL` 의 WebSocket. 순서는 서버 `auth_required` → 클라이언트 `{"type":"auth","access_token":<토큰>}` → 서버 `auth_ok`. `auth_ok` 가 아니면 인증 실패로 기동이 멈춘다. 첫 메시지가 `auth_required` 가 아니어도 실패다.

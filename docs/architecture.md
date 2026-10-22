@@ -67,6 +67,7 @@ liot 는 집 하나에 프로세스 하나로 도는 Python asyncio 데몬이다
 | 데몬 → 결정 모델·ollama | 집계 요약 문자열, 시간대, 후보 행동(기기 id 는 가명 토큰), Gate1 하한 이름 | 거주자 특성, 실제 entity_id(남아 있으면 송신 거부), 자유 문자열 파라미터 |
 | 관제실 → DB | 거주자 별칭·특성 답·입력자, 집 별칭·혼자 거주, 보호자·동의 | 생년월일·진단명(받을 칸이 없다) |
 | 브라우저 → 관제실 안전 API | 이 기기(루프백)에서 온 요청만 | 다른 기기·다른 출처의 요청 |
+| 하루 시뮬레이터 cloud 모드 → Jev·OpenAI·Anthropic·Gemini·memgineering | 가상 집의 가명화 판정 증거, 장면 이름·날씨 숫자·시각·규칙 문장·같은 실행의 집 기억 제목, 가상 거주자 취향 문장·피드백 기록(egress LLM·MEMORY 를 지난 것만) | 거주자 특성(특성 낱말이 있으면 보내지 않음), 키 값, 데몬 DB 의 어떤 것도. 데몬은 이 경로를 쓰지 않는다 |
 
 ## 외부 시스템
 
@@ -77,3 +78,6 @@ liot 는 집 하나에 프로세스 하나로 도는 Python asyncio 데몬이다
 | llama.cpp 서버 | HTTP `/tokenize` → `/completion` (`LIOT_LLM_BACKEND=decision`) | 판정이 degraded 로 떨어지고 하한 그대로 간다 |
 | ollama | HTTP `/api/generate` (`LIOT_LLM_BACKEND=ollama` 등) | 같다 |
 | SQLite | 로컬 파일, WAL, 데몬은 synchronous=FULL | — |
+| Jev(typesafe.ai systemone) | HTTPS POST, 질문 1~2개 확률(하루 시뮬레이터 cloud 모드 판정) | 가짜 판정기 |
+| Anthropic·Gemini·OpenAI | HTTPS — 이유 한 줄·가상 거주자 결정(Messages·generateContent·Responses), luna 비교(Chat Completions logprobs) | 규칙 문장·성향 표, luna '미접근' |
+| memgineering | CLI 서브프로세스(데모 home, `--json`) → 호스티드 데모 브레인 `liot-demo` | 기억 없이 진행 |

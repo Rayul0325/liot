@@ -1,0 +1,1081 @@
+/* LIOT 가상 집 — 이 화면만 쓰는 독립 스타일(밝은 화면 하나, 강조색 하나).
+   app.css(어두운 관제실 테마)는 읽지 않는다. 파급도 색은 --sev-* 로만, 점·작은 글자·타임라인 눈금에만 쓴다. */
+
+:root {
+  color-scheme: light;
+
+  /* 면 */
+  --bg: #ffffff;
+  --band: #f5f5f7;
+  --ink: #1d1d1f;
+  --ink-2: #6e6e73;
+  --ink-3: #86868b;
+  --hair: rgba(0, 0, 0, 0.08);
+  --hair-2: rgba(0, 0, 0, 0.12);
+
+  /* 유일한 강조색(선택 상태·주 버튼) */
+  --accent: #0071e3;
+  --accent-press: #0062c4;
+
+  /* 파급도(기록만·주의·경고·위험) · 감시 불가 · 정상 */
+  --sev-0: #8e8e93;
+  --sev-1: #b25000;
+  --sev-2: #c93400;
+  --sev-3: #d70015;
+  --sev-unk: #6e6e73;
+  --h3-ok: #248a3d;
+
+  /* 3D 집(모형) */
+  --h3-stage: #f5f5f7;
+  --h3-floor: #fafafa;
+  --h3-wall: #f2f2f4;
+  --h3-edge: #c7c7cc;
+  --h3-base: #ffffff;
+
+  /* 간격(8px 눈금) */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --s8: 64px;
+
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Apple SD Gothic Neo", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.47;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+h1,
+p {
+  margin: 0;
+}
+
+button {
+  font-family: inherit;
+}
+
+.tabnum {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── 머리 ─────────────────────────────────────────────────────────── */
+.hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--s4) var(--s6);
+  border-bottom: 1px solid var(--hair);
+}
+.hdr-wordmark {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.hdr-right {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--s2) var(--s5);
+}
+.hdr-link {
+  font-size: 13px;
+  color: var(--ink-2);
+  text-decoration: none;
+}
+.hdr-link:hover {
+  color: var(--ink);
+}
+.hdr-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.hdr-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+.hdr-status[data-state="ready"] .hdr-dot {
+  background: var(--h3-ok);
+}
+.hdr-status[data-state="running"] .hdr-dot {
+  background: var(--accent);
+}
+.hdr-status[data-state="error"] .hdr-dot {
+  background: var(--sev-3);
+}
+
+/* ── 배치 ─────────────────────────────────────────────────────────── */
+.h3-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "head"
+    "controls"
+    "home"
+    "timeline"
+    "resident"
+    "guardian";
+  gap: var(--s5);
+  padding: var(--s6) var(--s6) var(--s8);
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  flex: 1;
+}
+
+.h3-head {
+  grid-area: head;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.h3-title {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+}
+.h3-sub {
+  font-size: 17px;
+  color: var(--ink-2);
+}
+
+.h3-controls {
+  grid-area: controls;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s4) var(--s6);
+  min-width: 0;
+}
+.h3-home {
+  grid-area: home;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  min-width: 0;
+}
+.h3-timeline {
+  grid-area: timeline;
+  min-width: 0;
+}
+#residentPhone {
+  grid-area: resident;
+}
+#guardianPhone {
+  grid-area: guardian;
+}
+.h3-tabs {
+  grid-area: tabs;
+  display: none;
+}
+
+@media (min-width: 641px) {
+  .h3-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "head head"
+      "controls controls"
+      "home home"
+      "timeline timeline"
+      "resident guardian";
+  }
+}
+@media (min-width: 1100px) {
+  .h3-layout {
+    grid-template-columns: 272px minmax(0, 1fr) 272px;
+    grid-template-rows: auto auto auto auto;
+    grid-template-areas:
+      "head head head"
+      "controls controls controls"
+      "resident home guardian"
+      "resident timeline guardian";
+    column-gap: var(--s6);
+  }
+}
+
+/* ── 세그먼트 컨트롤(시나리오·보호자 수·속도·폰 탭) ─────────────────── */
+.h3-picker,
+.h3-seg {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 2px;
+  background: var(--band);
+  border-radius: 9px;
+  min-width: 0;
+}
+.h3-chip,
+.h3-seg-btn {
+  flex: 1 1 auto;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--ink);
+  white-space: nowrap;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.h3-seg-btn {
+  padding: 4px 12px;
+  font-size: 12.5px;
+}
+.h3-chip:hover,
+.h3-seg-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+.h3-chip[aria-checked="true"],
+.h3-seg-btn[aria-checked="true"] {
+  background: var(--bg);
+  border-color: var(--hair);
+  font-weight: 600;
+}
+
+.h3-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.h3-seg-label {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.h3-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3) var(--s5);
+}
+
+/* iOS 스위치 */
+.h3-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+  position: relative;
+}
+.h3-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.h3-switch-track {
+  flex: none;
+  width: 38px;
+  height: 23px;
+  border-radius: 12px;
+  background: #e9e9eb;
+  position: relative;
+  transition: background-color 0.2s ease;
+}
+.h3-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 0.5px solid var(--hair-2);
+  transition: transform 0.2s ease;
+}
+.h3-switch input:checked + .h3-switch-text + .h3-switch-track {
+  background: var(--accent);
+}
+.h3-switch input:checked + .h3-switch-text + .h3-switch-track::after {
+  transform: translateX(15px);
+  border-color: transparent;
+}
+.h3-switch input:focus-visible + .h3-switch-text + .h3-switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 시나리오 요약 한 줄 */
+.h3-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s2);
+  font-size: 13px;
+  color: var(--ink-2);
+  min-height: 20px;
+  flex-basis: 100%;
+  margin-top: calc(var(--s2) * -1);
+}
+.h3-sum-key {
+  color: var(--ink-3);
+}
+.h3-sum-val {
+  color: var(--ink);
+  margin-right: var(--s2);
+}
+.h3-sum-src {
+  color: var(--ink-3);
+}
+.h3-sev-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--chip, var(--ink));
+  margin-right: var(--s2);
+}
+.h3-sev-chip::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--chip, var(--ink));
+}
+
+/* ── 3D 집 ─────────────────────────────────────────────────────────── */
+.h3-stage {
+  position: relative;
+  height: clamp(320px, 50vh, 460px);
+  border-radius: 18px;
+  background: var(--h3-stage);
+  overflow: hidden;
+  cursor: grab;
+  /* 세로 끌기는 페이지 스크롤, 가로 끌기는 회전(손가락). */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.h3-stage.is-dragging {
+  cursor: grabbing;
+}
+.h3-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.h3-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.h3-overlay > * {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.h3-room-tag {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-3);
+  translate: -50% -50%;
+  white-space: nowrap;
+}
+
+/* 센서 점: 색 = 서버가 준 파급도(sev-N) 또는 상태(감시 불가·정상) */
+.h3-dot {
+  --dot: var(--ink-3);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  translate: -50% -5px;
+  pointer-events: none;
+}
+.h3-dot-core {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+.h3-dot-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-2);
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.9);
+}
+.h3-dot.is-idle .h3-dot-core {
+  width: 6px;
+  height: 6px;
+  background: #c7c7cc;
+}
+.h3-dot.is-idle .h3-dot-label {
+  color: var(--ink-3);
+  font-weight: 400;
+}
+.h3-dot.is-minor.is-idle .h3-dot-label {
+  display: none;
+}
+.h3-dot.is-target .h3-dot-core {
+  width: 12px;
+  height: 12px;
+}
+.h3-dot.is-target .h3-dot-label {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.sev-0 {
+  --dot: var(--sev-0);
+  --chip: var(--sev-0);
+}
+.sev-1 {
+  --dot: var(--sev-1);
+  --chip: var(--sev-1);
+}
+.sev-2 {
+  --dot: var(--sev-2);
+  --chip: var(--sev-2);
+}
+.sev-3 {
+  --dot: var(--sev-3);
+  --chip: var(--sev-3);
+}
+.is-unmonitorable {
+  --dot: var(--sev-unk);
+  --chip: var(--sev-unk);
+}
+.is-normal {
+  --dot: var(--h3-ok);
+  --chip: var(--h3-ok);
+}
+
+/* 위험만 천천히 숨 쉰다(움직임 줄이기 설정이면 멈춘다). 감시 불가는 속이 빈 고리. */
+.h3-dot.sev-3 .h3-dot-core {
+  animation: h3-breathe 1.8s ease-in-out infinite;
+}
+.h3-dot.is-unmonitorable .h3-dot-core,
+.h3-swatch.is-unmonitorable,
+.h3-sev-chip.is-unmonitorable::before {
+  background: transparent;
+  border: 2px solid var(--dot, var(--chip));
+}
+@keyframes h3-breathe {
+  50% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+}
+
+.h3-home-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2) var(--s4);
+}
+.h3-hint {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.h3-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.h3-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.h3-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+
+/* 2D 평면도(WebGL 불가 시) */
+.h3-stage.is-plan {
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s3);
+  padding: var(--s5);
+}
+.h3-plan {
+  position: relative;
+  width: min(100%, calc((100% - 30px) * 1));
+  max-height: calc(100% - 30px);
+  aspect-ratio: 10 / 7;
+  border: 1px solid var(--h3-edge);
+  background: var(--h3-floor);
+}
+.h3-plan-room {
+  position: absolute;
+  border: 1px solid var(--hair-2);
+  background: color-mix(in srgb, var(--room-tint, transparent) 10%, transparent);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 6px 8px;
+}
+.h3-plan-room .h3-room-tag {
+  translate: none;
+}
+.h3-plan .h3-dot {
+  position: absolute;
+}
+.h3-plan-note {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* ── 타임라인 ─────────────────────────────────────────────────────── */
+.h3-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  padding-top: var(--s2);
+}
+.h3-tl-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s3) var(--s4);
+}
+.h3-btn {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.2;
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  border-radius: 980px;
+  padding: 8px 4px;
+  cursor: pointer;
+}
+.h3-play {
+  min-width: 88px;
+  color: #fff;
+  background: var(--accent);
+  padding: 8px 18px;
+}
+.h3-play:hover {
+  background: var(--accent-press);
+}
+.h3-btn-quiet {
+  color: var(--ink-2);
+}
+.h3-btn-quiet:hover {
+  color: var(--ink);
+}
+.h3-clock {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.h3-tl-track {
+  position: relative;
+  height: 72px;
+  margin: 0 8px;
+}
+.h3-tl-rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 35px;
+  height: 2px;
+  border-radius: 1px;
+  background: #e5e5ea;
+  overflow: hidden;
+}
+.h3-tl-fill {
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+}
+.h3-tl-marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.h3-tl-mark {
+  position: absolute;
+  top: 30px;
+  width: 1px;
+  height: 12px;
+  background: #c7c7cc;
+}
+.h3-tl-mark-label {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  translate: -50% 0;
+  font-size: 11px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* 이웃 눈금 이름이 겹치지 않게 하나 걸러 위로 올린다. */
+.h3-tl-mark:nth-of-type(even) .h3-tl-mark-label {
+  top: auto;
+  bottom: 18px;
+}
+.h3-tl-mark.is-start .h3-tl-mark-label {
+  left: 0;
+  translate: 0 0;
+}
+.h3-tl-mark.is-end .h3-tl-mark-label {
+  left: auto;
+  right: 0;
+  translate: 0 0;
+}
+.h3-tl-mark.is-ack {
+  background: var(--h3-ok);
+  width: 2px;
+  height: 14px;
+  top: 29px;
+}
+.h3-tl-tick {
+  position: absolute;
+  top: 33px;
+  width: 6px;
+  height: 6px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: var(--ink);
+}
+.h3-tl-tick.is-guardian {
+  top: 41px;
+  background: var(--bg);
+  border: 1.5px solid var(--ink-2);
+}
+.h3-tl-range {
+  position: absolute;
+  left: -8px;
+  top: 26px;
+  width: calc(100% + 16px);
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+.h3-tl-range::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 20px;
+}
+.h3-tl-range::-moz-range-track {
+  background: transparent;
+}
+.h3-tl-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 1px solid var(--hair-2);
+}
+.h3-tl-range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 1px solid var(--hair-2);
+}
+.h3-tl-range:focus-visible {
+  outline: none;
+}
+.h3-tl-range:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── 폰 두 대 ─────────────────────────────────────────────────────── */
+.h3-phone {
+  position: relative;
+  min-width: 0;
+  min-height: 560px;
+}
+.h3-phone-frame {
+  position: absolute;
+  inset: 0;
+  padding: 8px;
+  border: 1px solid var(--hair);
+  border-radius: 40px;
+  background: var(--bg);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+.h3-screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s4) var(--s2) var(--s3);
+  border-radius: 32px;
+  background: var(--band);
+  overflow: hidden;
+}
+.h3-phone-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0 var(--s3) var(--s1);
+  font-size: 12px;
+  color: var(--ink-2);
+  flex: none;
+}
+.h3-phone-who {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.h3-feed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+  padding: 0 2px;
+  scrollbar-width: none;
+}
+.h3-feed:empty {
+  flex: 0;
+}
+.h3-phone-empty {
+  margin: auto;
+  max-width: 200px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+.h3-phone-empty[hidden] {
+  display: none;
+}
+
+/* 잠금 화면 알림 카드 */
+.notif {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg);
+  border-radius: 18px;
+  padding: 10px 14px 12px;
+  overflow: hidden;
+}
+.notif-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-bottom: 2px;
+}
+.notif-app {
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.h3-card-time {
+  color: var(--ink-3);
+}
+.h3-card-kind {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+}
+.h3-card-body {
+  font-size: 14px;
+  line-height: 1.38;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.h3-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--s2);
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.h3-card-meta > * + *::before {
+  content: "·";
+  margin-right: var(--s2);
+  color: var(--ink-3);
+}
+.h3-card-sev {
+  font-weight: 600;
+  color: var(--chip, var(--ink-2));
+}
+.h3-card[data-priority="5"] .h3-card-sev {
+  --chip: var(--sev-3);
+}
+.h3-card[data-priority="4"] .h3-card-sev {
+  --chip: var(--sev-2);
+}
+.h3-card[data-priority="3"] .h3-card-sev {
+  --chip: var(--sev-1);
+}
+
+/* iOS 알림 동작: 가는 선으로 나뉜 글자 버튼 */
+.notif-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  margin: 10px -14px -12px;
+  border-top: 1px solid var(--hair);
+}
+.notif-btn {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--hair);
+  border-radius: 0;
+  padding: 10px 4px;
+  cursor: pointer;
+}
+.notif-btn:first-child {
+  border-left: 0;
+}
+.notif-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.03);
+}
+.notif-btn:disabled {
+  color: #c7c7cc;
+  cursor: not-allowed;
+}
+.notif-btn.is-chosen {
+  color: var(--accent);
+  font-weight: 600;
+}
+.notif-btn:focus-visible {
+  outline-offset: -2px;
+}
+.h3-btn-call {
+  color: var(--sev-3);
+}
+
+/* 재알림·확인은 조용한 한 줄 */
+.h3-realert,
+.h3-ack-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  font-size: 12px;
+  color: var(--ink-3);
+  padding: 2px var(--s3);
+}
+.h3-realert-time {
+  color: var(--ink-3);
+}
+.h3-ack-note {
+  color: var(--ink-2);
+}
+.h3-ack-note::before {
+  content: "";
+  flex: none;
+  align-self: center;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--h3-ok);
+}
+
+.h3-toast {
+  position: absolute;
+  left: var(--s4);
+  right: var(--s4);
+  bottom: var(--s4);
+  margin: 0;
+  padding: var(--s3) var(--s4);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--hair-2);
+  border-radius: 14px;
+}
+.is-new {
+  animation: h3-in 0.3s ease-out;
+}
+@keyframes h3-bump {
+  40% {
+    transform: scale(1.2);
+  }
+}
+@keyframes h3-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* ── 움직임 줄이기 ─────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .h3-dot.sev-3 .h3-dot-core {
+    animation: none;
+  }
+  .h3-chip,
+  .h3-seg-btn,
+  .h3-switch-track,
+  .h3-switch-track::after {
+    transition: none;
+  }
+  .is-new,
+  .h3-badge.is-bump {
+    animation: none;
+  }
+}
+
+/* ── 좁은 화면: 집이 위, 폰 두 대는 탭(새 알림이 오면 그 폰으로 넘어간다) ── */
+@media (max-width: 640px) {
+  .hdr {
+    padding: var(--s3) var(--s4);
+    flex-wrap: wrap;
+  }
+  .hdr-right {
+    gap: var(--s2) var(--s4);
+  }
+  .h3-layout {
+    padding: var(--s5) var(--s4) var(--s7);
+    gap: var(--s4);
+    grid-template-areas:
+      "head"
+      "controls"
+      "home"
+      "timeline"
+      "tabs"
+      "phone";
+  }
+  .h3-title {
+    font-size: 28px;
+  }
+  .h3-sub {
+    font-size: 15px;
+  }
+  .h3-controls {
+    gap: var(--s3) var(--s4);
+  }
+  .h3-picker {
+    display: flex;
+    width: 100%;
+  }
+  .h3-chip {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 6px 4px;
+    font-size: 12.5px;
+  }
+  .h3-summary {
+    margin-top: 0;
+  }
+  #residentPhone,
+  #guardianPhone {
+    grid-area: phone;
+    min-height: 480px;
+  }
+  .h3-layout[data-phone="resident"] #guardianPhone,
+  .h3-layout[data-phone="guardian"] #residentPhone {
+    display: none;
+  }
+  .h3-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 9px;
+    background: var(--band);
+  }
+  .h3-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  .h3-tab[aria-selected="true"] {
+    background: var(--bg);
+    border-color: var(--hair);
+    font-weight: 600;
+  }
+  .h3-badge {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--ink-3);
+  }
+  .h3-tab[aria-selected="true"] .h3-badge {
+    color: var(--ink-2);
+  }
+  .h3-badge.is-bump {
+    animation: h3-bump 0.4s ease-out;
+  }
+  .h3-stage {
+    height: 300px;
+  }
+  .h3-tl-controls {
+    gap: var(--s2) var(--s3);
+  }
+}

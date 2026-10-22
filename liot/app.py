@@ -14,7 +14,8 @@ L1 정규화 → L2 스냅샷 → L3 Gate1+Gate2 → L4 Proposal 까지 end-to-e
     핸들러는 동일 trace 의 단계 산출물을 stash 에 보관해 동기적으로 이어 붙인다.
 
 상황 알림(안전 카테고리, 서비스 경로)은 두 단계다(spec §6.2):
-  - classify_safety(reading) 로 이상/정상을 판정한다(SeverityTable.is_abnormal).
+  - classify_safety(reading) 로 이상/정상/판정 보류를 판정한다(SeverityTable.is_abnormal,
+    is_unmonitorable). 판정 보류(unavailable·unknown)는 상황을 열지도 닫지도 않는다.
   - process_situation_reading 은 Gate1 하한 + 파급도 하한(severity_floor)만으로
     1단계 제안을 만든다 — 모델을 부르지 않는다. 지연 판정 요청(DeferredJudgeRequest)
     을 함께 돌려주고, 서비스가 제안을 먼저 보낸 뒤 별도 스레드에서
@@ -52,6 +53,7 @@ from liot.core.severity import (
     SeverityResult,
     SeveritySource,
     SeverityTable,
+    is_unmonitorable,
     load_severity_table,
 )
 from liot.layers.l1_sensing.normalizer import normalize
@@ -66,7 +68,7 @@ from liot.layers.l2_context.feature_vector import (
     FakePreferenceEmbedder,
     PreferenceEmbedder,
 )
-from liot.layers.l2_context.feedback_store import FeedbackStore
+from liot.layers.l2_context.feedback_store import FeedbackStore, InMemoryFeedbackStore
 from liot.layers.l2_context.nl_directive import UserDirective, apply_directives
 from liot.layers.l2_context.proactive import (
     PROACTIVE_TIER_CEILING,
@@ -106,14 +108,18 @@ DEADLINE_GATE2_VERDICT = "degraded_fail_safe"
 
 @dataclass(frozen=True)
 class SafetySignal:
-    """안전 카테고리 읽기 하나의 이상/정상 판정(spec §3.4.1).
+    """안전 카테고리 읽기 하나의 이상/정상/판정 보류(spec §3.4.1).
 
     reading 은 정규화를 마친 읽기다. 정규화할 수 없는 값은 abnormal=True(fail-closed).
+    unmonitorable=True 는 HA 가 기기를 읽지 못한 값(unavailable·unknown)이다 — 이때
+    abnormal 은 False 지만 '정상'이 아니다. 소비자는 unmonitorable 을 **먼저** 본다
+    (그러지 않으면 정상으로 흘러 열린 상황을 닫는다).
     """
 
     reading: SensorReading
     category: str
     abnormal: bool
+    unmonitorable: bool
 
 
 @dataclass(frozen=True)
@@ -617,9 +623,10 @@ class LiotApp:
         return reading
 
     def classify_safety(self, reading: SensorReading) -> SafetySignal | None:
-        """안전 카테고리 읽기의 이상/정상을 판정한다. 비안전이면 None.
+        """안전 카테고리 읽기의 이상/정상/판정 보류를 판정한다. 비안전이면 None.
 
-        판정은 SeverityTable.is_abnormal 한 곳에서만 한다(정규화 불가 값 = 이상).
+        이상 판정은 SeverityTable.is_abnormal 한 곳에서만 한다(정규화 불가 값 = 이상).
+        판정 보류(unavailable·unknown)는 is_unmonitorable 로 따로 표시한다.
         """
         reading = self._normalized(reading)
         category = self._category_of(reading.entity_id)
@@ -629,6 +636,7 @@ class LiotApp:
             reading=reading,
             category=category,
             abnormal=self.severity_table.is_abnormal(category, reading.norm_value),
+            unmonitorable=is_unmonitorable(reading.norm_value),
         )
 
     def observe_reading(self, reading: SensorReading, *, reason: str) -> None:
@@ -704,14 +712,22 @@ class LiotApp:
         trig = self._event_detector.detect(cur)
         if not trig.fire:
             return None
-        decision = self.proactive.propose(cur)
+        # 외부 맥락(날씨)은 발의 **앞에서** 가져온다 — 규칙의 external: 조건이 읽고, 후보
+        # 집합 해시에도 들어간다. 최근 거절 키는 발의가 예산을 쓰기 전에 거른다.
+        external = await self._fetch_external()
+        rejected = (
+            self.feedback_store.rejected_keys
+            if isinstance(self.feedback_store, InMemoryFeedbackStore)
+            else frozenset()
+        )
+        decision = self.proactive.propose(cur, external=external, rejected_keys=rejected)
         if decision.candidate is None:
-            return None  # 예산/쿨다운/무매칭 → 침묵(게이팅은 propose 의 몫)
+            return None  # 예산/쿨다운/무매칭/거절 → 침묵(게이팅은 propose 의 몫)
 
         trace_id = uuid.uuid4().hex
         # 다중 후보 집합(L4 생성) → 평가기(L5)가 점수 기반으로 선택을 구동한다.
         candidate_set = self.proactive.candidate_set_for(
-            cur, decision, trace_id=trace_id
+            cur, decision, trace_id=trace_id, external=external
         )
         # 2갈래 제안: 규칙 풀(Line A)에 ML/LLM 라인 후보를 병합한다(validate 강제).
         # 같은 행동에 여러 소스가 동의하면 origin 이 합쳐진다. 최종 선택은
@@ -734,7 +750,6 @@ class LiotApp:
         # (안전은 억제 불가). 전부 억제되면 NoOp 만 남아 침묵.
         if self._directives:
             candidate_set = apply_directives(candidate_set, self._directives)
-        external = await self._fetch_external()
         # 선호 임베딩이 evaluator 의 선호 신호(user_preference_fit)를 구동 →
         # 선택이 개인화된다(맥락별 셀). base(거절 이력)의 강한 거절은 우선하고,
         # safety_risk 는 여전히 카탈로그 결정론이라 개인화가 안전을 못 낮춘다(2′).

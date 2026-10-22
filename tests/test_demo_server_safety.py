@@ -563,4 +563,7 @@ def test_safety_page_is_served_and_has_no_birthdate_or_diagnosis_fields(server) 
     assert "localStorage" not in js and "sessionStorage" not in js
     # 관제실에서 이 화면으로 가는 길이 있다.
     with urllib.request.urlopen(server + "/", timeout=10) as resp:  # noqa: S310
-        assert 'href="safety.html"' in resp.read().decode("utf-8")
+        root_html = resp.read().decode("utf-8")
+    assert 'href="safety.html"' in root_html
+    # 3D 가상 집으로 가는 길도 관제실·이 화면 둘 다에 있다.
+    assert 'href="home3d.html"' in root_html and 'href="home3d.html"' in html

@@ -26,6 +26,12 @@
     ``load_failed`` / ``load_error`` 로 실패를 드러내며 logging 경고를 남긴다.
   - 거주자 취약(+1): 한 단계만 올리고 CRITICAL 에서 멈춘다(겹치지 않는다).
   - 센서 확실도는 파급도를 내리지 못한다(여기서 할 일 없음 — 내리는 경로 자체가 없다).
+
+판정 보류(감시 불가):
+  - 정규화 값이 문자열 ``unavailable``·``unknown``(HA 가 기기와 연결이 끊겼거나 재시작
+    중일 때 보내는 상태)이면 이상도 정상도 아닌 '판정 보류'다(``is_unmonitorable``).
+    이 값으로는 위험 상황을 열지도 닫지도 않는다 — 처리는 서비스가 따로 한다.
+  - 그 밖의 정규화 불가 값(깨진 문자열·빈 값·NaN·None)은 지금처럼 이상(fail-closed)이다.
 """
 
 from __future__ import annotations
@@ -55,6 +61,8 @@ __all__ = [
     "SeverityResult",
     "severity_sort_key",
     "AbnormalRule",
+    "UNMONITORABLE_VALUES",
+    "is_unmonitorable",
     "Situation",
     "SeverityConfigError",
     "SeverityTable",
@@ -176,20 +184,41 @@ def severity_sort_key(result: SeverityResult) -> tuple[int, int]:
     return (-int(result.floor), damage_rank(result.damage))
 
 
+# 판정 보류 값: HA 가 기기 상태를 읽지 못할 때 보내는 연결 상태 문자열(정규화 뒤 소문자).
+# 이 값은 '위험'도 '정상'도 아니다. 여기 없는 문자열은 지금처럼 이상(fail-closed)이다.
+UNMONITORABLE_VALUES: frozenset[str] = frozenset({"unavailable", "unknown"})
+
+
+def is_unmonitorable(norm_value: object) -> bool:
+    """정규화 값이 '판정 보류'(감시 불가)인가. 카테고리·표와 무관하다.
+
+    정규화를 마친 값(소문자·양옆 공백 제거)을 그대로 비교한다. 비슷한 문자열이나
+    문자열이 아닌 값은 보류가 아니다.
+    """
+    return isinstance(norm_value, str) and norm_value in UNMONITORABLE_VALUES
+
+
 @dataclass(frozen=True)
 class AbnormalRule:
     """이상/정상 판정 규칙.
 
     - kind='truthy': 정규화 값이 True 면 이상, False 면 정상.
     - kind='above' : 수치가 threshold 초과면 이상, 이하면 정상.
-    어느 쪽으로도 판정 못 하는 값은 이상이다(fail-closed).
+    판정 보류 값(``is_unmonitorable``)은 이상이 아니다(정상도 아니다 — 호출자가 먼저 거른다).
+    그 밖에 어느 쪽으로도 판정 못 하는 값은 이상이다(fail-closed).
     """
 
     kind: Literal["truthy", "above"]
     threshold: float | None = None
 
     def is_abnormal(self, norm_value: object) -> bool:
-        """정규화 값이 이상이면 True. 판정 불가 값도 True(fail-closed)."""
+        """정규화 값이 이상이면 True. 판정 불가 값도 True(fail-closed).
+
+        판정 보류 값(unavailable·unknown)은 False 다. False 가 곧 '정상'은 아니므로
+        안전 경로는 ``is_unmonitorable`` 을 먼저 확인해야 한다.
+        """
+        if is_unmonitorable(norm_value):
+            return False
         if self.kind == "truthy":
             # 정상은 False 와 숫자 0(정규화기가 정수 0 을 0.0 으로 바꾼다) 뿐.
             # True·0 아닌 수는 이상, 그 외(정규화 불가)도 이상(fail-closed).
@@ -332,7 +361,8 @@ class SeverityTable:
     def is_abnormal(self, category: str, norm_value: object) -> bool:
         """정규화 값이 이 카테고리에서 이상인지. 판정 불가 값은 이상(fail-closed).
 
-        매핑 행이 없으면(런타임 등록·fail-closed 표) 불리언 규칙을 쓴다.
+        판정 보류 값(unavailable·unknown)은 False(이상도 정상도 아님) — fail-closed
+        표에서도 같다. 매핑 행이 없으면(런타임 등록·fail-closed 표) 불리언 규칙을 쓴다.
         """
         sit = self._situations.get(_normalize_category(category))
         rule = sit.abnormal if sit is not None else _TRUTHY_RULE

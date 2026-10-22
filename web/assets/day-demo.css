@@ -1,0 +1,562 @@
+/* LIOT 하루 시뮬레이션 — 시연 모드 덮개(day.css 토큰을 그대로 쓴다: 흰 면, 강조색 하나, 안전만 빨강).
+   화살표 머리는 path 삼각형이다 — SVG 화살표 정의 요소나 주소 참조를 쓰지 않는다. */
+
+body.dm-lock {
+  overflow: hidden;
+}
+
+.dm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+}
+.dm-overlay[hidden] {
+  display: none;
+}
+
+.dm-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s4);
+  padding: var(--s3) var(--s6);
+  border-bottom: 1px solid var(--hair);
+}
+/* 조작 줄은 오른쪽으로 모으고, 결과 한 줄은 그 아래 줄 전체(잘리지 않게) */
+.dm-head .dy-seg {
+  margin-left: auto;
+}
+.dm-title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.dm-outcome {
+  order: 10;
+  flex-basis: 100%;
+  min-height: 1.4em;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.dm-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--s4) var(--s6) var(--s5);
+}
+.dm-svg {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+}
+.dm-waiting {
+  font-size: 15px;
+  color: var(--ink-3);
+  text-align: center;
+  padding: var(--s7) 0;
+}
+.dm-caption {
+  min-height: 1.5em;
+  padding-top: var(--s3);
+  font-size: 15px;
+  color: var(--ink);
+  text-align: center;
+}
+
+/* ── 노드: 대기(pending) · 지금(current) · 완료(done, 차분한 면) · 끝(end) · 건너뜀(skipped) ── */
+.dm-node-box {
+  fill: var(--bg);
+  stroke: var(--hair-2);
+  stroke-width: 1.5;
+}
+.dm-node[data-state="pending"] {
+  opacity: 0.55;
+}
+.dm-node[data-state="current"] .dm-node-box {
+  fill: rgba(0, 113, 227, 0.08);
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+.dm-node[data-state="done"] .dm-node-box {
+  fill: var(--band);
+  stroke: var(--ink-3);
+}
+.dm-node[data-state="end"] .dm-node-box {
+  fill: var(--band);
+  stroke: var(--ink);
+  stroke-width: 2.5;
+}
+.dm-node[data-state="skipped"] {
+  opacity: 0.3;
+}
+.dm-node-label {
+  font-size: 18px;
+  font-weight: 600;
+  fill: var(--ink);
+}
+.dm-node-time {
+  font-size: 15px;
+  fill: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 갈림길 칩(노드 아래 묶음): 간 길만 강조색 테두리·굵은 글, 출구는 흐린 점선 ─────────── */
+.dm-chip-list {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font);
+}
+.dm-chip {
+  box-sizing: border-box;
+  height: 20px;
+  margin-bottom: 2px;
+  padding: 0 8px;
+  border: 1px solid var(--hair);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--ink-3);
+  font-size: 15px;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dm-chip-exit {
+  border-style: dashed;
+}
+.dm-chip-taken {
+  border: 1.5px solid var(--accent);
+  color: var(--ink);
+  font-weight: 600;
+}
+/* 노드 밑 묶음(나무 모양): 칩 24 높이에 글을 가운데로, 줄기·가지는 가는 회색, 간 길만 강조색 */
+.dm-chip-list .dm-chip {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  margin-bottom: 2px;
+  padding: 0 12px;
+  border-radius: 12px;
+  line-height: 1;
+}
+.dm-chip-list .dm-chip-taken {
+  background: rgba(0, 113, 227, 0.06);
+}
+.dm-svg[data-kind="safety"] .dm-chip-list .dm-chip-taken {
+  background: rgba(215, 0, 21, 0.05);
+}
+/* 차례: 대기(숨김) → 나타남(간 칩도 아직 회색) → 간 칩·줄기에 불. 건너뛴 노드는 흐리게 */
+.dm-chips[data-state="pending"] {
+  opacity: 0;
+}
+.dm-chips[data-state="skipped"] {
+  opacity: 0.35;
+}
+.dm-chips[data-state="shown"] .dm-chip-link,
+.dm-chips[data-state="skipped"] .dm-chip-link {
+  opacity: 0;
+}
+.dm-chips[data-state="shown"] .dm-chip-taken,
+.dm-chips[data-state="skipped"] .dm-chip-taken {
+  border: 1px solid var(--hair);
+  background: var(--bg);
+  color: var(--ink-3);
+  font-weight: 400;
+}
+.dm-chip-tree {
+  fill: none;
+  stroke: var(--hair-2);
+  stroke-width: 1.25;
+}
+.dm-chip-link {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ── 엣지 문구 알약: 서버 edge_ko 그대로, 줄바꿈하고 줄이지 않는다 ─────────────────── */
+.dm-pill-wrap {
+  display: flex;
+  height: 100%;
+  align-items: flex-end;
+  justify-content: center;
+  font-family: var(--font);
+}
+.dm-pill {
+  display: inline-block;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 3px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.3;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.dm-edge[data-state="pending"] .dm-pill,
+.dm-edge[data-state="skipped"] .dm-pill {
+  border-color: var(--hair);
+}
+
+/* 안전 사건만 빨강 */
+.dm-svg[data-kind="safety"] .dm-node[data-state="current"] .dm-node-box {
+  fill: rgba(215, 0, 21, 0.07);
+  stroke: var(--sev-3);
+}
+.dm-svg[data-kind="safety"] .dm-edge-line {
+  stroke: var(--sev-3);
+}
+.dm-svg[data-kind="safety"] .dm-edge-head {
+  fill: var(--sev-3);
+}
+.dm-svg[data-kind="safety"] .dm-chip-taken,
+.dm-svg[data-kind="safety"] .dm-pill {
+  border-color: var(--sev-3);
+}
+.dm-svg[data-kind="safety"] .dm-chip-link {
+  stroke: var(--sev-3);
+}
+
+/* ── 엣지 ─────────────────────────────────────────────────────────── */
+.dm-edge-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.dm-edge-head {
+  fill: var(--accent);
+}
+.dm-edge[data-state="pending"] {
+  opacity: 0.2;
+}
+.dm-edge[data-state="skipped"] {
+  opacity: 0.15;
+}
+/* 간 본선은 강조색 그대로(굵게) — 출구로 빠진 뒤의 본선·바로 알림이 아닌 게이트 뒤 본선은 꺼 둔다 */
+.dm-edge[data-state="done"] .dm-edge-line {
+  stroke-width: 2.5;
+}
+.dm-edge.dm-edge-off {
+  opacity: 0.15;
+}
+.dm-fan-go .dm-edge-line {
+  stroke-width: 3;
+}
+
+/* ── 출구: 점선 화살표 · '침묵' 길 · 싱크 — 간 출구만 강조색(안전은 빨강), 나머지는 흐린 점선 ── */
+.dm-exit-line,
+.dm-fan-line {
+  fill: none;
+  stroke: var(--hair-2);
+  stroke-width: 1.5;
+}
+.dm-exit-line {
+  stroke-dasharray: 5 4;
+}
+.dm-exit-head,
+.dm-fan-head {
+  fill: var(--hair-2);
+}
+/* 재생 중: 판단 노드가 켜지기 전 출구는 숨긴다(정적 그림·지난 노드는 보인다) */
+.dm-exit[data-state="pending"] {
+  opacity: 0;
+}
+.dm-lane-line {
+  stroke: var(--hair-2);
+  stroke-width: 2;
+}
+.dm-lane-label {
+  font-size: 15px;
+  font-weight: 600;
+  fill: var(--ink-3);
+}
+:is(.dm-exit, .dm-lane)[data-state="done"],
+:is(.dm-exit, .dm-lane)[data-state="end"],
+:is(.dm-exit, .dm-lane)[data-state="current"] {
+  --lit: var(--accent);
+}
+.dm-svg[data-kind="safety"] :is(.dm-exit, .dm-lane):is([data-state="done"], [data-state="end"], [data-state="current"]) {
+  --lit: var(--sev-3);
+}
+.dm-exit-taken:not(.dm-fan) > .dm-exit-line,
+.dm-exit .dm-sink-taken .dm-exit-line,
+.dm-fan .dm-fan-exit-taken .dm-exit-line,
+.dm-fan .dm-fan-stub-taken .dm-fan-line,
+.dm-lane-taken .dm-lane-line {
+  stroke: var(--lit, var(--hair-2));
+}
+.dm-exit-taken:not(.dm-fan) > .dm-exit-head,
+.dm-exit .dm-sink-taken .dm-exit-head,
+.dm-fan .dm-fan-exit-taken .dm-exit-head,
+.dm-fan .dm-fan-stub-taken .dm-fan-head {
+  fill: var(--lit, var(--hair-2));
+}
+.dm-fan .dm-fan-stub-taken .dm-fan-line {
+  stroke-width: 3;
+}
+.dm-lane-taken .dm-lane-label {
+  fill: var(--lit, var(--ink-3));
+}
+.dm-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  font-family: var(--font);
+}
+.dm-pill-wrap.dm-pill-wrap-narrow {
+  height: auto;
+  justify-content: flex-start;
+  align-items: flex-start;
+}
+.dm-reasons-up .dm-reasons {
+  height: 100%;
+  align-content: flex-end;
+}
+.dm-reasons .dm-chip {
+  margin-bottom: 0;
+}
+.dm-reasons .dm-chip-taken {
+  height: auto;
+  white-space: normal;
+}
+.dm-chip-value {
+  display: block;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.dm-reasons .dm-chip:not(.dm-chip-taken) .dm-chip-value {
+  display: none; /* 간 칩만 둘째 줄을 보인다 — 나머지는 제목(마우스오버)으로 */
+}
+.dm-exit:not([data-state="done"]):not([data-state="end"]):not([data-state="current"]) .dm-chip-taken,
+.dm-exit:not([data-state="done"]):not([data-state="end"]):not([data-state="current"]) .dm-branch-taken {
+  border-color: var(--hair);
+  font-weight: 400;
+  color: var(--ink-3);
+}
+.dm-sink-card {
+  box-sizing: border-box;
+  padding: 2px 8px;
+  border: 1px dashed var(--hair-2);
+  border-radius: 8px;
+  background: var(--bg);
+  font-family: var(--font);
+  font-size: 15px;
+  color: var(--ink-3);
+  text-align: center;
+}
+.dm-exit[data-state="done"] .dm-sink-taken .dm-sink-card,
+.dm-exit[data-state="end"] .dm-sink-taken .dm-sink-card {
+  border: 1.5px solid var(--accent);
+  color: var(--ink);
+  font-weight: 600;
+}
+.dm-sink-value {
+  font-size: 15px;
+  font-weight: 400;
+}
+.dm-fan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font);
+}
+.dm-fan-pill {
+  box-sizing: border-box;
+  padding: 3px 8px;
+  border: 1px solid var(--hair-2);
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--ink-3);
+  font-size: 15px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dm-fan[data-state="done"] .dm-fan-pill.dm-branch-taken,
+.dm-fan[data-state="end"] .dm-fan-pill.dm-branch-taken {
+  border: 1.5px solid var(--accent);
+  color: var(--ink);
+  font-weight: 600;
+  white-space: normal;
+  overflow: visible;
+}
+.dm-fan-pill.dm-branch-taken {
+  white-space: normal;
+  overflow: visible;
+}
+.dm-fan-score {
+  font-size: 15px;
+  fill: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.dm-fan .dm-fan-stub-taken .dm-fan-score {
+  fill: var(--lit, var(--ink-3));
+  font-weight: 600;
+}
+
+/* 움직임: 동작 줄이기 설정이 아니고(.dm-anim 은 스크립트가 그때만 붙인다) 브라우저도 허용할 때만 */
+@media (prefers-reduced-motion: no-preference) {
+  .dm-anim .dm-node,
+  .dm-anim .dm-node-box,
+  .dm-anim .dm-edge,
+  .dm-anim .dm-exit,
+  .dm-anim .dm-chips,
+  .dm-anim .dm-chip,
+  .dm-anim .dm-chip-link {
+    transition: opacity 0.25s ease, fill 0.25s ease, stroke 0.25s ease;
+  }
+  .dm-anim .dm-card {
+    animation: dm-card-in 0.3s ease;
+  }
+}
+@keyframes dm-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.dm-edge-pane .dm-edge-line {
+  stroke-dasharray: 6 5;
+}
+
+/* ── 오른쪽 폰 알림창 ─────────────────────────────────────────────── */
+.dm-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+  padding: var(--s4);
+  background: var(--band);
+  border: 1px solid var(--hair);
+  border-radius: 28px;
+  overflow: hidden;
+  font-family: var(--font);
+  color: var(--ink);
+}
+.dm-screen-bar {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  padding-bottom: var(--s3);
+}
+/* 카드는 이 안에서만 넘친다 — 가장 최근 카드가 맨 위라 넘친 쪽은 지난 카드다 */
+.dm-feed {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.dm-day-divider {
+  margin: 0 0 var(--s3);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-align: center;
+}
+.dm-screen-empty {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.dm-screen .notif,
+.dm-screen .alarm {
+  margin-bottom: var(--s3);
+}
+
+.dm-queue {
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.dm-head .dy-seg {
+  flex: none;
+}
+/* 한 단계씩: [‹ 이전] 사건·단계 [다음 ›] — 키보드 ←·→ 도 같다 */
+.dm-stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex: none;
+}
+.dm-step-btn {
+  min-width: 64px;
+}
+.dm-step-count {
+  min-width: 128px;
+  font-size: 13px;
+  color: var(--ink-2);
+  text-align: center;
+  white-space: nowrap;
+}
+.dm-card-tag {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.dm-card-state {
+  min-height: 1em;
+}
+.dm-card-touched {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── 좁은 화면(390px 기준): 그래프는 한 줄로 위, 폰은 아래 — 덮개 안에서만 세로로 넘긴다 ── */
+@media (max-width: 640px) {
+  .dm-head {
+    flex-wrap: wrap;
+    gap: var(--s3);
+    padding: var(--s3) var(--s4);
+  }
+  .dm-outcome {
+    order: 10;
+    flex-basis: 100%;
+    white-space: normal;
+  }
+  .dm-body {
+    display: block;
+    overflow-y: auto;
+    padding: var(--s3) var(--s4) var(--s5);
+  }
+  .dm-svg {
+    display: block;
+    height: auto;
+  }
+  .dm-pane-below {
+    height: 440px;
+    margin-top: var(--s4);
+  }
+}
+
+/* ── 넓은 화면 폰 창(그래프 SVG 안 — 1600 단위가 약 1216px 로 줄어든다): 글자를 15 단위 이상으로 둬
+      화면에서 11px 아래로 내려가지 않게 한다(15 × 1216/1600 ≈ 11.4px). 좁은 화면 폰 창은 SVG 밖이라 그대로. */
+.dm-pane .dm-screen-bar,
+.dm-pane .dm-day-divider,
+.dm-pane .notif-head,
+.dm-pane .notif-app,
+.dm-pane .notif-head .tabnum,
+.dm-pane .notif-body,
+.dm-pane .notif-state,
+.dm-pane .alarm-body,
+.dm-pane .alarm-meta,
+.dm-pane .dm-card-tag {
+  font-size: 15px;
+}
+.dm-pane .notif-title,
+.dm-pane .alarm-title {
+  font-size: 17px;
+}

@@ -17,24 +17,28 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import math
 import os
 import re
 import sqlite3
 import threading
 import time
 from collections.abc import Awaitable, Callable, Sequence
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from liot.app import LiotApp
 from liot.core.clock import Clock
 from liot.core.contracts import SensorReading
+from liot.core.invariants import EgressViolation
 from liot.core.risk import RiskTier, _reset_safety_extensions_for_tests
 from liot.core.severity import SeverityLevel
+from liot.day_sim import DayRuns
 from liot.db.database import init_db
-from liot.db.safety_repo import Guardian, Resident, SafetyRepo
+from liot.db.safety_repo import DEFAULT_HOME_ALIAS, Guardian, Resident, SafetyRepo
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l2_context.context_builder import derive_occupancy
 from liot.layers.l2_context.external_provider import FakeExternalProvider
@@ -50,8 +54,16 @@ from liot.layers.l2_context.proactive import ProactiveGenerator
 from liot.layers.l3_judgment.guardrail import _reset_floor_extensions_for_tests
 from liot.layers.l3_judgment.llm_judge import FakeLLM, LLMBackend
 from liot.layers.l3_judgment.ollama_backend import HTTPOllamaTransport, OllamaBackend
+from liot.layers.l4_execution import escalation
 from liot.layers.l4_execution.escalation import situation_label
 from liot.layers.l4_execution.executor import ExecutionPolicy
+from liot.layers.l4_execution.notifier import (
+    NotificationBudget,
+    NotificationContext,
+    Notifier,
+)
+from liot.layers.l4_execution.ntfy_transport import HTTPNtfyTransport
+from liot.live_runs import LiveRequestError, resume_from
 from liot.registry import RegistryError, RuntimeRegistry
 from liot.serve import resolve_db_path
 
@@ -782,6 +794,353 @@ async def _run(body: dict[str, Any]) -> dict[str, Any]:
 
 
 # ==========================================================================
+# 3D 집 시나리오 — 실제 표·사다리·송신 문구로 타임라인 계산 (DB·송신 없음)
+# ==========================================================================
+# `POST /api/home3d/scenario` 는 '이 센서에 이 값이 오면 거주자·보호자 폰에 언제 무엇이
+# 뜨는가'를 한 번에 계산해 돌려준다. 순수 계산이다:
+#   - 판정: LiotApp.classify_safety (이상·정상·판정 보류)
+#   - 하한: severity_table.compute (표 + 취약 거주자)
+#   - 시각: escalation 순수 함수(next_realert_at·forward_due_at·guidance_due_at·guardian_path)
+#     — 서비스 사다리(service._fire_ladder)가 쓰는 그 함수들이다.
+#   - 문구: Notifier(게이트·egress 정제) → HTTPNtfyTransport._body/_headers 가 만드는 그대로.
+# DB 를 열지 않는다. 보호자 수·취약 거주자는 **요청 값**이다(데몬 설정을 읽지 않는다).
+# 아무것도 보내지 않는다 — transport 는 헤더·본문을 만드는 데만 쓰고 send 를 부르지 않는다.
+# 모델 상향(2단계 판정)은 보여 주지 않는다. 1단계(표 우선) 상황 알림까지만이다.
+SCENARIO_PATH = "/api/home3d/scenario"
+
+# 상한 없는 재알림(위험 = 1분 간격, 확인·해소까지)을 화면에 어디까지 늘어놓을지(초).
+# 119 안내(첫 알림 + 90초 + 5분 = 390초) 뒤 한 번 더까지. 재생 길이일 뿐 사다리 규칙이 아니다.
+SCENARIO_UNCAPPED_HORIZON_S = 420
+SCENARIO_MAX_GUARDIANS = 2
+
+# 버튼 문구를 실제 transport 헤더에서 뽑기 위한 자리값. 비밀이 아니다 — 이 서버는 아무것도
+# 보내지 않고, 이 값으로 서명된 링크를 받아 줄 게이트웨이도 없다.
+_SCENARIO_SIGNING_VALUE = "demo-not-a-secret"
+_SCENARIO_FEEDBACK_URL = "http://127.0.0.1:8099"
+_SCENARIO_NTFY_URL = "http://ntfy.invalid"
+_SCENARIO_SITUATION_ID = "home3d-demo-situation"
+_SCENARIO_NONCE = "home3d-demo"
+
+# ntfy 버튼 라벨(헤더는 ASCII 만 싣는다) → (화면 표기, 역할).
+_SCENARIO_ACTION_VIEW: dict[str, tuple[str, str]] = {
+    "Accept": ("수락", "accept"),
+    "Dismiss": ("거절", "dismiss"),
+    "OK": ("괜찮아요", "ok"),
+    "Ack": ("확인", "ack"),
+    "Call 119": ("119 전화", "call_119"),
+}
+
+
+class ScenarioError(Exception):
+    """시나리오 요청 검증 실패(HTTP 400). ``field`` 는 잘못된 입력 칸."""
+
+    def __init__(self, message: str, field: str | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.field = field
+
+
+def scenario_args(body: dict[str, Any]) -> dict[str, Any]:
+    """요청 본문 → scenario_timeline 인자. 형식이 틀리면 ScenarioError."""
+    entity_id = body.get("entity_id")
+    if not isinstance(entity_id, str) or not entity_id.strip():
+        raise ScenarioError("entity_id 가 필요합니다.", "entity_id")
+    if "value" not in body:
+        raise ScenarioError("value 가 필요합니다.", "value")
+    vulnerable = body.get("vulnerable_resident", False)
+    if not isinstance(vulnerable, bool):
+        raise ScenarioError("vulnerable_resident 는 true 또는 false 여야 합니다.", "vulnerable_resident")
+    guardians = body.get("consented_guardians", 0)
+    if (
+        isinstance(guardians, bool)
+        or not isinstance(guardians, int)
+        or not 0 <= guardians <= SCENARIO_MAX_GUARDIANS
+    ):
+        raise ScenarioError(
+            f"consented_guardians 는 0~{SCENARIO_MAX_GUARDIANS} 사이 정수여야 합니다.",
+            "consented_guardians",
+        )
+    ack = body.get("ack_at_s")
+    if ack is not None and (
+        isinstance(ack, bool)
+        or not isinstance(ack, (int, float))
+        or not math.isfinite(ack)
+        or ack < 0
+    ):
+        raise ScenarioError("ack_at_s 는 0 이상의 초여야 합니다.", "ack_at_s")
+    # 확인 재요청은 처음 응답의 opened_at 을 되돌려 보낸다 — 이미 보인 알림 문구의 시각이
+    # 다시 계산되며 바뀌지 않게. 없으면 지금 시각.
+    opened_at = body.get("opened_at")
+    if opened_at is not None:
+        try:
+            parsed = escalation.parse_iso(opened_at) if isinstance(opened_at, str) else None
+        except ValueError:
+            parsed = None
+        if parsed is None or parsed.tzinfo is None:
+            raise ScenarioError("opened_at 은 시간대가 있는 ISO 시각이어야 합니다.", "opened_at")
+        opened_at = escalation.to_iso(parsed)
+    return {
+        "entity_id": entity_id.strip(),
+        "value": body.get("value"),
+        "vulnerable_resident": vulnerable,
+        "consented_guardians": guardians,
+        "ack_at_s": None if ack is None else float(ack),
+        "opened_at": opened_at,
+    }
+
+
+def _scenario_actions(headers: dict[str, str]) -> list[dict[str, Any]]:
+    """ntfy Actions 헤더(`종류, 라벨, 주소, ...; ...`) → 화면용 버튼 목록.
+
+    http 버튼(수락·거절·괜찮아요·확인)은 사다리를 멈춘다(서비스가 거주자 응답·보호자
+    확인마다 _ack_situation 을 부른다). view 버튼(119 전화)은 전화 앱만 연다.
+    서명된 http 주소는 싣지 않는다 — 화면이 쓸 일이 없다. view 의 주소(tel:119)만 싣는다.
+    """
+    out: list[dict[str, Any]] = []
+    for part in headers.get("Actions", "").split(";"):
+        fields = [f.strip() for f in part.split(",")]
+        if len(fields) < 3:
+            continue
+        kind, label, target = fields[0], fields[1], fields[2]
+        label_ko, role = _SCENARIO_ACTION_VIEW.get(label, (label, label.lower()))
+        item: dict[str, Any] = {
+            "kind": kind,
+            "label": label,
+            "label_ko": label_ko,
+            "role": role,
+            "stops_ladder": kind == "http",
+        }
+        if kind == "view":
+            item["target"] = target
+        out.append(item)
+    return out
+
+
+def _scenario_event(
+    transport: HTTPNtfyTransport,
+    *,
+    t_s: float,
+    who: str,
+    kind: str,
+    sanitized: dict[str, Any],
+    guardian: int | None = None,
+) -> dict[str, Any]:
+    """정제된 페이로드 한 건 → 사건 한 줄(실제 송신 본문·우선순위·버튼)."""
+    headers = transport._headers(sanitized)
+    return {
+        "t_s": int(t_s),
+        "who": who,
+        "guardian": guardian,
+        "kind": kind,
+        "title": headers.get("Title", ""),
+        "body": transport._body(sanitized).decode("utf-8"),
+        "priority": headers.get("Priority", ""),
+        "severity_ko": sanitized.get("severity_label"),
+        "actions": _scenario_actions(headers),
+    }
+
+
+def _scenario_summary(
+    notifier: Notifier,
+    category: str,
+    kind: escalation.MessageKind,
+    *,
+    at: str,
+    severity: SeverityLevel,
+    guardian_id: str | None = None,
+) -> dict[str, Any] | None:
+    """요약 알림(보호자 전달·119 안내·감시 불가)을 서비스와 같은 경로로 만든다.
+
+    build_guardian_payload → sanitize_summary(egress). 집 별칭은 기본값(이 API 는 집 설정을
+    읽지 않는다). egress 가 거부하면 None — 서비스도 그때는 보내지 않는다.
+    """
+    payload = notifier.build_guardian_payload(
+        situation_label=escalation.message_label(category, kind),
+        home_alias=DEFAULT_HOME_ALIAS,
+        at=at,
+        severity=severity,
+        situation_id=_SCENARIO_SITUATION_ID if guardian_id else None,
+        guardian_id=guardian_id,
+    )
+    try:
+        return notifier.sanitize_summary(payload, trace_id=_SCENARIO_SITUATION_ID)
+    except EgressViolation:
+        return None
+
+
+async def scenario_timeline(
+    entity_id: str,
+    value: Any,
+    *,
+    vulnerable_resident: bool = False,
+    consented_guardians: int = 0,
+    ack_at_s: float | None = None,
+    opened_at: str | None = None,
+) -> dict[str, Any]:
+    """한 센서 값이 만드는 알림 타임라인(초 단위, 첫 알림 = 0초).
+
+    반환: ``{ok, opened_at, state, category, severity, markers, horizon_s, acked_at_s, events}``.
+    ``state`` 는 abnormal | unmonitorable | normal. ``events`` 는 시각 순서이고 각 줄은
+    ``{t_s, who, guardian, kind, title, body, priority, severity_ko, actions[]}`` 다.
+    ``ack_at_s`` 가 있으면 그 시각 뒤의 사건은 없다(확인 = 사다리 멈춤).
+    미등록 엔티티는 RegistryError, 안전 센서가 아니면 ScenarioError.
+    """
+    at = opened_at or Clock().now_utc()
+    clock = Clock(fixed=at)
+    with STATE_LOCK:
+        categories = _REGISTRY.categories()
+        catalog = _REGISTRY.to_catalog()
+        reading = _reading(entity_id, value, at)
+    app = LiotApp(clock=clock, catalog=catalog, categories=categories, llm_backend=FakeLLM())
+    signal = app.classify_safety(reading)
+    if signal is None:
+        raise ScenarioError(f"안전 센서가 아닙니다: {entity_id}", "entity_id")
+    category = signal.category
+    notifier = Notifier(secret=_SCENARIO_SIGNING_VALUE, clock=clock)
+    transport = HTTPNtfyTransport(
+        _SCENARIO_NTFY_URL,
+        feedback_base_url=_SCENARIO_FEEDBACK_URL,
+        signing_secret=_SCENARIO_SIGNING_VALUE,
+    )
+    out: dict[str, Any] = {
+        "ok": True,
+        "opened_at": at,
+        "entity_id": entity_id,
+        "category": category,
+        "situation_ko": situation_label(category),
+        "vulnerable_resident": vulnerable_resident,
+        "consented_guardians": consented_guardians,
+        "acked_at_s": ack_at_s,
+        "severity": None,
+        "markers": [],
+        "horizon_s": 0,
+        "events": [],
+    }
+    events: list[dict[str, Any]] = []
+
+    if signal.unmonitorable:
+        # 판정 보류: 상황·사다리·보호자 없음. 거주자 감시 불가 알림(주의) 한 건뿐이다.
+        out["state"] = "unmonitorable"
+        msg = _scenario_summary(
+            notifier, category, "unmonitorable", at=at, severity=SeverityLevel.NOTICE
+        )
+        if msg is not None:
+            events.append(
+                _scenario_event(transport, t_s=0, who="resident", kind="unmonitorable", sanitized=msg)
+            )
+        out["markers"] = [{"t_s": 0, "label": "감시 불가 알림"}]
+        out["horizon_s"] = 60
+    elif not signal.abnormal:
+        out["state"] = "normal"
+        out["horizon_s"] = 60
+    else:
+        out["state"] = "abnormal"
+        sev = app.severity_table.compute(category, vulnerable_resident=vulnerable_resident)
+        if sev is None:  # pragma: no cover - 안전 카테고리면 표가 항상 값을 낸다(방어)
+            raise ScenarioError(f"파급도 표에 없는 센서입니다: {entity_id}", "entity_id")
+        staged = await app.process_situation_reading(
+            signal.reading, situation_id=_SCENARIO_SITUATION_ID, severity=sev
+        )
+        if staged is None:  # pragma: no cover - 1단계는 스냅샷을 강제한다(방어)
+            return {"ok": False, "error": "상황 알림을 만들지 못했습니다."}
+        proposal = staged.proposal
+        # 1단계 제안의 파급도 = 하한(표+거주자). 모델 상향은 2단계 몫이라 여기 없다.
+        final = proposal.severity if proposal.severity is not None else sev.floor
+        out["severity"] = {
+            "floor": int(sev.floor),
+            "floor_ko": sev.floor.label_ko,
+            "final": int(final),
+            "name": final.name.lower(),
+            "ko": final.label_ko,
+            "sources": list(sev.sources),
+            "sources_ko": [SEVERITY_SOURCE_KO.get(s, s) for s in sev.sources],
+        }
+        opened = escalation.parse_iso(at)
+
+        def secs(when: datetime) -> float:
+            return (when - opened).total_seconds()
+
+        # 0초: 1단계 상황 알림 — dispatch 와 같은 게이트(헌장 ON·음소거 없음·주간 가정).
+        decision, first = notifier.notify(
+            proposal, NotificationContext(), NotificationBudget(), nonce=_SCENARIO_NONCE
+        )
+        out["gate"] = decision
+        markers: list[dict[str, Any]] = [{"t_s": 0, "label": "첫 알림"}]
+        if first is not None:
+            events.append(
+                _scenario_event(transport, t_s=0, who="resident", kind="alert", sanitized=first)
+            )
+        # 재알림: 같은 제안을 다시 싣는다(service._send_realert 와 같다).
+        cap = escalation.realert_cap(final)
+        sent = 0
+        while True:
+            nxt = escalation.next_realert_at(opened, final, sent)
+            if nxt is None or (cap is None and secs(nxt) > SCENARIO_UNCAPPED_HORIZON_S):
+                break
+            again = notifier.sanitize(proposal, _SCENARIO_NONCE)
+            events.append(
+                _scenario_event(transport, t_s=secs(nxt), who="resident", kind="realert", sanitized=again)
+            )
+            sent += 1
+            if cap is not None:
+                markers.append({"t_s": int(secs(nxt)), "label": f"재알림 {sent}/{cap}"})
+        # 보호자 전달·119 안내: 상황 하한이 CRITICAL 일 때만.
+        if escalation.guardian_path(sev.floor):
+            forward_at = escalation.forward_due_at(opened)
+            first_forward: datetime | None = None
+            guardian_ids = [f"guardian-{i}" for i in range(1, consented_guardians + 1)]
+            for i, gid in enumerate(guardian_ids, start=1):
+                msg = _scenario_summary(
+                    notifier, category, "forward", at=at, severity=final, guardian_id=gid
+                )
+                if msg is not None:
+                    events.append(
+                        _scenario_event(
+                            transport, t_s=secs(forward_at), who="guardian", kind="forward",
+                            sanitized=msg, guardian=i,
+                        )
+                    )
+                    first_forward = forward_at
+            guide_at = escalation.guidance_due_at(opened, first_forward)
+            msg = _scenario_summary(notifier, category, "guidance_119", at=at, severity=final)
+            if msg is not None:
+                events.append(
+                    _scenario_event(
+                        transport, t_s=secs(guide_at), who="resident", kind="guidance_119",
+                        sanitized=msg,
+                    )
+                )
+            for i, gid in enumerate(guardian_ids, start=1):
+                msg = _scenario_summary(
+                    notifier, category, "guidance_119", at=at, severity=final, guardian_id=gid
+                )
+                if msg is not None:
+                    events.append(
+                        _scenario_event(
+                            transport, t_s=secs(guide_at), who="guardian", kind="guidance_119",
+                            sanitized=msg, guardian=i,
+                        )
+                    )
+            markers.append(
+                {
+                    "t_s": int(secs(forward_at)),
+                    "label": "보호자 전달" if guardian_ids else "보호자 전달(동의한 보호자 없음)",
+                }
+            )
+            markers.append({"t_s": int(secs(guide_at)), "label": "119 안내"})
+        markers.sort(key=lambda m: m["t_s"])
+        out["markers"] = markers
+        last = max((e["t_s"] for e in events), default=0)
+        out["horizon_s"] = max(last, SCENARIO_UNCAPPED_HORIZON_S if cap is None else last)
+
+    events.sort(key=lambda e: e["t_s"])  # 안정 정렬 — 같은 시각은 거주자 먼저(만든 순서)
+    if ack_at_s is not None:
+        events = [e for e in events if e["t_s"] <= ack_at_s]
+    out["events"] = events
+    return out
+
+
+# ==========================================================================
 # 안전 설정 — 거주자 정보·보호자·전달 동의·전달 기록 (데몬과 같은 DB 에 영속)
 # ==========================================================================
 # 위의 시뮬레이션 상태(_REGISTRY 등)는 세션 메모리지만, 여기서 다루는 것은 데몬
@@ -1226,6 +1585,25 @@ _STATIC_TYPES = {
 }
 
 
+# 하루 시뮬레이션 실행 관리자(프로세스 기본값). 서버 객체가 자기 것을 들고 있으면 그것을 쓴다
+# (시험이 서버마다 새 관리자를 넣는다). 실행 상태는 메모리뿐이다 — 데몬과 무관하다.
+_DAY_RUNS = DayRuns()
+DAY_PREFIX = "/api/day/"
+
+
+class LabServer(ThreadingHTTPServer):
+    """관제실 HTTP 서버. 하루 시뮬레이션 실행 관리자를 서버마다 하나 든다."""
+
+    def __init__(self, addr: tuple[str, int], *, day_runs: DayRuns | None = None) -> None:
+        super().__init__(addr, Handler)
+        self.day_runs = day_runs if day_runs is not None else _DAY_RUNS
+
+
+def make_server(host: str, port: int, *, day_runs: DayRuns | None = None) -> LabServer:
+    """관제실 서버를 만든다(띄우지는 않는다). 시험은 포트 0 과 자기 관리자를 넣는다."""
+    return LabServer((host, port), day_runs=day_runs)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "LiotDemoLab/1.0"
     # 소켓 수준 타임아웃. StreamRequestHandler.setup() 이 이 값을 연결에 건다.
@@ -1280,8 +1658,106 @@ class Handler(BaseHTTPRequestHandler):
         result, code = safety_call(method, path, body)
         self._json(code, result)
 
+    # ── 하루 시뮬레이션(/api/day/*) ────────────────────────────────────────
+    def _day_runs(self) -> DayRuns:
+        runs = getattr(self.server, "day_runs", None)
+        return runs if isinstance(runs, DayRuns) else _DAY_RUNS
+
+    def _day_blocked(self, method: str) -> bool:
+        """``/api/day/*`` 는 이 기기 접속만 받는다(안전 설정과 같은 검사, POST 는 쓰기 검사)."""
+        block = safety_block_reason(
+            str(self.client_address[0]),
+            self.headers.get("Host"),
+            self.headers.get("Origin"),
+            self.headers.get("Content-Type"),
+            write=method == "POST",
+        )
+        if block is not None:
+            self._json(403, {"ok": False, "error": block})
+            return True
+        return False
+
+    def _live_error(self, exc: LiveRequestError) -> None:
+        payload: dict[str, Any] = {"ok": False, "error": exc.message}
+        if exc.field is not None:
+            payload["field"] = exc.field
+        self._json(exc.status, payload)
+
+    def _day_get(self, path: str) -> None:
+        if self._day_blocked("GET"):
+            return
+        runs = self._day_runs()
+        if path == DAY_PREFIX + "stream":
+            self._day_stream(runs)
+            return
+        if path == DAY_PREFIX + "keys":
+            # 실제 모델 키 상태 — 이름과 있음/없음만. 값은 응답에 없다.
+            self._json(200, runs.key_status())
+            return
+        if path.startswith(DAY_PREFIX + "runs/"):
+            view = runs.view(path[len(DAY_PREFIX + "runs/"):])
+            if view is None:
+                self._json(404, {"ok": False, "error": "없는 실행입니다."})
+                return
+            self._json(200, view)
+            return
+        self._send(404, b"not found", "text/plain; charset=utf-8")
+
+    def _day_stream(self, runs: DayRuns) -> None:
+        """Server-Sent Events. 보관분(seq >= from, Last-Event-ID 우선)을 먼저, 그다음 새 사건."""
+        query = parse_qs(urlsplit(self.path).query)
+        run = runs.get((query.get("run") or [""])[0])
+        if run is None:
+            self._json(404, {"ok": False, "error": "없는 실행입니다."})
+            return
+        try:
+            froms = query.get("from")
+            start = resume_from(froms[0] if froms else None, self.headers.get("Last-Event-ID"))
+        except LiveRequestError as exc:
+            self._live_error(exc)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        def write(chunk: bytes) -> None:
+            self.wfile.write(chunk)
+            self.wfile.flush()
+
+        try:
+            runs.runs.follow(run, start, write)
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            return  # 받는 쪽이 끊었다 — 스트림만 끝난다(실행은 계속 돈다)
+
+    def _day_post(self, path: str) -> None:
+        if self._day_blocked("POST"):
+            return
+        body = self._read_json()
+        if body is None:
+            return
+        runs = self._day_runs()
+        try:
+            if path == DAY_PREFIX + "run":
+                self._json(200, runs.start(body))
+                return
+            if path == DAY_PREFIX + "stop":
+                self._json(200, runs.stop())
+                return
+            if path == DAY_PREFIX + "feedback":
+                self._json(202, runs.feedback(body))
+                return
+        except LiveRequestError as exc:
+            self._live_error(exc)
+            return
+        self._send(404, b"not found", "text/plain; charset=utf-8")
+
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
+        if path.startswith(DAY_PREFIX):
+            self._day_get(path)
+            return
         if path.startswith("/api/safety/"):
             self._safety_request("GET", path)
             return
@@ -1357,6 +1833,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
+        if path.startswith(DAY_PREFIX):
+            self._day_post(path)
+            return
         if path.startswith("/api/safety/"):
             self._safety_request("POST", path)
             return
@@ -1374,6 +1853,9 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/registry/"):
             self._registry_post(path)
             return
+        if path == SCENARIO_PATH:
+            self._scenario_post()
+            return
         if path != "/api/simulate":
             self._send(404, b"not found", "text/plain; charset=utf-8")
             return
@@ -1385,6 +1867,24 @@ class Handler(BaseHTTPRequestHandler):
             # 돈다(LLM 호출 동안 다른 요청을 막지 않기 위해).
             result = asyncio.run(_run(body))
         except RegistryError as exc:  # 미등록 엔티티 값 등 → 400 구조화 에러
+            self._bad(exc.message, field=exc.field)
+            return
+        except Exception as exc:  # noqa: BLE001 - 데모: 어떤 실패도 화면에 노출
+            self._json(200, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+            return
+        self._json(200, result)
+
+    def _scenario_post(self) -> None:
+        """3D 집 시나리오(``POST /api/home3d/scenario``). DB·송신 없음, 코어는 ``scenario_timeline``."""
+        body = self._read_json()
+        if body is None:
+            return
+        try:
+            result = asyncio.run(scenario_timeline(**scenario_args(body)))
+        except ScenarioError as exc:
+            self._bad(exc.message, field=exc.field)
+            return
+        except RegistryError as exc:  # 미등록 엔티티 → 400 구조화 에러
             self._bad(exc.message, field=exc.field)
             return
         except Exception as exc:  # noqa: BLE001 - 데모: 어떤 실패도 화면에 노출
@@ -1457,7 +1957,7 @@ def main() -> None:
     host = os.environ.get("LIOT_LAB_HOST", "127.0.0.1")
     port = int(os.environ.get("LIOT_LAB_PORT", "8765") or "8765")
     os.chdir(REPO_ROOT)  # config/proactive 등 상대경로 로딩 보장
-    httpd = ThreadingHTTPServer((host, port), Handler)
+    httpd = make_server(host, port)
     print(f"LIOT 데모 랩: http://{host}:{port}/  (Ctrl+C 로 종료)")
     print(f"  정적 UI={WEB_DIR}  · 파이프라인=실제 LiotApp · Gate2=로컬 ollama")
     try:

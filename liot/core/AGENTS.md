@@ -8,8 +8,9 @@ The kernel every layer depends on:
 - `severity.py` — `SeverityLevel` (RECORD < NOTICE < WARNING < CRITICAL, `label_ko`, `ntfy_priority`), `escalate_severity`, `SeverityTable` / `load_severity_table` (reads `config/severity/situations.yaml`), abnormal rules, source order `("table", "resident", "model")`.
 - `contracts.py` — pydantic v2 models crossing layer boundaries (`SensorReading`, `CandidateAction`, `ContextSnapshot`, `Judgment`, `Proposal`, `NotificationPayload`, `GuardianNotificationPayload`, candidate-set models), `compute_snapshot_hash`.
 - `invariants.py` — exception hierarchy, `assert_monotonic`, `assert_executor_confined`, `assert_execution_gated`.
-- `egress_gate.py` — `emit_external`, `NTFY_ALLOWED_KEYS`, PII patterns, `AliasMap` pseudonymization, LLM entity-shaped backstop.
-- `event_bus.py` (`ALLOWED_EDGES`), `scoped_repo.py` (tenant scoping), `clock.py` (UTC clock, time buckets), `categories.py` (`resolve_category`), `env.py` (`env_flag`).
+- `traits.py` — `TRAIT_WORDS`, the resident-trait words no model or memory input may contain (re-exported by `liot.live_graph` for older imports).
+- `egress_gate.py` — `emit_external`, `NTFY_ALLOWED_KEYS`, PII patterns, `AliasMap` pseudonymization, entity-shaped backstop (LLM and MEMORY). `ALLOWLIST` is exactly {LLM, NTFY, KMA, MEMORY} (pinned by `tests/test_egress.py`); MEMORY (the day simulator's demo memgineering brain) is not transformed — only the PII net and the entity-shaped scan apply.
+- `event_bus.py` (`ALLOWED_EDGES`), `scoped_repo.py` (tenant scoping), `clock.py` (UTC timestamps, home-timezone time buckets), `categories.py` (`resolve_category`), `env.py` (`env_flag`).
 
 Not this module's scope: notification gating, ladder timing, judging, routing, SQL for the v3 safety tables, HTTP, config file contents.
 
@@ -23,6 +24,7 @@ Not this module's scope: notification gating, ladder timing, judging, routing, S
 - `escalate_only(a, b) == max(a, b)` and `escalate_severity(a, b) == max(a, b)` for every input pair; neither ever returns a lower value.
 - `SAFETY_CRITICAL_CATEGORIES` stays a frozenset of exactly gas, smoke, door, leak, high_temp, lock, water_main, oven. Runtime registration only adds to `_SAFETY_EXTENSIONS`; there is no removal API (tests reset it via `_reset_safety_extensions_for_tests`).
 - `SeverityTable.compute`: non-safety → `None`; failed table or unmapped safety category → CRITICAL; vulnerable resident raises exactly one level, capped at CRITICAL; sources contain `"table"` always and `"resident"` only when the level actually rose.
+- `is_unmonitorable(norm)` is true exactly for the strings `"unavailable"`/`"unknown"` (HA cannot read the sensor); `is_abnormal` returns False for them in every rule, including the fail-closed table, and callers must check `unmonitorable` before treating `abnormal=False` as normal.
 - `AbnormalRule.is_abnormal` (truthy): normal only for `False` or a non-bool number equal to 0 (the normalizer turns int 0 into 0.0); everything else, including strings, `None`, NaN, is abnormal. (above): normal only when `value <= threshold` holds — NaN and bools are abnormal.
 - `load_severity_table` never raises; any failure returns `SeverityTable.failed(...)` with `load_failed` true and logs a warning.
 - Every contract model keeps `ConfigDict(extra="forbid")`. `NotificationPayload` and `GuardianNotificationPayload` have no device, entity_id, room, rationale, or trait fields. New `Judgment`/`Proposal` fields are optional with `None`/empty defaults.
@@ -38,7 +40,7 @@ Not this module's scope: notification gating, ladder timing, judging, routing, S
 - Category checks go through `is_safety_category` (built-in ∪ runtime), never `in SAFETY_CRITICAL_CATEGORIES`.
 - Severity config values are read only from the YAML; do not mirror table cells as Python constants.
 - `device` and other person/name-like keys are pseudonymized as `PERSON_n`, room-like keys as `ROOM_A…`; the alias token names are part of what models see.
-- `Clock.time_bucket` uses the UTC hour (06–11 morning, 11–17 day, 17–22 evening, else night).
+- `Clock.time_bucket` uses the hour in the clock's home timezone (06–11 morning, 11–17 day, 17–22 evening, else night). `Clock(tz=None)` is UTC (tests, lab); the daemon passes `LIOT_HOME_TZ` (default `Asia/Seoul`). Timestamps (`now_utc`, `now_dt`) are always UTC; only buckets and the proactive budget's day (`local_dt`) are local.
 
 ## Tests
 

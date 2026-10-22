@@ -167,3 +167,64 @@ def test_coordinate_generalization_only_touches_numeric_coordinates() -> None:
     assert _generalize_coords({"lat": "삼십칠"})["lat"] == "삼십칠"
     # 숫자지만 좌표 키가 아니다 → 그대로(온도까지 뭉개면 판단이 망가진다).
     assert _generalize_coords({"temp_c": 37.123456})["temp_c"] == 37.123456
+
+
+# ── 무작위 uuid 제안 id 가 전화번호 패턴에 우연히 걸려 알림이 막히면 안 된다 ──────
+def test_uuid_proposal_id_never_trips_phone_pattern():
+    from liot.core.egress_gate import Destination, emit_external
+
+    # uuid4 의 'c010-1234-5678' 구간이 phone_kr 패턴(010-1234-5678)과 겹치는 실제 형태.
+    payload = {
+        "channel": "ntfy",
+        "proposal_id": "aaaaaaaa-c010-1234-5678-bbbbbbbbbbbb",
+        "risk_tier": 3,
+        "glyph": "🛡",
+        "label": "불씨",
+        "signed_deeplink": "liot://p/x?t=3&sig=00",
+        "topic": "t",
+    }
+    out = emit_external(Destination.NTFY, payload, trace_id="t", alias=None)
+    assert out["proposal_id"] == payload["proposal_id"]
+
+
+def test_non_uuid_proposal_id_is_still_scanned():
+    import pytest as _pytest
+
+    from liot.core.egress_gate import Destination, emit_external
+    from liot.core.invariants import EgressViolation
+
+    payload = {"channel": "ntfy", "proposal_id": "call 010-1234-5678", "risk_tier": 1,
+               "glyph": "✓", "label": "숨결", "signed_deeplink": "x", "topic": "t"}
+    with _pytest.raises(EgressViolation):
+        emit_external(Destination.NTFY, payload, trace_id="t", alias=None)
+
+
+# ── 허용 목록 고정 · 기억(MEMORY) 목적지 ─────────────────────────────────────
+
+
+def test_allowlist_is_exactly_the_four_destinations() -> None:
+    from liot.core.egress_gate import ALLOWLIST
+
+    assert frozenset(
+        {Destination.LLM, Destination.NTFY, Destination.KMA, Destination.MEMORY}
+    ) == ALLOWLIST
+    assert {d.value for d in Destination} == {"LLM", "NTFY", "KMA", "MEMORY"}
+
+
+def test_memory_passes_clean_text_unchanged_without_pseudonymizing() -> None:
+    payload = {"text": "아침 창문 환기를 좋아한다", "user": "가상 거주자", "n": 3}
+    out = emit_external(Destination.MEMORY, payload, trace_id="t")
+    assert out == payload and out is not payload
+
+
+@pytest.mark.parametrize("text", [
+    "연락처 010-1234-5678", "메일 someone@example.com", "좌표 37.56789",
+    "light.living_room 을 껐다", "Fan.Living_Purifier 소음",
+])
+def test_memory_rejects_pii_and_entity_shaped_text(text: str) -> None:
+    with pytest.raises(EgressViolation):
+        emit_external(Destination.MEMORY, {"text": text}, trace_id="t")
+
+
+def test_memory_destination_accepts_string_name() -> None:
+    assert emit_external("MEMORY", {"text": "괜찮다"}, trace_id="t") == {"text": "괜찮다"}

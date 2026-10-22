@@ -1,10 +1,10 @@
 """외부 송신 단일 통로(egress gate).
 
-모든 외부 송신(LLM 프롬프트, ntfy 알림, KMA 기상 조회)은 ``emit_external`` 한
+모든 외부 송신(LLM 프롬프트, ntfy 알림, KMA 기상 조회, 기억 쓰기)은 ``emit_external`` 한
 함수를 통과해야 한다. 이 게이트는:
   1. 목적지가 ALLOWLIST 에 있는지 확인하고(없으면 EgressViolation),
   2. 목적지별 정제(LLM=재귀 가명화 / NTFY=화이트리스트 키만 / KMA=좌표 그리드
-     일반화)를 적용하며,
+     일반화 / MEMORY=변환 없음, 검사만)를 적용하며,
   3. 정제 후에도 PII 패턴이 남아 있으면 EgressViolation 을 던지고,
   4. 정제된 payload 를 반환한다.
 
@@ -39,11 +39,14 @@ class Destination(str, Enum):
     LLM = "LLM"
     NTFY = "NTFY"
     KMA = "KMA"
+    # memgineering 브레인(하루 시뮬레이터의 데모 브레인 전용). 쓰는 문장은 그대로 나가므로
+    # 변환 없이 PII 그물과 엔티티 모양 검사만 한다.
+    MEMORY = "MEMORY"
 
 
 # 명시적 허용 목록. 여기 없는 목적지로는 어떤 것도 나갈 수 없다.
 ALLOWLIST: frozenset[Destination] = frozenset(
-    {Destination.LLM, Destination.NTFY, Destination.KMA}
+    {Destination.LLM, Destination.NTFY, Destination.KMA, Destination.MEMORY}
 )
 
 # ntfy 페이로드에 허용되는 키. 그 외 키는 모두 제거된다.
@@ -240,6 +243,14 @@ def _generalize_coords(payload: Any) -> Any:
 # 16진수 다이제스트·token_hex)라 사용자 PII 를 담을 수 없다.
 PII_SCAN_SKIP_KEYS: frozenset[str] = frozenset({"signed_deeplink"})
 
+# 값이 *정확히 uuid 형태일 때만* 스캔을 건너뛰는 키. 제안 id 는 uuid4 라 사용자 PII 를
+# 담을 수 없는데, 무작위 16진수 구간(예: 'c010-1234-5678')이 phone_kr 패턴과 우연히
+# 겹치면(실측 약 0.05%) 안전 알림 전체가 차단됐다. uuid 가 아닌 값은 그대로 스캔한다.
+PII_SCAN_UUID_KEYS: frozenset[str] = frozenset({"proposal_id"})
+_UUID_RE = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
 
 def _scan_pii(payload: Any, skip_keys: frozenset[str] = frozenset()) -> list[str]:
     """정제된 payload 의 모든 문자열 값에서 PII 패턴을 검출한다.
@@ -259,6 +270,12 @@ def _scan_pii(payload: Any, skip_keys: frozenset[str] = frozenset()) -> list[str
                 walk(str(k))
                 if str(k) in skip_keys:
                     continue  # 불투명 서명 토큰: 값은 스캔 제외(키는 스캔함)
+                if (
+                    str(k) in PII_SCAN_UUID_KEYS
+                    and isinstance(v, str)
+                    and _UUID_RE.fullmatch(v)
+                ):
+                    continue  # uuid 제안 id: 구조상 PII 불가
                 walk(v)
         elif isinstance(obj, (list, tuple)):
             for v in obj:
@@ -282,6 +299,7 @@ def emit_external(
          - LLM : 재귀 가명화(pseudonymize_recursive)
          - NTFY: 화이트리스트 키(NTFY_ALLOWED_KEYS)만 남김
          - KMA : 좌표 그리드 일반화
+         - MEMORY: 변환 없음(얕은 복사) — 문장이 그대로 저장되므로 아래 두 검사가 전부다
       3) 정제 후에도 PII 패턴이 남아 있으면 EgressViolation.
       4) 정제된 payload 반환.
 
@@ -307,6 +325,8 @@ def emit_external(
         sanitized = {k: v for k, v in payload.items() if k in NTFY_ALLOWED_KEYS}
     elif dest is Destination.KMA:
         sanitized = _generalize_coords(payload)
+    elif dest is Destination.MEMORY:
+        sanitized = dict(payload)
     else:  # pragma: no cover - ALLOWLIST 가 이미 막음
         raise EgressViolation(f"unhandled destination: {dest.value}")
 
@@ -317,12 +337,12 @@ def emit_external(
             f"{', '.join(sorted(set(pii_hits)))}"
         )
 
-    # LLM 한정: 가명화를 비껴간 entity_id 형태 식별자가 남아 있으면 거부.
-    if dest is Destination.LLM:
+    # LLM·MEMORY: 가명화를 비껴간(또는 가명화가 없는) entity_id 형태 식별자가 남아 있으면 거부.
+    if dest in (Destination.LLM, Destination.MEMORY):
         hit = _scan_entity_shaped(sanitized)
         if hit:
             raise EgressViolation(
-                f"entity-shaped identifier in egress to LLM (trace={trace_id}): "
+                f"entity-shaped identifier in egress to {dest.value} (trace={trace_id}): "
                 f"{hit!r} survived pseudonymization"
             )
 

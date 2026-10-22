@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LIOT 하루 시뮬레이션</title>
+    <meta
+      name="description"
+      content="실제 LIOT 서비스가 가상 시계로 며칠을 보내며 거주자 폰에 무엇을 보내고, 거주자의 응답으로 무엇을 배우는지 보여 준다. 모든 숫자와 문구는 서버가 만든다."
+    />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="color-scheme" content="light" />
+    <link rel="stylesheet" href="assets/day.css" />
+    <link rel="stylesheet" href="assets/day-demo.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231d1d1f'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='-apple-system,sans-serif' font-size='17' font-weight='600' fill='%23fff'%3EL%3C/text%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <header class="hdr">
+      <span class="hdr-wordmark">LIOT</span>
+      <nav class="hdr-right" aria-label="화면 이동">
+        <a class="hdr-link" href="app.html">관제실</a>
+        <a class="hdr-link" href="home3d.html">3D 가상 집</a>
+        <a class="hdr-link" href="safety.html">집·보호자 설정</a>
+        <div class="hdr-status" id="status" data-state="idle">
+          <span class="hdr-dot" aria-hidden="true"></span>
+          <span class="hdr-status-text" id="statusText">준비됨</span>
+        </div>
+      </nav>
+    </header>
+
+    <main class="dy-layout">
+      <div class="dy-head">
+        <div>
+          <h1 class="dy-title">하루 시뮬레이션</h1>
+          <p class="dy-sub">실제 LIOT 서비스가 가상 시계로 사흘을 보내요. 숫자와 문구는 모두 서버가 만든 그대로예요.</p>
+          <p class="dy-note" id="cloudNote" hidden>실제 모델은 같은 씨앗이어도 결과가 매번 달라요. 키는 이름만 확인하고 값은 보이지 않아요.</p>
+        </div>
+        <form class="dy-controls" id="controls" aria-label="실행 설정">
+          <label class="dy-field">
+            <span class="dy-field-label">씨앗</span>
+            <input class="dy-input" id="seed" type="number" inputmode="numeric" value="7" min="0" step="1" />
+          </label>
+          <div class="dy-field">
+            <span class="dy-field-label" id="speedLabel">속도</span>
+            <div class="dy-seg" role="radiogroup" aria-labelledby="speedLabel" id="speed">
+              <button type="button" class="dy-seg-btn" role="radio" aria-checked="true" data-pace="0">빠르게</button>
+              <button type="button" class="dy-seg-btn" role="radio" aria-checked="false" data-pace="60">보통</button>
+              <button type="button" class="dy-seg-btn" role="radio" aria-checked="false" data-pace="200">천천히</button>
+            </div>
+          </div>
+          <div class="dy-field">
+            <span class="dy-field-label" id="modelsLabel">모델</span>
+            <div class="dy-seg" role="radiogroup" aria-labelledby="modelsLabel" id="models">
+              <button type="button" class="dy-seg-btn" role="radio" aria-checked="true" data-models="fake">가짜 모델</button>
+              <button type="button" class="dy-seg-btn" role="radio" aria-checked="false" data-models="cloud">실제 모델</button>
+            </div>
+            <span class="dy-keys tabnum" id="keys" title="">키 확인 중</span>
+          </div>
+          <button type="submit" class="dy-btn dy-btn-primary" id="runBtn">3일 돌리기</button>
+          <button type="button" class="dy-btn dy-btn-quiet" id="stopBtn" disabled>멈추기</button>
+          <button type="button" class="dy-btn dy-btn-quiet" id="demoBtn">시연 모드</button>
+        </form>
+      </div>
+      <p class="dy-error" id="error" role="alert" hidden></p>
+
+      <section class="dy-day" aria-label="날짜와 지금 시각">
+        <div class="dy-tabs" role="tablist" aria-label="날짜" id="dayTabs"></div>
+        <div class="dy-now">
+          <p class="dy-clock tabnum" id="clock">아직 시작하지 않았어요</p>
+          <p class="dy-weather" id="weather"></p>
+        </div>
+      </section>
+
+      <section class="dy-strip" aria-label="그날 있었던 일">
+        <ol class="dy-timeline" id="timeline"></ol>
+      </section>
+
+      <section class="dy-phone-wrap" aria-label="거주자 폰">
+        <div class="dy-phone">
+          <div class="dy-screen">
+            <div class="dy-phone-bar">
+              <span class="dy-phone-who">거주자 폰</span>
+              <span class="tabnum" id="phoneClock"></span>
+            </div>
+            <div class="dy-feed" id="feed"></div>
+            <p class="dy-empty" id="feedEmpty">[3일 돌리기]를 누르면 이 폰에 알림이 도착해요.</p>
+            <div class="dy-tray" id="traySection" hidden>
+              <h2 class="dy-tray-title">모아보기</h2>
+              <p class="dy-tray-note">바로 알리지 않고 모아 둔 제안이에요. 거주자는 밤 10시에 한 번 열어 봐요.</p>
+              <div class="dy-tray-list" id="tray"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="dy-side" aria-label="지표와 속 보기">
+        <div class="dy-metrics" id="metrics" aria-live="polite"></div>
+        <div class="dy-block">
+          <h2 class="dy-block-title">날짜별 비교</h2>
+          <table class="dy-compare tabnum" id="compare">
+            <thead>
+              <tr>
+                <th scope="col"></th>
+                <th scope="col">수락률</th>
+                <th scope="col">폰 알림</th>
+                <th scope="col">모아보기</th>
+                <th scope="col">그만해</th>
+              </tr>
+            </thead>
+            <tbody id="compareBody"></tbody>
+          </table>
+        </div>
+        <div class="dy-block">
+          <h2 class="dy-block-title">속 보기</h2>
+          <div class="dy-inspect" id="inspect">
+            <p class="dy-muted">폰 알림이나 모아보기 항목을 누르면 왜 그렇게 판단했는지 보여 드려요.</p>
+          </div>
+        </div>
+        <div class="dy-block" id="memoryBlock" hidden>
+          <h2 class="dy-block-title">기억</h2>
+          <p class="dy-mem-source">memgineering · liot-demo</p>
+          <ol class="dy-mem" id="memory"></ol>
+        </div>
+      </section>
+    </main>
+
+    <div class="dm-overlay" id="demo" role="dialog" aria-modal="true" aria-labelledby="demoTitle" hidden>
+      <div class="dm-head">
+        <h2 class="dm-title" id="demoTitle">시연 모드</h2>
+        <p class="dm-outcome" id="demoOutcome"></p>
+        <div class="dy-seg" role="radiogroup" aria-label="시연 속도" id="demoSpeed">
+          <button type="button" class="dy-seg-btn" role="radio" aria-checked="false" data-speed="slow">느리게</button>
+          <button type="button" class="dy-seg-btn" role="radio" aria-checked="true" data-speed="normal">보통</button>
+          <button type="button" class="dy-seg-btn" role="radio" aria-checked="false" data-speed="fast">빠르게</button>
+          <button type="button" class="dy-seg-btn" role="radio" aria-checked="false" data-speed="step">한 단계씩</button>
+        </div>
+        <div class="dm-stepper" role="group" aria-label="단계 넘기기">
+          <button type="button" class="dy-btn dy-btn-quiet dm-step-btn" id="demoPrev" disabled aria-label="이전 단계">‹ 이전</button>
+          <span class="dm-step-count tabnum" id="demoStep" aria-live="polite"></span>
+          <button type="button" class="dy-btn dy-btn-quiet dm-step-btn" id="demoNext" disabled aria-label="다음 단계">다음 ›</button>
+        </div>
+        <span class="dm-queue tabnum" id="demoQueue">대기 0건</span>
+        <button type="button" class="dy-btn dy-btn-quiet" id="demoSkip" disabled>건너뛰기</button>
+        <button type="button" class="dy-btn dy-btn-quiet" id="demoReplay" disabled>처음부터 다시 보기</button>
+        <button type="button" class="dy-btn dy-btn-quiet" id="demoNew">새로 돌리기</button>
+        <button type="button" class="dy-btn dy-btn-quiet" id="demoClose">나가기</button>
+      </div>
+      <div class="dm-body">
+        <p class="dm-waiting" id="demoWaiting">첫 사건을 기다려요.</p>
+        <svg class="dm-svg" id="demoSvg" role="img" aria-label="에이전트 작동 단계"></svg>
+        <p class="dm-caption" id="demoCaption" aria-live="polite"></p>
+        <div class="dm-pane-below" id="demoPane" hidden></div>
+      </div>
+    </div>
+
+    <script src="assets/day.js"></script>
+    <script src="assets/day-demo.js"></script>
+  </body>
+</html>

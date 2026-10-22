@@ -24,6 +24,10 @@ LiotApp(두뇌, 네트워크 없음·결정만)을 둘러싸고 부수효과를 
     하한(표+거주자)이 CRITICAL 이고 동의가 유효할 때만. 거주자의 명시 응답이나 보호자의
     서명 링크가 사다리를 멈추고, 상황이 닫히면 취소 + 전달받은 보호자에게 '해소됨'.
     시작 시 열린 사다리를 DB 에서 다시 무장한다. 119 는 안내 문구뿐 — 자동 신고 없음.
+  - **감시 불가(판정 보류)**: 안전 센서 값이 HA 의 unavailable·unknown 이면 위험이
+    아니라 '읽지 못함'이다. 상황을 열지도 닫지도 않고 사다리·보호자 경로도 건드리지
+    않는다. 거주자에게만 '<센서 종류> 센서 · 감시 불가(연결 끊김)'(주의)를 한 번 보낸다
+    (엔티티별 메모리 표식, 정상·이상 값이 오면 지운다).
 
 불변식 보존:
   - 실행 없음(불변식 3): 여기서 하는 외부 I/O 는 *알림 송신* 뿐, 액추에이터
@@ -95,6 +99,7 @@ if TYPE_CHECKING:  # pragma: no cover
 __all__ = [
     "DEV_SIGNING_SECRET",
     "PHASE2_REQUESTS_PER_CALL",
+    "UNMONITORABLE_RETRY",
     "DispatchResult",
     "LiotService",
     "default_phase2_deadline",
@@ -125,6 +130,12 @@ def default_phase2_deadline(backend: object) -> float:
     return per_request * PHASE2_REQUESTS_PER_CALL
 
 _DEDUP_WINDOW = timedelta(hours=2)
+
+# 감시 불가 알림 전송이 실패한 엔티티를 다시 시도하기까지의 최소 간격(조정 가능한 기본값).
+# 재시도는 다음 읽기 불가 값이 올 때만 한다(시간 기반 재알림 없음). 간격이 없으면
+# 연결이 깜빡이는 센서가 송신 실패(동기 송신이라 이벤트 루프를 제한시간만큼 묶는다)를
+# 폭주시킨다. 성공한 엔티티는 간격이 아니라 표식이 막는다.
+UNMONITORABLE_RETRY = timedelta(minutes=10)
 
 # 이중확인 2차 링크(와 2차 미발송 재시도 링크)의 수명 상한. 사람이 방금 누른
 # 버튼에 대한 후속 확인이라 짧아야 한다: 길면 캡처된 링크가 그만큼 오래 유효하고,
@@ -232,6 +243,13 @@ class LiotService:
         self._started = False  # 시작 시 1회 작업(표 로드 실패 감사) 완료 여부
         # 진행 중인 2단계 판정 태스크. 끝나면 스스로 빠진다(_on_phase2_done).
         self._phase2_tasks: set[asyncio.Task[DispatchResult | None]] = set()
+        # 감시 불가 알림 표식(엔티티 id). 보냈거나(성공) 헌장 OFF 로 일부러 건너뛰었으면
+        # 남는다. 정상·이상 값이 오면 지운다. 메모리 상태다 — 재시작하면 비워진다.
+        self._unmonitorable_marked: set[str] = set()
+        # 감시 불가 알림의 마지막 **실패한** 시도 시각(엔티티 id → datetime).
+        # UNMONITORABLE_RETRY 안에는 다시 시도하지 않는다. 정상·이상 값으로는 지우지 않는다
+        # (깜빡임 폭주 방지가 목적이라) — 성공하면 지운다.
+        self._unmonitorable_failed_at: dict[str, datetime] = {}
 
     # ------------------------------------------------------------------
     # 시작
@@ -503,6 +521,9 @@ class LiotService:
             재알림은 사다리(T8) 몫이다.
           - 정상 → 열린 상황을 닫고 해소 알림. 새 `alert` 없음(None). 열린 상황이
             없으면 아무 일도 없다.
+          - 판정 보류(unavailable·unknown) → **이상/정상보다 먼저** 처리한다. 상황을
+            열지도 닫지도 않고 사다리·보호자 경로를 건드리지 않는다. 거주자 감시 불가
+            알림만(None). 먼저 거르지 않으면 정상으로 흘러 열린 상황이 닫힌다.
         비안전 카테고리는 예전 그대로다(관찰은 침묵, 판단이 있으면 저장).
         """
         await self.start()
@@ -513,6 +534,11 @@ class LiotService:
             if proposal is None:
                 return None
             return await self.dispatch(proposal)
+        if signal.unmonitorable:
+            await self._on_unmonitorable(signal)
+            return None
+        # 정상·이상 값이 왔다 = 다시 읽힌다 → 감시 불가 표식을 지운다.
+        self._unmonitorable_marked.discard(reading.entity_id)
         if signal.abnormal:
             return await self._on_abnormal(signal)
         await self._on_normal(signal)
@@ -644,6 +670,63 @@ class LiotService:
         if followup.severity is None:
             return False
         return first.severity is None or followup.severity > first.severity
+
+    async def _on_unmonitorable(self, signal: SafetySignal) -> None:
+        """판정 보류 신호: 거주자 감시 불가 알림만 보낸다(엔티티별 한 번).
+
+        상황 테이블·사다리·보호자는 건드리지 않는다 — 열린 상황은 열린 채, 사다리는
+        원래 시각대로 돈다. 표식은 전송에 성공했을 때, 또는 헌장 OFF 로 일부러 보내지
+        않았을 때 남는다(헌장을 다시 켜도 값이 돌아오기 전까지는 알림이 없다).
+        실패하면 표식 없이 시도 시각만 남겨, UNMONITORABLE_RETRY 뒤의 다음 읽기 불가
+        값에서 다시 시도한다.
+        """
+        reading = signal.reading
+        eid = reading.entity_id
+        self.app.observe_reading(reading, reason="감시 불가(판정 보류) — 상황 판단 없음")
+        if eid in self._unmonitorable_marked:
+            return
+        now_dt = self.clock.now_dt()
+        failed_at = self._unmonitorable_failed_at.get(eid)
+        if failed_at is not None and now_dt - failed_at < UNMONITORABLE_RETRY:
+            return
+        # 헌장 OFF 만 존중한다. 음소거는 보지 않는다 — 안전 감시가 끊긴 사실을
+        # 음소거로 숨기면 안 된다.
+        ctx = await self._build_context(now_dt)
+        if not ctx.charter_enabled:
+            self._unmonitorable_marked.add(eid)
+            return
+        if await self._send_unmonitorable_notice(signal.category):
+            self._unmonitorable_marked.add(eid)
+            self._unmonitorable_failed_at.pop(eid, None)
+        else:
+            self._unmonitorable_failed_at[eid] = now_dt
+
+    async def _send_unmonitorable_notice(self, category: str) -> bool:
+        """거주자 토픽으로 감시 불가 알림(파급도 NOTICE) 한 건. 보냈으면 True.
+
+        상황 요약 알림 경로(build_guardian_payload → sanitize_summary)를 그대로 쓴다 —
+        싣는 것은 센서 종류 라벨·집 별칭·시각·파급도 라벨뿐(상황 id·보호자 id·링크 없음).
+        집 별칭이 egress 에 걸리면 기본 별칭으로 한 번 더 만든다(_summary_message 와 같다).
+        """
+        settings = await self.safety.get_home_settings(self.home_id)
+        label = escalation.message_label(category, "unmonitorable")
+        at = self.clock.now_utc()
+        for alias in dict.fromkeys((settings.home_alias, DEFAULT_HOME_ALIAS)):
+            payload = self.notifier.build_guardian_payload(
+                situation_label=label,
+                home_alias=alias,
+                at=at,
+                severity=SeverityLevel.NOTICE,
+            )
+            try:
+                sanitized = self.notifier.sanitize_summary(
+                    payload, trace_id=f"unmonitorable:{category}"
+                )
+            except EgressViolation:
+                logger.warning("unmonitorable notice rejected by egress (category=%s)", category)
+                continue
+            return self._deliver(self.topic, sanitized)
+        return False
 
     async def _on_normal(self, signal: SafetySignal) -> None:
         """정상 신호: 열린 상황이 있으면 닫는다. 새 `alert` 는 만들지 않는다."""

@@ -82,6 +82,15 @@ LIOT_DB_PATH=/Users/rayul/liot/liot.db .venv/bin/python -m liot.demo_server
 - 실험실(`/api/simulate`)은 요청마다 메모리 앱을 새로 만든다. 등록한 센서·기기·규칙은 데몬에 반영되지 않는다. 실험실의 상황 판정에는 파급도가 나오지 않는다.
 - 실험실 Gate2 는 기본으로 이 기기 ollama(`gemma3:4b`)를 부른다. 화면 설정에서 LLM 을 끄면 결정론 가짜 판정기를 쓴다.
 
+### 하루 시뮬레이션의 실제 모델 모드(cloud)
+
+`/day.html` 의 [실제 모델] 로 돌리면 가상 집의 판정·이유·가상 거주자 결정·기억이 실제 API 로 간다(개인정보 경계는 `docs/security.md` 의 예외 항목). 준비:
+
+1. 키 파일 `~/.config/liot/secrets.env` 를 만들고 `chmod 600` 한다. `KEY=value` 줄만 읽는다: `JEV_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`. 권한이 넓거나 본인 소유가 아니면 읽지 않는다. 없는 키의 부품은 가짜로 돈다(화면에 '키 n/4개').
+2. 기억(선택): 데모 home `MEMGINEERING_HOME=/Users/rayul/.config/liot/memgineering` 에서 로그인하고 `liot-demo` 브레인을 만든다(`MEMGINEERING_NO_UPDATE=1 MEMGINEERING_HOME=… memgineering login` → `… memgineering create liot-demo`). 실행마다 그 home 의 `use --json` 이 로그인된 `liot-demo` 를 가리킬 때만 기억이 켜진다. 기본 home(본인 브레인)은 건드리지 않는다.
+3. 모델 id·가격·상한은 `config/models.yaml`: 이유 모델(기본 anthropic `claude-haiku-5-5`), luna 비교(`logprobs`), 실행당 외부 호출 216회·추정 비용 $0.5, 하루 $2. 하루 합계는 `~/.config/liot/usage.json`(실제 날짜별)에 쌓인다. 상한에 닿으면 그 실행의 남은 단계는 가짜로 돈다.
+4. cloud 실행은 같은 씨앗이어도 결과가 다르다. 결정적인 비교가 필요하면 [가짜 모델] 로 돌린다.
+
 ## 벤치(결정 모델 후보 측정)
 
 ```bash
@@ -122,6 +131,7 @@ PYTHONPATH=. $V bench/risk/run_bench.py report                # results.md 재�
 | `LIOT_FEEDBACK_ALLOW_DEV_KEY` | 꺼짐 | 개발 키로도 수신구를 연다(로컬 확인 전용) |
 | `LIOT_FEEDBACK_HOST`, `LIOT_FEEDBACK_PORT` | `127.0.0.1`, `8099` | 수신구. 포트 0 이면 열지 않는다 |
 | `LIOT_TICK_SECONDS` | `300` | 능동 틱 주기. 사다리 루프(5초)와 별개 |
+| `LIOT_HOME_TZ` | `Asia/Seoul` | 집 시간대(IANA 이름). 시간대 버킷(야간 정숙 포함)과 능동 예산의 '하루'를 이 지역 시각으로 센다. 모르는 이름이면 기동 실패. 데몬만 읽는다(관제실 실험실은 UTC) |
 | `LIOT_EXECUTION_ENABLED` | 꺼짐 | 실행 옵트인. HA 가 연결돼 있을 때만 실행기를 만든다 |
 | `LIOT_EVENT_LLM` | 꺼짐 | 가짜 LLM 트리거 감지기를 함께 켠다 |
 | `LIOT_EXTERNAL_ENABLED` | 꺼짐 | 외부 데이터 공급자 옵트인. 데몬은 공급자를 연결하지 않아 지금은 효과가 없다 |

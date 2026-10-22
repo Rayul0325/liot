@@ -46,7 +46,9 @@ __all__ = [
     "SAFETY_EXECUTABLE",
     "FORBIDDEN_OPEN",
     "ONE_TAP_SAFE_ACTIONS",
+    "NON_EXECUTABLE_CAPABILITIES",
     "effective_comfort",
+    "is_non_executable",
     "is_one_tap_safe",
 ]
 
@@ -103,6 +105,11 @@ FORBIDDEN_OPEN: frozenset[tuple[str, str]] = frozenset(
     {("lock", "unlock"), ("valve", "open")}
 )
 
+# 실행 대상이 아닌 capability(불변) — '권유'(advice)는 사람에게 하는 말일 뿐 기기 조작이
+# 아니다(창문은 사람이 연다). 정책이 화이트리스트를 보기 **전에** 거부하고, 실행기 두 곳도
+# 호출 전에 막는다. 카탈로그 파생 확장분으로도 실행집합에 들어갈 수 없다.
+NON_EXECUTABLE_CAPABILITIES: frozenset[str] = frozenset({"advice"})
+
 # 원탭(단일 확인) 안전 조치 — 개입 하한("확인은 티어 기준선보다 약할 수 없다")의
 # **유일한 명시 예외**(T4). 닫는·잠그는 안전한 방향 두 쌍만: 위험이 생겼을 때 사람이
 # 탭 한 번으로 막을 수 있어야 한다. 위험도는 EMBER 그대로(알림 우회 권한 유지) —
@@ -133,7 +140,9 @@ def effective_comfort(
     if not extra:
         return COMFORT_EXECUTABLE - FORBIDDEN_OPEN
     norm = frozenset(
-        (str(cap).strip().lower(), str(act).strip().lower()) for cap, act in extra
+        (str(cap).strip().lower(), str(act).strip().lower())
+        for cap, act in extra
+        if str(cap).strip().lower() not in NON_EXECUTABLE_CAPABILITIES
     )
     return (COMFORT_EXECUTABLE | norm) - FORBIDDEN_OPEN
 
@@ -144,6 +153,16 @@ def _key(action: CandidateAction) -> tuple[str, str]:
 
 def _is_safety(action: CandidateAction) -> bool:
     return is_safety_category(action.category)
+
+
+def is_non_executable(action: CandidateAction) -> bool:
+    """실행 대상이 아닌 행동(권유 등)인가 — ``NON_EXECUTABLE_CAPABILITIES`` 로만 정한다."""
+    return _key(action)[0] in NON_EXECUTABLE_CAPABILITIES
+
+
+def _deny_non_executable(action: CandidateAction) -> None:
+    if is_non_executable(action):
+        raise ExecutionDenied(f"not an executable capability: {_key(action)[0]}")
 
 
 def is_one_tap_safe(action: CandidateAction) -> bool:
@@ -174,6 +193,8 @@ class ExecutionPolicy:
     def decide(self, action: CandidateAction, tier: RiskTier | str | int) -> ExecDecision:
         if not self.enabled:
             return ExecDecision.NOTIFY_ONLY
+        if is_non_executable(action):
+            return ExecDecision.NOTIFY_ONLY  # 권유는 말로만 — 화이트리스트를 보기 전에 끝
         tier_t = RiskTier.from_str(tier)
         key = _key(action)
 
@@ -293,6 +314,7 @@ class HAExecutor:
         return data
 
     async def execute(self, action: CandidateAction) -> ExecutionResult:
+        _deny_non_executable(action)
         if not self._allowed(action):
             # 방어심층: 정책이 잘못 통과시켜도 실행기가 막는다.
             raise ExecutionDenied(f"action not in allowlist: {_key(action)}")
@@ -347,6 +369,7 @@ class FakeExecutor:
         self._comfort = effective_comfort(extra_executable)
 
     async def execute(self, action: CandidateAction) -> ExecutionResult:
+        _deny_non_executable(action)
         key = _key(action)
         if key not in self._comfort and key not in SAFETY_EXECUTABLE:
             raise ExecutionDenied(f"action not in allowlist: {key}")

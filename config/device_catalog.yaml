@@ -29,6 +29,18 @@ devices:
   - entity_id: cover.garage
     capability: cover
     category: door
+  # 기획 4장면(2026-10-19). 카테고리는 이미 알려진 것만 쓴다(Gate1 하한을 새로 만들지 않는다):
+  # 공기청정기 → climate(BREATH), 책상 조명 → light(AMBIENT), 권유 → info(AMBIENT).
+  - entity_id: fan.living_purifier
+    capability: fan
+    category: climate
+  - entity_id: light.desk
+    capability: light
+    category: light
+  # 가상 대상: 집 전체에 대한 '권유'(창문 열기 등은 사람이 한다). 실행 불가 capability.
+  - entity_id: advice.home
+    capability: advice
+    category: info
 
 # (capability, action) -> 위험도.
 #   * tier: 기본 위험도(파라미터 방향 무관).
@@ -77,3 +89,16 @@ capabilities:
   notify:
     send:
       tier: ambient
+
+  fan:
+    # 공기청정기 세기 바꾸기 = 숨결(가볍게 확인).
+    set_speed:
+      tier: breath
+
+  advice:
+    # 권유 = 사람에게 하는 말(기기 조작 없음). 실행기는 이 capability 를 늘 거부한다
+    # (executor.NON_EXECUTABLE_CAPABILITIES). 단계는 숨결 — 폰에 이유와 함께 묻는다.
+    ventilate:
+      tier: breath
+    close_window:
+      tier: breath

@@ -65,6 +65,11 @@ class InMemoryFeedbackStore:
         self._rejected = frozenset(rejected_keys or frozenset())
         self._accept_rate = dict(accept_rate or {})
 
+    @property
+    def rejected_keys(self) -> frozenset[str]:
+        """최근 거절된 후보 키 집합(능동 발의가 예산을 쓰기 전에 거르는 데 쓴다)."""
+        return self._rejected
+
     def preference_signal(self, candidate: CandidateAction) -> float:
         if is_noop(candidate):
             return NEUTRAL_SIGNAL
