@@ -25,3 +25,12 @@ PYTHONPATH=. $V bench/risk/run_bench.py report
   gate1_floor)뿐인지, 맥락 문장에 거주자 특성 낱말이 없는지 확인한다.
 - 라벨을 고친 뒤에는 `check` → `report` 만 다시 돌리면 된다(모델 출력은 raw 에 있다).
 - 이 벤치는 추천만 한다. liot 의 기본 모델 설정은 바꾸지 않는다.
+
+## 추가 모드 (기본 동작은 그대로)
+
+- `run --model KEY --context operational`: 맥락 문장 자리에 운영 집계 요약(`ContextBuilder` 가 만드는
+  `[day] 1 signals; changed=1; safety=gas; trigger=sensor_reading` 꼴)을 넣는다. 결과는 `raw_operational/`
+  에 따로 쌓이고 원본 `raw/` 는 건드리지 않는다. 쌍(calm/danger)은 입력이 같아진다.
+- `run --model KEY --latency-only [--context ...] [--reps N]`: 지연 재측정. `raw_latency/<맥락>/` 에 쓰고
+  요청마다 `load1_before`·`load1_after` 를 남긴다(조용한 기계에서 돌린다).
+- `--raw-dir PATH`(재현 확인용) · `--only 접두사`(스모크용).
