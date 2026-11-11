@@ -32,7 +32,7 @@ from experiments.common.service_kit import (
     reading,
     situations,
 )
-from experiments.e2_invariants import analyze, fuzz, h15
+from experiments.e2_invariants import analyze, fuzz, h15, quota
 from liot.layers.l4_execution.escalation import guardian_path
 
 EXP_DIR = Path(__file__).resolve().parent
@@ -50,6 +50,22 @@ async def collect_fuzz(n_per: int, raw: Path) -> int:
             if (b, ep) in done:
                 continue
             rec = await fuzz.run_episode(b, ep)
+            rec["meta"] = io.run_meta()
+            io.append_jsonl(path, rec)
+            written += 1
+    return written
+
+
+# ── C2.9 coverage-quota fuzz ─────────────────────────────────────────────────
+async def collect_quota(n_per: int, raw: Path) -> int:
+    path = raw / "quota.jsonl"
+    done = io.done_keys(path, ("path", "episode"))
+    written = 0
+    for ep in range(n_per):
+        for pth in quota.PATHS:
+            if (pth, ep) in done:
+                continue
+            rec = await quota.run_episode(pth, ep)
             rec["meta"] = io.run_meta()
             io.append_jsonl(path, rec)
             written += 1
@@ -353,7 +369,8 @@ def make_figures(summary: dict[str, Any]) -> list[Path]:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    p.add_argument("--part", choices=["fuzz", "h15", "validate", "all"], default="all")
+    p.add_argument("--part", choices=["fuzz", "h15", "validate", "quota", "h15b", "all"],
+                   default="all")
     p.add_argument("--n", type=int, default=None, help="fuzz episodes per behaviour")
     p.add_argument("--quick", action="store_true")
     p.add_argument("--analyze", action="store_true")
@@ -370,6 +387,8 @@ def main() -> None:
         if args.part in ("fuzz", "all"):
             n = args.n or (4 if args.quick else EPISODES_PER_BEHAVIOR)
             print("fuzz wrote", await collect_fuzz(n, raw))
+        if args.part in ("quota", "all"):
+            print("quota wrote", await collect_quota(args.n or (3 if args.quick else 100), raw))
         if args.part in ("validate", "all"):
             print("validate wrote", await collect_validate(10 if args.quick else 200, raw))
 

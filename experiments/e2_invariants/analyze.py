@@ -165,6 +165,52 @@ def _summarize_h15(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
+def _summarize_quota(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {"by_path": {}, "unknown_misses": 0}
+    for pth in sorted({r["path"] for r in rows}):
+        rs = [r for r in rows if r["path"] == pth]
+        hits = [r for r in rs if r.get("hit")]
+        e: dict[str, Any] = {"episodes": len(rs), "hits": len(hits),
+                             "immediate_share_of_hits": float(np.mean([bool(r["immediate"]) for r in hits]))
+                             if hits else None}
+        classes = collections.Counter(r.get("miss_class") for r in hits if r.get("miss_class"))
+        e["miss_classes"] = dict(sorted(classes.items()))
+        delays = [r["first_push_delay_s"] for r in hits
+                  if r.get("miss_class") in ("known_suppression", "send_failure_delay")
+                  and r.get("first_push_delay_s") is not None]
+        if delays:
+            e["delayed_first_push_s"] = {
+                "n": len(delays), "min": float(min(delays)), "median": float(np.median(delays)),
+                "max": float(max(delays)),
+            }
+        e["delayed_never_pushed_in_3000s"] = sum(
+            1 for r in hits if r.get("miss_class") in ("known_suppression", "send_failure_delay")
+            and r.get("first_push_delay_s") is None)
+        if pth == "reject_reopen":
+            floors = collections.defaultdict(lambda: [0, 0])
+            for r in hits:
+                key = f"floor{r['floor']}{'_vulnerable' if r['vulnerable'] else ''}"
+                floors[key][0] += 1
+                floors[key][1] += int(bool(r["immediate"]))
+            e["immediate_by_floor"] = {k: {"hits": v[0], "immediate": v[1]}
+                                       for k, v in sorted(floors.items())}
+        if pth == "restart_rearm":
+            e["pass_share"] = float(np.mean([bool(r["pass"]) for r in hits])) if hits else None
+            e["failures"] = [{"cat": r["category"], "restart_at_s": r["restart_at_s"],
+                              "pushes": r["pushes_total"], "expected": r["pushes_expected"],
+                              "forwards": r["forwards"]} for r in hits if not r["pass"]][:10]
+        if pth == "charter_off":
+            e["resident_pushes_total"] = sum(r["resident_pushes"] for r in hits)
+            e["guardian_forwards_total"] = sum(r["guardian_forwards"] for r in hits)
+            e["critical_floor_episodes"] = sum(1 for r in hits if r["floor"] == 3)
+        if pth == "concurrent":
+            e["duplicate_situations"] = sum(r["duplicate_situations"] for r in hits)
+            e["all_opened_share"] = float(np.mean([bool(r["all_situations_opened"]) for r in hits]))
+        out["by_path"][pth] = e
+        out["unknown_misses"] += classes.get("UNKNOWN", 0)
+    return out
+
+
 def summarize(raw_dir: Path) -> dict[str, Any]:
     raw_dir = Path(raw_dir)
     out: dict[str, Any] = {}
@@ -174,6 +220,9 @@ def summarize(raw_dir: Path) -> dict[str, Any]:
     h = read_jsonl(raw_dir / "h15.jsonl")
     if h:
         out["h15"] = _summarize_h15(sorted(h, key=lambda r: r["key"]))
+    q = read_jsonl(raw_dir / "quota.jsonl")
+    if q:
+        out["quota"] = _summarize_quota(sorted(q, key=lambda r: (r["path"], r["episode"])))
     v = read_jsonl(raw_dir / "validate.jsonl")
     if v:
         out["validate"] = {
