@@ -36,9 +36,12 @@ RAW_DIR = EXP_DIR / "raw"
 LHS_SEED = 20261112
 C21_BLOCKS = tuple(f"c21_p{round(p * 100):03d}" for p in sim.P_LOW_GRID)
 CYCLE1 = ("main", "f0", "gated", "sens_half", "sens_dbl", "f0_g0")
+C211A_BLOCKS = tuple(f"c211a_p{round(p * 100):03d}" for p in sim.P_AMB_GRID)
+C211B_BLOCKS = tuple(f"c211b_x{round(x * 100):03d}" for x in sim.R_LIGHT_MULTS)
 CYCLE2 = (*C21_BLOCKS, "c22", "c23", "c24")
+CYCLE211 = (*C211A_BLOCKS, *C211B_BLOCKS)
 STREAM_KEY0 = {"main": 1000, "f0": 1000, "f0_g0": 1000, "gated": 1000, "sens_half": 5000, "sens_dbl": 9000,
-               "c22": 1000, "c23": 1000, "c24": 1000, **dict.fromkeys(C21_BLOCKS, 1000)}
+               "c22": 1000, "c23": 1000, "c24": 1000, **dict.fromkeys(C21_BLOCKS, 1000), **dict.fromkeys(CYCLE211, 1000)}
 
 FULL = {"sets": 400, "seeds": 20, "days": 30, "sens_sets": 150, "sens_seeds": 8}
 QUICK = {"sets": 20, "seeds": 2, "days": 7, "sens_sets": 8, "sens_seeds": 2}
@@ -50,7 +53,7 @@ def _ints(a: np.ndarray) -> str:
 
 
 def make_sets(block: str, cfg: dict[str, int]) -> list[dict[str, float]]:
-    if block in ("main", "f0", "f0_g0", "gated", "c22", "c23", "c24", *C21_BLOCKS):
+    if block in ("main", "f0", "f0_g0", "gated", "c22", "c23", "c24", *C21_BLOCKS, *CYCLE211):
         sets = params.sample(cfg["sets"], LHS_SEED)
         if block == "f0":
             sets = [{**s, "f": 0.0, "r": 0.0} for s in sets]
@@ -58,6 +61,9 @@ def make_sets(block: str, cfg: dict[str, int]) -> list[dict[str, float]]:
             sets = [{**s, "f": 0.0, "r": 0.0, "g": 0.0} for s in sets]
         if block == "c23":
             sets = [{**s, "g": 0.0} for s in sets]
+        if block in C211B_BLOCKS:
+            mult = sim.R_LIGHT_MULTS[C211B_BLOCKS.index(block)]
+            sets = [{**s, "r_light_mult": mult} for s in sets]
         return sets
     factor = 0.5 if block == "sens_half" else 2.0
     return params.sample(cfg["sens_sets"], LHS_SEED + 1, params.scaled(params.PARAMS, factor))
@@ -82,6 +88,10 @@ def run_set(task: tuple[str, int, dict[str, float], int, int]) -> dict[str, Any]
         low_ids = [i for i in range(generator.N_PROP) if int(tier0[i].max()) <= 1]  # LIOT tier <= BREATH
         opts = {"p_low": sim.P_LOW_GRID[C21_BLOCKS.index(block)], "low_ids": low_ids,
                 "low_rules": True, "kc": 96}
+    if block in C211A_BLOCKS:
+        opts = {"p_low": sim.P_AMB_GRID[C211A_BLOCKS.index(block)], "low_ids": [1],
+                "avoid_ids": [i for i in range(generator.N_PROP) if int(liot_map.tables()["tier0"][i].max()) <= 1],
+                "amb_rules": True, "pool_hours": [17, 18, 19, 20, 21], "pool_hour_p": 0.9, "kc": 96}
     st = generator.make_streams(prm, key, n_seeds, days, opts)
     ms, shapes = block_shape(block)
     groups = sim.groups_for(block, ms, shapes)
@@ -234,7 +244,8 @@ def main() -> None:
         for p in figures.make_all(raw_dir, summary, out_dir):
             print(f"figure: {p}")
         return
-    blocks = CYCLE1 if args.blocks == "cycle1" else CYCLE2 if args.blocks == "cycle2" else tuple(args.blocks.split(","))
+    named = {"cycle1": CYCLE1, "cycle2": CYCLE2, "c211": CYCLE211}
+    blocks = named.get(args.blocks) or tuple(args.blocks.split(","))
     n = collect(raw_dir / "runs.jsonl", cfg, blocks, min(args.workers, 8))
     print(f"wrote {n} new records to {raw_dir / 'runs.jsonl'}")
 

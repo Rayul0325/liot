@@ -30,6 +30,8 @@ UNDO_WINDOWS = (5, 15, 30)
 KAPPAS = (0.0, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0)  # theta-score noise as a multiple of the within-set SD
 GEN_CUTS = tuple(sorted({round(float(x), 2) for x in BASE_SEV[:N_PROP]}))  # generator-side ceilings
 P_LOW_GRID = (0.0, 0.25, 0.5, 0.75, 1.0)  # C2.1: share of harmful proposals steered to <=BREATH
+P_AMB_GRID = (0.0, 0.25, 0.5, 0.75, 1.0)  # C2.11(a): share steered to the AMBIENT tier
+R_LIGHT_MULTS = (1.0, 1.5, 2.0)  # C2.11(b): light-confirmation rubber-stamp as a multiple of explicit
 
 
 @dataclass(frozen=True)
@@ -194,7 +196,10 @@ def build(st: Streams, g: Group, rank_order: np.ndarray,
     if g.ceil == "liot":
         blocked = blocked | (prop & (tier_m > int(tb["ceiling"])))
     elif g.ceil == "gen":
-        blocked = blocked | (prop & (BASE_SEV[tmpl] > g.cut + 1e-9))
+        gen_silent = prop & (BASE_SEV[tmpl] > g.cut + 1e-9)
+        if g.m is not None:  # same misclassified harmful proposals escape the generator ceiling too
+            gen_silent = gen_silent & ~mis
+        blocked = blocked | gen_silent
     if g.notify:
         blocked = blocked | (prop & (level == 0))
     if g.gate:
@@ -221,6 +226,7 @@ def simulate(
     p_n, s_n, e_n = levels.shape
     w = WEIGHT_SETS[int(prm["wsel"])]
     f, a, r, d, g_ = prm["f"], prm["a"], prm["r"], prm["d"], prm["g"]
+    r_light = min(1.0, r * prm.get("r_light_mult", 1.0))  # C2.11(b); 1.0 = same as explicit
     m0 = prm["m0_s"]
     sig = FIXED["latency_sigma"][0]
     ttl_p = FIXED["proposal_ttl_min"][0] * 60.0
@@ -260,7 +266,7 @@ def simulate(
         L *= decay[e]
         pr = np.where(shape_exp, np.exp(-f * L), 1.0 / (1.0 + f * L))
         rd = ur[e] < pr
-        r_eff = np.where(lv == 3, r * d, r)
+        r_eff = np.where(lv == 3, r * d, np.where(lv == 1, r_light, r))
         ap = np.where(rd, ap_read[e], urs[e] < r_eff)
         lat = m0 * (1.0 + g_ * L) * lat_noise[e]
         req = lv > 0

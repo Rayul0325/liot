@@ -918,6 +918,12 @@ def _summarize(raw_dir: Path) -> dict[str, Any]:
     c21_names = tuple(f"c21_p{round(p_ * 100):03d}" for p_ in sim_mod.P_LOW_GRID)
     if any(b in blocks for b in c21_names):
         out["c2_1"] = c2.c21(blocks, c21_names)
+    amb_names = tuple(f"c211a_p{round(p_ * 100):03d}" for p_ in sim_mod.P_AMB_GRID)
+    if any(b in blocks for b in amb_names):
+        out["c2_11a"] = c2.c21(blocks, amb_names, upto=1)
+    mult_names = tuple(f"c211b_x{round(x * 100):03d}" for x in sim_mod.R_LIGHT_MULTS)
+    if any(b in blocks for b in mult_names):
+        out["c2_11b"] = c2.c211b(blocks, mult_names, sim_mod.R_LIGHT_MULTS)
     if "c22" in blocks:
         out["c2_2"] = c2.c22(blocks["c22"])
     if "c23" in blocks:
