@@ -1,0 +1,20 @@
+# Curated events of the research cycles for figure (c). Every row must match a row of
+# experiments/RESEARCH_LOG.md (same time and cycle); build.py refuses to draw when one does not.
+# lane: H = hypothesis registered, R = result in, V = review / verdict.
+# mark: optional short verdict word shown at the end of the chip.
+events:
+  - {time: "01:20", cycle: 0, lane: R, text: 실험 도구(e0) 커밋}
+  - {time: "01:28", cycle: 0, lane: V, text: 가설 v1 초안 지표 검토 FAIL, mark: 순환 지표}
+  - {time: "01:31", cycle: 1, lane: H, text: 가설 v2 사전 등록, mark: 4403a95}
+  - {time: "01:52", cycle: 1, lane: V, text: U1 편의 판정을 루프 밖으로 PASS}
+  - {time: "02:05", cycle: 1, lane: R, text: E3·E4·E5 사이클 1 결과}
+  - {time: "02:14", cycle: 1, lane: V, text: 타당성 검토 E3·E4 FAIL}
+  - {time: "02:20", cycle: 2, lane: H, text: 사후 변경 기록 + C2.1–6 등록}
+  - {time: "02:25", cycle: 1, lane: R, text: E1·E2·E7 결과 병합}
+  - {time: "02:29", cycle: 1, lane: V, text: E1·E2·E7 검토 FAIL → C2.7–10}
+  - {time: "02:36", cycle: 2, lane: R, text: E5 C2.5 반증 → C3.1 등록, mark: 반증}
+  - {time: "02:50", cycle: 2, lane: R, text: E3 C2.1 반증·C2.3 지지}
+  - {time: "02:52", cycle: 2, lane: R, text: E1·E2·E7 C2.7·C2.9 지지}
+  - {time: "03:05", cycle: 2, lane: V, text: 재검토 E1·E2·E3 FAIL → C2.11}
+  - {time: "03:20", cycle: 2, lane: R, text: E3 보정 — 같은 상한 비교, mark: LIOT 열세}
+  - {time: "03:30", cycle: 3, lane: R, text: E5 C3.1 반증, mark: 분류 코드}
