@@ -20,13 +20,16 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .generator import ACT_OF, BINARY_KS, EXT_BINARY_LIST, N_PROP, Streams
+from .generator import ACT_OF, BASE_SEV, BINARY_KS, EXT_BINARY_LIST, N_PROP, Streams
 from .liot_map import tables
 from .params import FIXED, WEIGHT_SETS
 
 THETAS = tuple(round(0.1 * i, 1) for i in range(11))
 THETA_SIGMAS = (0.0, 0.5, 1.0)
 UNDO_WINDOWS = (5, 15, 30)
+KAPPAS = (0.0, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0)  # theta-score noise as a multiple of the within-set SD
+GEN_CUTS = tuple(sorted({round(float(x), 2) for x in BASE_SEV[:N_PROP]}))  # generator-side ceilings
+P_LOW_GRID = (0.0, 0.25, 0.5, 0.75, 1.0)  # C2.1: share of harmful proposals steered to <=BREATH
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,10 @@ class Group:
     k: int | None = None  # binary list length
     undo_min: int = 0
     gate: bool = False  # system-wide "never open" (lock.unlock, valve.open) applied
+    kappa: float | None = None  # theta score noise as a multiple of the within-set score SD
+    ceil: str = ""  # "" | "liot" (LIOT tier > BREATH silenced) | "gen" (generator BASE_SEV > cut silenced)
+    cut: float | None = None
+    notify: bool = False  # silenced events still send a light notice (C2.3 AMBIENT notify-only)
 
     @property
     def key(self) -> str:
@@ -50,14 +57,61 @@ class Group:
         if self.undo_min:
             parts.append(f"w{self.undo_min}")
         if self.theta is not None:
-            parts.append(f"s{self.sigma:.1f}")
+            parts.append(f"s{self.sigma:.1f}" if self.kappa is None else f"k{self.kappa:.2f}")
             parts.append(f"t{self.theta:.1f}")
+        if self.ceil:
+            parts.append("ceil-liot" if self.ceil == "liot" else f"ceil-gen{self.cut:.2f}")
+        if self.notify:
+            parts.append("notify")
         if self.gate:
             parts.append("gate")
         return "|".join(parts)
 
 
+def _cycle2_groups(block: str, m_grid: tuple[float, ...], shapes: tuple[str, ...]) -> list[Group]:
+    gs: list[Group] = [Group("auto_all", "na")]
+    if block.startswith("c21"):
+        for m in (0.0, 0.1):
+            for nm in ("flat_explicit", "liot_full", "liot_real"):
+                gs.append(Group(nm, "exp", m=m))
+    elif block == "c22":
+        for m in (0.0, 0.1):
+            for sh in shapes:
+                for nm in ("liot_real", "liot_full"):
+                    gs.append(Group(nm, sh, m=m))
+                for base in ("flat_explicit", "binary_ext"):
+                    gs.append(Group(base, sh, m=m))
+                    gs.append(Group(base, sh, m=m, ceil="liot"))
+                    gs += [Group(base, sh, m=m, ceil="gen", cut=c) for c in GEN_CUTS]
+            gs.append(Group("auto_all", "na", m=m, ceil="liot"))
+            gs += [Group("auto_all", "na", m=m, ceil="gen", cut=c) for c in GEN_CUTS]
+    elif block == "c23":
+        for m in m_grid:
+            for sh in shapes:
+                for nm in ("flat_explicit", "liot_full", "liot_real", "binary_ext"):
+                    gs.append(Group(nm, sh, m=m))
+                gs.append(Group("liot_full", sh, m=m, notify=True))
+    elif block == "c24":
+        for m in (0.0, 0.1):
+            for sh in shapes:
+                for nm in ("flat_explicit", "liot_full", "liot_real"):
+                    gs.append(Group(nm, sh, m=m))
+        for k in KAPPAS:
+            for th in THETAS:
+                gs.append(Group("theta", "exp", theta=th, kappa=k))
+    return gs
+
+
 def groups_for(block: str, m_grid: tuple[float, ...], shapes: tuple[str, ...]) -> list[Group]:
+    if block.startswith("c2"):
+        return _cycle2_groups(block, m_grid, shapes)
+    if block == "f0_g0":  # lean: the f=0, r=0, g=0 sanity block needs only the compared policies
+        gs = [Group("auto_all", "na")]
+        for m in m_grid:
+            for nm in ("flat_explicit", "liot_full", "liot_real", "binary_ext"):
+                gs.append(Group(nm, "na", m=m))
+            gs += [Group("binary_k", "na", m=m, k=k) for k in BINARY_KS]
+        return gs
     gate = block == "gated"
     gs: list[Group] = [Group("auto_all", "na", gate=gate)]
     for m in m_grid:
@@ -76,6 +130,11 @@ def groups_for(block: str, m_grid: tuple[float, ...], shapes: tuple[str, ...]) -
     return gs
 
 
+def score_sd(st: Streams) -> float:
+    """Within-set SD of the noiseless generic score (all valid events, all seeds)."""
+    return float(np.std(st.score0[st.valid]))
+
+
 def _theta_level(st: Streams, sigma: float, theta: float) -> np.ndarray:
     score = st.score0 + sigma * st.z_score
     score = np.where(st.valid, score, -np.inf)
@@ -87,7 +146,14 @@ def _theta_level(st: Streams, sigma: float, theta: float) -> np.ndarray:
     return np.where(rank < k[:, None], 2, 0).astype(np.int8)
 
 
-def build(st: Streams, g: Group, rank_order: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def harmful_kinds(st: Streams) -> np.ndarray:
+    """Templates that carry at least one harmful proposal in this set (the 'harmful device kinds')."""
+    ok = st.valid & (st.kind == 0) & (st.truth == 2)
+    return np.bincount(st.tmpl[ok].astype(int), minlength=N_PROP)[:N_PROP] > 0
+
+
+def build(st: Streams, g: Group, rank_order: np.ndarray,
+          hk: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
     """(level int8, blocked bool), both (seeds, events), for policy group *g*."""
     tb = tables()
     tmpl, tbk, occ = st.tmpl.astype(int), st.tb.astype(int), st.occ.astype(int)
@@ -114,12 +180,23 @@ def build(st: Streams, g: Group, rank_order: np.ndarray) -> tuple[np.ndarray, np
         else:
             listed[rank_order[: g.k]] = True
         act = ACT_OF[tmpl]
-        member = np.where(act >= 0, listed[np.clip(act, 0, N_PROP - 1)], False)
-        omitted = (st.truth == 2) & (st.u_mis < g.m)
-        level = np.where(member & ~omitted, 2, 0)
+        ac = np.clip(act, 0, N_PROP - 1)
+        member = np.where(act >= 0, listed[ac], False)
+        # registered error model: each harmful device kind on the list is dropped from it with
+        # probability m (one draw per seed and kind, shared by every policy -> common random numbers)
+        hk_ = hk if hk is not None else np.ones(N_PROP, dtype=bool)
+        dropped = (np.take_along_axis(st.u_list, ac, axis=1) < g.m) & hk_[ac] & (act >= 0)
+        level = np.where(member & ~dropped, 2, 0)
     elif g.name == "theta":
-        level = _theta_level(st, g.sigma, g.theta)
+        sig_abs = g.sigma if g.kappa is None else g.kappa * score_sd(st)
+        level = _theta_level(st, sig_abs, g.theta)
     # auto_all / auto_undo: all zero
+    if g.ceil == "liot":
+        blocked = blocked | (prop & (tier_m > int(tb["ceiling"])))
+    elif g.ceil == "gen":
+        blocked = blocked | (prop & (BASE_SEV[tmpl] > g.cut + 1e-9))
+    if g.notify:
+        blocked = blocked | (prop & (level == 0))
     if g.gate:
         blocked = blocked | tb["open_forbidden"][tmpl]
     level = np.where(blocked | ~st.valid, 0, level).astype(np.int8)
@@ -134,7 +211,7 @@ def binary_rank(st: Streams) -> np.ndarray:
     return np.argsort(-counts, kind="stable")
 
 
-COUNTERS = ("xh", "xp", "xu", "nc", "nch", "units", "hm", "bh", "bp", "mu", "hz_ok", "hz_lat")
+COUNTERS = ("xh", "xp", "xu", "nc", "nch", "units", "hm", "bh", "bp", "bu", "mu", "hz_ok", "hz_lat")
 
 
 def simulate(
@@ -155,6 +232,8 @@ def simulate(
     bk_t = np.ascontiguousarray(blocked.transpose(2, 0, 1))
     shape_exp = np.array([g.shape != "hyp" for g in groups])[:, None]
     undo_w = np.array([g.undo_min * 60.0 for g in groups])[:, None]
+    notify = np.array([g.notify for g in groups])[:, None]
+    any_notify = bool(notify.any())
     is_undo = undo_w > 0
     any_undo = bool(is_undo.any())
 
@@ -192,6 +271,8 @@ def simulate(
             cand = is_undo & ex & isprop[e]
             und = cand & rd & undo_ok[e] & (lat <= undo_w)
             add = add + (is_undo & isprop[e]) * w1
+        if any_notify:
+            add = add + (notify & blk & isprop[e]) * w1
         fe = ex & ~und
         c["xh"] += fe & m_harm[e]
         c["xp"] += fe & m_help[e]
@@ -202,6 +283,7 @@ def simulate(
         c["hm"] += np.where(m_harm[e] & ex, np.where(und, lat / 60.0, cap_min), 0.0)
         c["bh"] += blk & m_harm[e]
         c["bp"] += blk & m_help[e]
+        c["bu"] += blk & m_unw[e]
         c["mu"] += und & m_help[e]
         c["hz_ok"] += fe & ishaz[e]
         c["hz_lat"] += np.where(ishaz[e], np.where(ex, np.where(req, lat, 0.0), ttl_h), 0.0)
