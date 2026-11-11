@@ -1,0 +1,209 @@
+"""Policy construction and the resident simulation (vectorised over policies x seeds).
+
+A *lane* is one (policy group, seed). Lanes advance through the event stream together; the
+only sequential state is the exponentially decaying confirmation load L (half-life h).
+
+Resident model (all parameters in params.py):
+  request with strength s in {1 light,2 explicit,3 double} at load L:
+    p_read = exp(-f L)  (shape "exp")   or   1/(1+f L)  (shape "hyp")
+    read   -> decides correctly with prob a (approve helpful/hazard, reject unwanted/harmful)
+    unread -> approves (rubber stamp) with prob r (x d for double) else ignores
+    approved but latency (lognormal, median m0 (1+g L)) > TTL -> expired, not executed
+  no confirmation -> executed immediately (unless the proposal is silenced/blocked).
+auto_undo: executed immediately + notification (light weight); undone if the notice is read
+  (p_read), recognised (a) and the latency fits the window.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+
+from .generator import ACT_OF, BINARY_KS, EXT_BINARY_LIST, N_PROP, Streams
+from .liot_map import tables
+from .params import FIXED, WEIGHT_SETS
+
+THETAS = tuple(round(0.1 * i, 1) for i in range(11))
+THETA_SIGMAS = (0.0, 0.5, 1.0)
+UNDO_WINDOWS = (5, 15, 30)
+
+
+@dataclass(frozen=True)
+class Group:
+    name: str  # policy family
+    shape: str  # "exp" | "hyp" | "na"
+    m: float | None = None
+    theta: float | None = None
+    sigma: float | None = None
+    k: int | None = None  # binary list length
+    undo_min: int = 0
+    gate: bool = False  # system-wide "never open" (lock.unlock, valve.open) applied
+
+    @property
+    def key(self) -> str:
+        parts = [self.name, self.shape]
+        if self.m is not None:
+            parts.append(f"m{self.m:.1f}")
+        if self.k is not None:
+            parts.append(f"k{self.k}")
+        if self.undo_min:
+            parts.append(f"w{self.undo_min}")
+        if self.theta is not None:
+            parts.append(f"s{self.sigma:.1f}")
+            parts.append(f"t{self.theta:.1f}")
+        if self.gate:
+            parts.append("gate")
+        return "|".join(parts)
+
+
+def groups_for(block: str, m_grid: tuple[float, ...], shapes: tuple[str, ...]) -> list[Group]:
+    gate = block == "gated"
+    gs: list[Group] = [Group("auto_all", "na", gate=gate)]
+    for m in m_grid:
+        for sh in shapes:
+            for nm in ("flat_explicit", "liot_full", "liot_real", "binary_ext"):
+                gs.append(Group(nm, sh, m=m, gate=gate))
+            for k in BINARY_KS:
+                gs.append(Group("binary_k", sh, m=m, k=k, gate=gate))
+    if block != "gated":
+        for sh in shapes:
+            for w in UNDO_WINDOWS:
+                gs.append(Group("auto_undo", sh, undo_min=w))
+            for s in ((0.5,) if block.startswith("sens") else THETA_SIGMAS):
+                for th in THETAS:
+                    gs.append(Group("theta", sh, theta=th, sigma=s))
+    return gs
+
+
+def _theta_level(st: Streams, sigma: float, theta: float) -> np.ndarray:
+    score = st.score0 + sigma * st.z_score
+    score = np.where(st.valid, score, -np.inf)
+    n = st.valid.sum(1)
+    k = np.rint(theta * n).astype(int)
+    order = np.argsort(-score, axis=1, kind="stable")
+    rank = np.empty_like(order)
+    np.put_along_axis(rank, order, np.arange(score.shape[1])[None, :].repeat(score.shape[0], 0), axis=1)
+    return np.where(rank < k[:, None], 2, 0).astype(np.int8)
+
+
+def build(st: Streams, g: Group, rank_order: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(level int8, blocked bool), both (seeds, events), for policy group *g*."""
+    tb = tables()
+    tmpl, tbk, occ = st.tmpl.astype(int), st.tb.astype(int), st.occ.astype(int)
+    shape0 = st.valid.shape
+    level = np.zeros(shape0, dtype=np.int8)
+    blocked = np.zeros(shape0, dtype=bool)
+    prop = st.kind == 0
+    if g.m is not None:
+        tier0 = tb["tier0"][tmpl, tbk, occ].astype(int)
+        mis = (st.truth == 2) & (st.u_mis < g.m)
+        target = np.where(st.u_k < 0.5, 0, 1)  # AMBIENT (m/2) or BREATH (m/2)
+        tier_m = np.where(mis, np.minimum(tier0, target), tier0)
+    if g.name == "flat_explicit":
+        level = tb["conf_A"][tmpl, tbk, occ, tier_m]
+    elif g.name == "liot_full":
+        level = tb["conf_B"][tmpl, tbk, occ, tier_m]
+    elif g.name == "liot_real":
+        level = tb["conf_B"][tmpl, tbk, occ, tier_m]
+        blocked = prop & (tier_m > int(tb["ceiling"]))  # proactive cap: silent
+    elif g.name in ("binary_ext", "binary_k"):
+        listed = np.zeros(N_PROP, dtype=bool)
+        if g.name == "binary_ext":
+            listed[list(EXT_BINARY_LIST)] = True
+        else:
+            listed[rank_order[: g.k]] = True
+        act = ACT_OF[tmpl]
+        member = np.where(act >= 0, listed[np.clip(act, 0, N_PROP - 1)], False)
+        omitted = (st.truth == 2) & (st.u_mis < g.m)
+        level = np.where(member & ~omitted, 2, 0)
+    elif g.name == "theta":
+        level = _theta_level(st, g.sigma, g.theta)
+    # auto_all / auto_undo: all zero
+    if g.gate:
+        blocked = blocked | tb["open_forbidden"][tmpl]
+    level = np.where(blocked | ~st.valid, 0, level).astype(np.int8)
+    blocked = blocked & st.valid
+    return level, blocked
+
+
+def binary_rank(st: Streams) -> np.ndarray:
+    """Templates ordered by pooled harmful-proposal count (post-hoc, oracle ranking)."""
+    ok = st.valid & (st.kind == 0) & (st.truth == 2)
+    counts = np.bincount(st.tmpl[ok].astype(int), minlength=N_PROP)[:N_PROP]
+    return np.argsort(-counts, kind="stable")
+
+
+COUNTERS = ("xh", "xp", "xu", "nc", "nch", "units", "hm", "bh", "bp", "mu", "hz_ok", "hz_lat")
+
+
+def simulate(
+    st: Streams, groups: list[Group], levels: np.ndarray, blocked: np.ndarray, prm: dict[str, float]
+) -> dict[str, np.ndarray]:
+    """Run all lanes. levels/blocked: (groups, seeds, events). Returns counters (groups, seeds)."""
+    p_n, s_n, e_n = levels.shape
+    w = WEIGHT_SETS[int(prm["wsel"])]
+    f, a, r, d, g_ = prm["f"], prm["a"], prm["r"], prm["d"], prm["g"]
+    m0 = prm["m0_s"]
+    sig = FIXED["latency_sigma"][0]
+    ttl_p = FIXED["proposal_ttl_min"][0] * 60.0
+    ttl_h = FIXED["hazard_deadline_min"][0] * 60.0
+    cap_min = FIXED["harm_exposure_min"][0]
+    half = prm["half_life_h"] * 60.0
+
+    lv_t = np.ascontiguousarray(levels.transpose(2, 0, 1))
+    bk_t = np.ascontiguousarray(blocked.transpose(2, 0, 1))
+    shape_exp = np.array([g.shape != "hyp" for g in groups])[:, None]
+    undo_w = np.array([g.undo_min * 60.0 for g in groups])[:, None]
+    is_undo = undo_w > 0
+    any_undo = bool(is_undo.any())
+
+    valid = st.valid.T
+    isprop = (st.kind == 0).T & valid
+    ishaz = (st.kind == 1).T & valid
+    tr = st.truth.T
+    good = (tr == 0) | (tr == 3)
+    correct = (st.u_dec < a).T
+    ap_read = np.where(correct, good, ~good)
+    undo_ok = np.where(~good, correct, ~correct)  # undo decision of a reader (bad -> undo)
+    decay = 2.0 ** (-st.dt_min.T / half)
+    ur, urs = st.u_read.T, st.u_rs.T
+    lat_noise = np.exp(sig * st.z_lat.T)
+    ttl = np.where(ishaz, ttl_h, ttl_p)
+    m_help, m_unw, m_harm = (tr == 0) & isprop, (tr == 1) & isprop, (tr == 2) & isprop
+
+    L = np.zeros((p_n, s_n))
+    c = {k: np.zeros((p_n, s_n)) for k in COUNTERS}
+    w1, w2, w3 = w[1], w[2], w[3]
+    for e in range(e_n):
+        lv = lv_t[e]
+        blk = bk_t[e]
+        L *= decay[e]
+        pr = np.where(shape_exp, np.exp(-f * L), 1.0 / (1.0 + f * L))
+        rd = ur[e] < pr
+        r_eff = np.where(lv == 3, r * d, r)
+        ap = np.where(rd, ap_read[e], urs[e] < r_eff)
+        lat = m0 * (1.0 + g_ * L) * lat_noise[e]
+        req = lv > 0
+        ex = np.where(req, ap & (lat <= ttl[e]), ~blk) & valid[e]
+        und = np.zeros_like(ex)
+        add = (lv == 1) * w1 + (lv == 2) * w2 + (lv == 3) * w3
+        if any_undo:
+            cand = is_undo & ex & isprop[e]
+            und = cand & rd & undo_ok[e] & (lat <= undo_w)
+            add = add + (is_undo & isprop[e]) * w1
+        fe = ex & ~und
+        c["xh"] += fe & m_harm[e]
+        c["xp"] += fe & m_help[e]
+        c["xu"] += fe & m_unw[e]
+        c["nc"] += req & isprop[e]
+        c["nch"] += req & ishaz[e]
+        c["units"] += add
+        c["hm"] += np.where(m_harm[e] & ex, np.where(und, lat / 60.0, cap_min), 0.0)
+        c["bh"] += blk & m_harm[e]
+        c["bp"] += blk & m_help[e]
+        c["mu"] += und & m_help[e]
+        c["hz_ok"] += fe & ishaz[e]
+        c["hz_lat"] += np.where(ishaz[e], np.where(ex, np.where(req, lat, 0.0), ttl_h), 0.0)
+        L += add
+    return c

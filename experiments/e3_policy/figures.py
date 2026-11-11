@@ -1,0 +1,237 @@
+"""E3 figures (Korean labels). Reads raw/ through analyze.load and the computed summary."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+from experiments.common import plotstyle
+
+from . import analyze
+from .params import M_DEFAULT, M_GRID
+
+C = plotstyle.POLICY_COLORS
+MK = plotstyle.POLICY_MARKERS
+COLORS = {
+    "liot_real": C["liot"], "liot_full": C["short_deadline"], "flat_explicit": C["flat_explicit"],
+    "binary_ext": C["binary_approval"], "binary_opt": C["rule_only"], "auto_all": C["auto_all"],
+    "auto_undo": C["model_only"],
+}
+MARKS = {
+    "liot_real": MK["liot"], "liot_full": "o", "flat_explicit": MK["flat_explicit"],
+    "binary_ext": MK["binary_approval"], "binary_opt": "D", "auto_all": MK["auto_all"], "auto_undo": "P",
+}
+LABEL = {
+    "liot_real": "LIOT 실제(능동 상한)", "liot_full": "LIOT 가상(4단계 전부)", "flat_explicit": "모두 명시 확인(A)",
+    "binary_ext": "이진 승인(외부 목록)", "binary_opt": "이진 승인(사후 최적)", "auto_all": "모두 자동",
+    "auto_undo": "자동+되돌리기(15분)",
+}
+SHAPE_KO = {"exp": "지수 피로", "hyp": "포화 피로"}
+
+
+def pareto(blocks: dict[str, analyze.Block], exp_dir: Path) -> Path:
+    blk = blocks["main"]
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.6), sharey=True)
+    for ax, sh in zip(axes, analyze.SHAPES, strict=True):
+        names, pts = analyze.policy_points(blk, sh, M_DEFAULT)
+        for i, n in enumerate(names):
+            ax.scatter(pts[i, 0], pts[i, 1], s=9, alpha=0.22, color=COLORS[n], marker=MARKS[n], linewidths=0)
+        for i, n in enumerate(names):
+            ax.scatter(np.nanmedian(pts[i, 0]), np.nanmedian(pts[i, 1]), s=120, color=COLORS[n], marker=MARKS[n],
+                       edgecolor="white", linewidth=1.2, label=LABEL[n], zorder=5)
+        ax.set_title(f"{SHAPE_KO[sh]} (m=10%)")
+        ax.set_xlabel("하루 확인 요청 수 (부담)")
+        ax.set_ylim(-0.02, 1.04)
+    axes[0].set_ylabel("해로운 제안 실행률 (피해)")
+    axes[1].legend(loc="lower right", fontsize=8)
+    fig.suptitle("부담 대 피해: 점 하나 = 매개변수 한 세트(400), 큰 점 = 중앙값. 왼쪽 아래가 좋다", fontsize=10)
+    return plotstyle.save(fig, exp_dir, "pareto_burden_vs_harm")
+
+
+def harm_vs_theta(summary: dict[str, Any], exp_dir: Path) -> Path:
+    fig, axes = plt.subplots(2, 3, figsize=(12, 6.2), sharey=True, sharex=True)
+    th = [round(0.1 * i, 1) for i in range(11)]
+    cols = [plotstyle.ACCENT, plotstyle.GREY_DARK, plotstyle.GREY]
+    labs = ["피로 계수 f 하위 1/3", "f 중간 1/3", "f 상위 1/3"]
+    for r, sh in enumerate(analyze.SHAPES):
+        for c, sg in enumerate(("s0.0", "s0.5", "s1.0")):
+            ax = axes[r, c]
+            u = summary["h2_3"][sh][sg]
+            for k, cv in enumerate(u["median_curve_by_f_tercile"]):
+                ax.plot(th, cv, color=cols[k], marker="o", ms=3, label=labs[k])
+            ax.set_title(f"{SHAPE_KO[sh]} · 점수 잡음 σ={sg[1:]}", fontsize=10)
+            ax.text(0.03, 0.05, f"U자(구간>0) {u['u_shape_sig']['share']*100:.0f}% · 1%p 이상 {u['u_shape_sig_depth_gt_0.01']['share']*100:.0f}%",
+                    transform=ax.transAxes, fontsize=8)
+            if r == 1:
+                ax.set_xlabel("확인을 요구하는 제안 비율 θ")
+            if c == 0:
+                ax.set_ylabel("해로운 제안 실행률(중앙값)")
+    axes[0, 0].legend(fontsize=8)
+    fig.suptitle("확인 비율 θ 에 따른 해로운 실행률(U자 점검). 가운데가 가장 낮으면 U자", fontsize=10)
+    return plotstyle.save(fig, exp_dir, "harm_vs_theta")
+
+
+def winfrac_vs_m(summary: dict[str, Any], exp_dir: Path) -> Path:
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4.4))
+    ms = [100 * m for m in M_GRID]
+    for sh, ls in zip(analyze.SHAPES, ("-", "--"), strict=True):
+        rows = summary["h2_4"][sh]["rows"]
+        ax = axes[0]
+        for pol in ("liot_real", "liot_full"):
+            ax.plot(ms, [r[f"area_{pol}_vs_flat"]["share"] for r in rows], ls, color=COLORS[pol], marker=MARKS[pol],
+                    label=f"{LABEL[pol]} · {SHAPE_KO[sh]}")
+        ax.plot(ms, [r["area_both_lower_than_flat_and_binary_opt"]["share"] for r in rows], ls, color=plotstyle.GREY_DARK,
+                label=f"둘 다 확인·이진(최적)보다 낮음 · {SHAPE_KO[sh]}")
+        ax = axes[1]
+        pv = summary["pareto_vs_m"][sh]
+        for pol in ("flat_explicit", "binary_opt", "liot_real", "liot_full"):
+            ax.plot(ms, [pv[f"m{m:.1f}"]["lowest_harm"][pol] for m in M_GRID], ls, color=COLORS[pol], marker=MARKS[pol],
+                    label=f"{LABEL[pol]} · {SHAPE_KO[sh]}")
+        ax = axes[2]
+        for pol in ("flat_explicit", "binary_opt", "liot_real", "liot_full"):
+            ax.plot(ms, [pv[f"m{m:.1f}"]["pareto_2d"][pol] for m in M_GRID], ls, color=COLORS[pol], marker=MARKS[pol])
+    axes[0].set_title("피해가 확인(A)보다 유의하게 낮은 세트 비율")
+    axes[1].set_title("해로운 실행률이 가장 낮은 정책(세트 비율)")
+    axes[2].set_title("파레토 최적(부담·피해)인 세트 비율")
+    for ax in axes:
+        ax.set_xlabel("오분류율 m (%)")
+        ax.set_ylim(-0.02, 1.02)
+    axes[0].set_ylabel("매개변수 세트 비율")
+    axes[0].legend(fontsize=6.5, loc="upper right")
+    axes[1].legend(fontsize=6.5, loc="upper right")
+    return plotstyle.save(fig, exp_dir, "winfraction_vs_m")
+
+
+def burden_bars(summary: dict[str, Any], exp_dir: Path) -> Path:
+    t = summary["policy_table"]["exp"][f"m{M_DEFAULT:.1f}"]
+    th = summary["policy_table"]["hyp"][f"m{M_DEFAULT:.1f}"]
+    order = [("auto_all", "auto_all"), ("flat_explicit", "flat_explicit"), ("binary_ext", "binary_ext"),
+             ("binary_opt", "binary_opt"), ("liot_full", "liot_full"), ("liot_real", "liot_real"),
+             ("auto_undo", "auto_undo_w15")]
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4.4))
+    x = np.arange(len(order))
+    for ax, met, title in ((axes[0], "burden_per_day", "하루 확인 요청 수"),
+                           (axes[1], "load_units_per_day", "하루 부담 단위(알림 포함)")):
+        vals = [t[k][met] for _, k in order]
+        ax.bar(x, [v["mean"] for v in vals], color=[COLORS[n] for n, _ in order],
+               yerr=[[v["mean"] - v["lo"] for v in vals], [v["hi"] - v["mean"] for v in vals]], capsize=3)
+        ax.set_title(title)
+    ax = axes[2]
+    w = 0.38
+    for off, tab, lab in ((-w / 2, t, "지수 피로"), (w / 2, th, "포화 피로")):
+        vals = [tab[k]["harm_rate"] for _, k in order]
+        ax.bar(x + off, [v["mean"] for v in vals], w, color=[COLORS[n] for n, _ in order], alpha=1.0 if off < 0 else 0.55,
+               yerr=[[v["mean"] - v["lo"] for v in vals], [v["hi"] - v["mean"] for v in vals]], capsize=2, label=lab)
+    ax.set_title("해로운 제안 실행률 (진한 막대 지수·옅은 막대 포화)")
+    for ax in axes:
+        ax.set_xticks(x)
+        ax.set_xticklabels([LABEL[n].replace("(", "\n(") for n, _ in order], rotation=40, ha="right", fontsize=7)
+    fig.suptitle("정책별 평균(세트 400개, 막대 끝 = 세트 부트스트랩 95% 구간, m=10%)", fontsize=10)
+    return plotstyle.save(fig, exp_dir, "burden_bars")
+
+
+def f0_sanity(summary: dict[str, Any], exp_dir: Path) -> Path:
+    fig, ax = plt.subplots(figsize=(7.5, 4))
+    t = summary["policy_table_f0"][f"m{0.0:.1f}"]
+    order = [("flat_explicit", "flat_explicit"), ("liot_full", "liot_full"), ("liot_real", "liot_real"),
+             ("binary_opt", "binary_opt"), ("auto_undo", "auto_undo_w15"), ("auto_all", "auto_all")]
+    vals = [t[k]["harm_rate"] for _, k in order]
+    x = np.arange(len(order))
+    ax.bar(x, [v["mean"] for v in vals], color=[COLORS[n] for n, _ in order],
+           yerr=[[v["mean"] - v["lo"] for v in vals], [v["hi"] - v["mean"] for v in vals]], capsize=3)
+    ax.set_xticks(x)
+    ax.set_xticklabels([LABEL[n].replace("(", "\n(") for n, _ in order], fontsize=7)
+    ax.set_ylabel("해로운 제안 실행률")
+    ax.set_title("시뮬레이터 점검: f=0, r=0 (피로 없음), m=0")
+    return plotstyle.save(fig, exp_dir, "f0_sanity_harm")
+
+
+def region_maps(summary: dict[str, Any], exp_dir: Path) -> Path:
+    h = summary["h2_1"]["exp"][f"m{M_DEFAULT:.1f}"]
+    fb, rb = h["map_f_bins"], h["map_r_bins"]
+    fig, axes = plt.subplots(1, 4, figsize=(19, 4.4))
+    for ax, pol in zip(axes[:2], ("liot_real", "liot_full"), strict=True):
+        g = np.array([[np.nan if v is None else v for v in row] for row in h[pol]["harm"]["map_f_by_r_mean_diff"]])
+        im = ax.imshow(g, origin="lower", cmap="RdBu_r", vmin=-0.4, vmax=0.4, aspect="auto")
+        for i in range(g.shape[0]):
+            for j in range(g.shape[1]):
+                if not np.isnan(g[i, j]):
+                    ax.text(j, i, f"{g[i, j]:+.2f}", ha="center", va="center", fontsize=8)
+        ax.set_title(f"{LABEL[pol]} - 모두 명시 확인\n해로운 실행률 차이(파랑 = LIOT 가 낮음)", fontsize=9)
+        fig.colorbar(im, ax=ax, shrink=0.8, pad=0.2)
+    for ax, key_, ttl in ((axes[2], "map_f_by_r_lowest_harm_policy", "셀마다 해로운 실행률이 가장 낮은 정책(전체)"),
+                          (axes[3], "map_f_by_r_lowest_harm_policy_excluding_liot_real",
+                           "같은 지도, '침묵'하는 LIOT 실제를 뺀 확인 대결")):
+        names = ["flat_explicit", "binary_ext", "binary_opt", "liot_real", "liot_full", "auto_undo"]
+        code = np.array([[names.index(v) if v in names else np.nan for v in row] for row in h[key_]])
+        for i in range(code.shape[0]):
+            for j in range(code.shape[1]):
+                if not np.isnan(code[i, j]):
+                    n = names[int(code[i, j])]
+                    ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, color=COLORS[n]))
+                    ax.text(j, i, LABEL[n].replace("(", "\n("), ha="center", va="center", fontsize=6.5, color="white")
+        ax.set_xlim(-0.5, code.shape[1] - 0.5)
+        ax.set_ylim(-0.5, code.shape[0] - 0.5)
+        ax.set_title(ttl, fontsize=9)
+    for ax in axes:
+        ax.set_xticks(range(len(rb) - 1))
+        ax.set_xticklabels([f"{rb[j]:.1f}–{rb[j + 1]:.1f}" for j in range(len(rb) - 1)], fontsize=8)
+        ax.set_yticks(range(len(fb) - 1))
+        ax.set_yticklabels([f"{fb[i]:.3f}–{fb[i + 1]:.3f}" for i in range(len(fb) - 1)], fontsize=8)
+        ax.set_xlabel("무심코 승인 확률 r")
+        ax.grid(False)
+    axes[0].set_ylabel("피로 계수 f")
+    return plotstyle.save(fig, exp_dir, "region_map_f_by_r")
+
+
+def m_ratio(summary: dict[str, Any], exp_dir: Path) -> Path:
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), sharey=True)
+    ms = [100 * m for m in M_GRID]
+    for ax, sh in zip(axes, analyze.SHAPES, strict=True):
+        rows = summary["h2_4"][sh]["rows"]
+        for pol in ("liot_real", "liot_full"):
+            med = [r["harm_ratio_vs_flat"][pol]["median"] for r in rows]
+            lo = [r["harm_ratio_vs_flat"][pol]["p25"] for r in rows]
+            hi = [r["harm_ratio_vs_flat"][pol]["p75"] for r in rows]
+            ax.plot(ms, med, color=COLORS[pol], marker=MARKS[pol], label=LABEL[pol])
+            ax.fill_between(ms, lo, hi, color=COLORS[pol], alpha=0.18)
+        ax.axhline(1.0, color=plotstyle.GREY_DARK, lw=1, ls=":")
+        ax.set_title(f"{SHAPE_KO[sh]}")
+        ax.set_xlabel("오분류율 m (%)")
+    axes[0].set_ylabel("LIOT 해로운 실행률 ÷ 모두 명시 확인 (중앙값, 25–75%)")
+    axes[0].legend(fontsize=8)
+    fig.suptitle("오분류가 늘면 4단계의 피해 이점이 사라진다(1 위 = 확인보다 나쁨)", fontsize=10)
+    return plotstyle.save(fig, exp_dir, "m_by_harm_ratio_map")
+
+
+def sensitivity(summary: dict[str, Any], exp_dir: Path) -> Path:
+    heads = summary["headline_by_block"]
+    blocks = [("sens_half", "범위 절반"), ("main", "기본"), ("sens_dbl", "범위 두 배")]
+    items = [("liot_real_vs_flat_harm_higher", "LIOT 실제 > A (피해)", COLORS["liot_real"]),
+             ("liot_full_vs_flat_harm_higher", "LIOT 가상 > A (피해)", COLORS["liot_full"]),
+             ("binary_opt_vs_flat_harm_higher", "이진(최적) > A (피해)", COLORS["binary_opt"])]
+    fig, ax = plt.subplots(figsize=(8, 4))
+    w = 0.25
+    x = np.arange(len(blocks))
+    for k, (kk, lab, col) in enumerate(items):
+        ax.bar(x + (k - 1) * w, [heads[b]["exp"][kk] for b, _ in blocks if b in heads], w, color=col, label=lab)
+    ax.set_xticks(x)
+    ax.set_xticklabels([n for _, n in blocks])
+    ax.set_ylabel("세트 비율(구간이 0 을 넘는 경우)")
+    ax.set_title("민감도: 매개변수 범위를 절반·두 배로 했을 때(지수 피로, m=10%)")
+    ax.legend(fontsize=8)
+    return plotstyle.save(fig, exp_dir, "sensitivity_ranges")
+
+
+def make_all(raw_dir: Path, summary: dict[str, Any], exp_dir: Path) -> list[Path]:
+    plotstyle.setup()
+    blocks = analyze.load(raw_dir)
+    out = [pareto(blocks, exp_dir), harm_vs_theta(summary, exp_dir), winfrac_vs_m(summary, exp_dir),
+           burden_bars(summary, exp_dir), region_maps(summary, exp_dir), m_ratio(summary, exp_dir),
+           sensitivity(summary, exp_dir)]
+    if "policy_table_f0" in summary:
+        out.append(f0_sanity(summary, exp_dir))
+    return out
