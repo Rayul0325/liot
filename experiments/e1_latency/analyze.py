@@ -184,7 +184,17 @@ def _summarize_h12(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 "p95_all_o": float(p95(np.array(allv))) if allv else None,
             }
             if ctrl and allv:
-                pooled["p95_minus_control_p95"] = float(p95(np.array(allv)) - p95(np.array(ctrl)))
+                g, c = np.array(allv), np.array(ctrl)
+                pooled["p95_minus_control_p95"] = float(p95(g) - p95(c))
+                # bootstrap CI of the difference (gas and control resampled independently)
+                rng = np.random.default_rng(SEED)
+                ig = rng.integers(0, g.size, size=(B_DEFAULT, g.size))
+                ic = rng.integers(0, c.size, size=(B_DEFAULT, c.size))
+                diffs = np.array([p95(g[a]) - p95(c[b]) for a, b in zip(ig, ic, strict=True)])
+                pooled["p95_diff_lo"] = float(np.percentile(diffs, 2.5))
+                pooled["p95_diff_hi"] = float(np.percentile(diffs, 97.5))
+                pooled["after_criterion_met_p95_diff_le_0.1s"] = bool(
+                    float(p95(g) - p95(c)) <= 0.1)
             per_t[f"{t}"] = {
                 "control": lat_summary(ctrl), "by_o": by_o, "pooled": pooled,
                 "git_shas": sorted({str(r["meta"]["git_sha"]) for r in rs}),
