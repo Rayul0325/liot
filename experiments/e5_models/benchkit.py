@@ -11,7 +11,8 @@ from types import ModuleType
 REPO = Path(__file__).resolve().parents[2]
 BENCH_DIR = REPO / "bench" / "risk"
 
-CONTEXTS = ("sentence", "operational", "structured")
+CONTEXTS = ("sentence", "operational", "structured", "subtype", "subtype_trait")
+CLOUD_CONTEXTS = ("sentence", "operational", "structured", "subtype")  # trait-coded arm: local only
 LOCAL_MODELS = (
     "jevk5-9b-q8",
     "jevk5-4b-q8",

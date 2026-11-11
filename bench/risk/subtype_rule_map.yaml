@@ -1,0 +1,61 @@
+# C3.1 대안 해석: 하위 종류 코드를 조회표에 직접 넣은 규칙 기반 판정.
+#
+# 이 표는 실행 전에 쓰고 먼저 커밋한다. 만든 방법:
+#   - 입력은 `observations_blind.yaml` 의 vocabulary(코드 정의 문장)뿐이다. 사례 문장·라벨(labels.yaml)·
+#     모델 결과·내 C2.5 표(observations.yaml)는 값을 고르는 데 쓰지 않았다.
+#     (다만 이 작업 세션은 이전에 벤치 `check` 출력으로 초안 라벨을 본 적이 있다 — 숨기지 않는다.
+#      그래서 경계 코드에는 아래 '척도 규칙'만 적용하고, 어느 쪽으로 기울었는지 경계 열에 적어 둔다.)
+#   - 코드 하나에 위험 점수 h(0~3) 하나를 준다. 판정기는 h 로 두 질문에 그대로 답한다:
+#       확인 강도(tier)  = [ambient, breath, dusk, ember][h]
+#       파급도(severity) = [record, notice, warning, critical][h]   (파급도 질문은 상황 사례에만 있다)
+#   - 하한은 판정기가 모른다. 모델과 똑같이 사후에 '하한보다 높은가/낮은가'를 센다.
+#
+# 척도 규칙(정의 문장만으로 적용):
+#   h=3  지금 진행 중인 생명·부상 위협(지속·상승하는 경보, 가동 중인 열원 옆 가연물과 무인, 침입 시도·침수가 전기 설비에 닿음)
+#   h=2  재산 피해나 설비 고장 전조가 뚜렷하지만 지금 위협은 아닌 것
+#   h=1  가벼운 이상·유지보수 경보·확인되지 않은 신호·불편
+#   h=0  정상이거나 관찰할 이상이 없음, 또는 정보 없음
+version: 1
+scale: {0: ambient/record, 1: breath/notice, 2: dusk/warning, 3: ember/critical}
+codes:
+  light_low_occupied:               {h: 0, why: 정상 활동}
+  media_playing_occupied:           {h: 0, why: 정상 활동}
+  indoor_hot_occupied:              {h: 0, why: 사람 있고 창 닫힘, 이상 없음}
+  indoor_hot_window_open_empty:     {h: 2, why: 빈 집에 창이 모두 열림 — 재산·보안 전조, 진행 중 위협 아님}
+  low_humidity_bedroom:             {h: 0, why: 쾌적도 문제}
+  humidifier_tank_empty:            {h: 2, why: 빈 탱크로 장시간 + 과열 이력 — 설비 고장 전조}
+  all_asleep_idle:                  {h: 0, why: 이상 없음}
+  away_idle_appliance:              {h: 0, why: 배수 정상, 이상 없음}
+  kitchen_empty_gas_normal:         {h: 0, why: 감지기 정상}
+  exterior_motion_asleep:           {h: 1, why: 확인되지 않은 바깥 움직임}
+  away_vehicle_absent:              {h: 0, why: 이상 신호 아님}
+  leak_flooding_away:               {h: 2, why: 침수 경보, 빈 집 — 재산 피해, 전기 설비 언급 없음}
+  floor_clear_away:                 {h: 0, why: 이상 없음}
+  pet_waste_on_floor:               {h: 1, why: 불편 수준}
+  heater_area_clear:                {h: 0, why: 이상 없음}
+  heater_covered_by_cloth:          {h: 2, why: 열원 위 젖은 천 — 화재 전조, 무인 언급 없음(경계: 3 쪽으로도 읽힘, 2 로 둠)}
+  cooking_prep_occupied:            {h: 0, why: 사람이 있고 정상}
+  oven_unattended_packaging:        {h: 3, why: 무인 열원 + 오븐 속 포장재(가연물) — 진행 중 화재 위협}
+  window_sill_clear:                {h: 0, why: 이상 없음}
+  cat_on_sill:                      {h: 1, why: 가벼운 주의(동물이 있음)}
+  hallway_motion_resident_home:     {h: 0, why: 거주자 귀가 또는 움직임만 — 이상 없음}
+  door_open_occupied_asleep:        {h: 1, why: 문 열림, 취침 중 — 가벼운 주의}
+  iron_on_stand_occupied:           {h: 0, why: 정상}
+  iron_flat_on_clothes_away:        {h: 3, why: 가열면이 옷 더미 위에 놓이고 무인 — 진행 중 화재 위협}
+  gas_alarm_transient:              {h: 1, why: 단발 경보, 환기 중, 수치 하강}
+  gas_alarm_persistent:             {h: 3, why: 경보 지속·수치 상승}
+  smoke_alarm_transient_cooking:    {h: 1, why: 단발, 조리 중, 하강}
+  smoke_alarm_rising_asleep:        {h: 3, why: 연기 농도 상승 + 전원 취침}
+  oven_running_attended:            {h: 1, why: 사람이 지켜보는 가동, 타이머 있음}
+  oven_running_unattended_smoke:    {h: 3, why: 2시간 무인 + 연기 + 감지기 상승}
+  high_temp_sunlit_sensor:          {h: 0, why: 직사광선 센서 오차, 체감 정상}
+  high_temp_rising_near_heater:     {h: 3, why: 72도 급상승, 커튼이 난로에 닿음, 무인}
+  leak_alarm_minor_drips:           {h: 1, why: 물 몇 방울, 바닥 마름}
+  leak_spreading_to_outlets:        {h: 3, why: 물이 멀티탭·콘센트로 번짐, 무인}
+  water_main_scheduled_irrigation:  {h: 0, why: 예약 급수와 일치, 곧 종료}
+  water_main_flooding_panel:        {h: 3, why: 침수가 분전반 높이까지 — 전기 설비 위협}
+  door_open_resident_return:        {h: 0, why: 정상 해제 기록이 있는 귀가}
+  door_open_stranger_asleep:        {h: 3, why: 해제 기록 없음 + 낯선 움직임 + 전원 취침}
+  lock_battery_low:                 {h: 1, why: 유지보수 경보, 문은 잠김}
+  lock_tamper_knocking:             {h: 3, why: 문 밖에서 때리고 흔듦 — 침입 시도, 사람이 안에 있음}
+  no_observation:                   {h: 0, why: 정보 없음 → 올릴 근거 없음}

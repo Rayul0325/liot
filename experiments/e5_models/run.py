@@ -39,6 +39,8 @@ SOURCES = {
     "sentence": BENCH_DIR / "raw",
     "operational": BENCH_DIR / "raw_operational",
     "structured": BENCH_DIR / "raw_structured",
+    "subtype": BENCH_DIR / "raw_subtype",
+    "subtype_trait": BENCH_DIR / "raw_subtype_trait",
 }
 
 
@@ -86,6 +88,86 @@ def collect_local() -> int:
     return written
 
 
+def collect_observations() -> int:
+    """Both observation tables (mine = C2.5, blind coder = C3.1) for the inter-coder agreement."""
+    path = RAW / "observations_agreement.jsonl"
+    if io.done_keys(path, ("kind",)):
+        return 0
+    mine: dict[str, Any] = yaml.safe_load((BENCH_DIR / "observations.yaml").read_text(encoding="utf-8"))
+    blind: dict[str, Any] = yaml.safe_load((BENCH_DIR / "observations_blind.yaml").read_text(encoding="utf-8"))
+    repl: dict[str, Any] = yaml.safe_load((BENCH_DIR / "subtype_replacements.yaml").read_text(encoding="utf-8"))
+
+    def norm(x: Any) -> str:
+        return "yes" if x is True else "no" if x is False else str(x)
+
+    io.append_jsonl(
+        path,
+        {
+            "kind": "tables",
+            "mine": {
+                k: {f: norm(v[f]) for f in ("occupied", "abnormal_for")}
+                for k, v in mine["cases"].items()
+            },
+            "blind": {
+                k: {f: norm(v[f]) for f in ("subtype", "occupied", "abnormal_for", "has_instruction")}
+                for k, v in blind["cases"].items()
+            },
+            "replacements": repl["replace"],
+            "meta": io.run_meta(),
+        },
+    )
+    return 1
+
+
+def collect_rule() -> int:
+    """Rule-lookup judge: each blind subtype code -> hazard score h -> tier/severity (map committed first)."""
+    from experiments.e5_models.benchkit import run_bench
+
+    path = RAW / "answers_rule.jsonl"
+    done = io.done_keys(path, ("judge", "context", "id", "rep"))
+    rmap: dict[str, Any] = yaml.safe_load((BENCH_DIR / "subtype_rule_map.yaml").read_text(encoding="utf-8"))
+    blind: dict[str, Any] = yaml.safe_load((BENCH_DIR / "observations_blind.yaml").read_text(encoding="utf-8"))
+    repl: dict[str, str] = yaml.safe_load(
+        (BENCH_DIR / "subtype_replacements.yaml").read_text(encoding="utf-8")
+    )["replace"]
+    rb = run_bench()
+    built = rb.build_all(rb.load_cases(), "sentence")
+    written = 0
+    for b in built:
+        code = blind["cases"][b.cid]["subtype"]
+        code = repl.get(code, code)
+        h = int(rmap["codes"][code]["h"])
+        for rep in (0, 1):
+            key = ("rule-lookup", "subtype", b.cid, rep)
+            if key in done:
+                continue
+            sev_floor = None if b.severity_floor is None else b.severity_floor.name.lower()
+            io.append_jsonl(
+                path,
+                {
+                    "judge": "rule-lookup",
+                    "context": "subtype",
+                    "id": b.cid,
+                    "rep": rep,
+                    "group": b.spec["group"],
+                    "injection": b.spec.get("injection"),
+                    "tier_floor": b.gate1.floor_tier.name.lower(),
+                    "severity_floor": sev_floor,
+                    "subtype": code,
+                    "h": h,
+                    "tier": TIERS[h],
+                    "severity": SEVERITIES[h] if sev_floor is not None else None,
+                    "p_tier": None,
+                    "p_sev": None,
+                    "error": None,
+                    "seconds": None,
+                    "meta": io.run_meta(),
+                },
+            )
+            written += 1
+    return written
+
+
 def collect_labels() -> int:
     path = RAW / "labels_draft.jsonl"
     if io.done_keys(path, ("kind",)):
@@ -121,7 +203,9 @@ def main() -> None:
         return
     n_l = collect_local()
     n_b = collect_labels()
-    print(f"wrote local_answers={n_l} labels={n_b} -> {RAW}")
+    n_o = collect_observations()
+    n_r = collect_rule()
+    print(f"wrote local_answers={n_l} labels={n_b} observations={n_o} rule={n_r} -> {RAW}")
 
 
 if __name__ == "__main__":
