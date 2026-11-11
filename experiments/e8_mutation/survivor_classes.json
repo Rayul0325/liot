@@ -1,0 +1,477 @@
+[
+ {
+  "class": "safety_gap",
+  "mutant_id": "liot/core/egress_gate.py:115:19:cond_negate:0254aae6",
+  "note": "엔티티 형태(light.living_room) 검사가 list/tuple 안 문자열을 못 봐도 아무 테스트도 안 깨진다 (LLM 송신 경로)"
+ },
+ {
+  "class": "safety_gap",
+  "mutant_id": "liot/core/egress_gate.py:116:20:guard_removal:9d4e1e23",
+  "note": "list/tuple 안을 훑는 분기 전체가 한 번도 실행되지 않는다 (송신 검사의 사각지대)"
+ },
+ {
+  "class": "safety_gap",
+  "mutant_id": "liot/core/egress_gate.py:116:27:return_const:6eef6648",
+  "note": "list/tuple 안을 훑는 분기 전체가 한 번도 실행되지 않는다 (송신 검사의 사각지대)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/core/egress_gate.py:140:12:guard_removal:9d4e1e23",
+  "note": "같은 실명이 항상 같은 가명을 받는다는 성질을 검사하는 테스트가 없다 (유출 아님, 일관성)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/core/egress_gate.py:169:12:guard_removal:9d4e1e23",
+  "note": "별칭표가 비면 원문 반환 — 지워도 뒤의 반복문이 비어 있어 끝에서 같은 원문을 돌려준다"
+ },
+ {
+  "class": "safety_gap",
+  "mutant_id": "liot/core/egress_gate.py:208:8:guard_removal:9d4e1e23",
+  "note": "가명화가 tuple 은 건드리지 않아도 안 깨진다 — tuple 안 실명이 가명화 없이 나갈 수 있다 (테스트 없음)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/core/egress_gate.py:229:64:num_const:da4b9237",
+  "note": "이미 소수 한 자리로 맞춘 값을 소수 둘째 자리로 다시 반올림 — 결과가 같다"
+ },
+ {
+  "class": "safety_gap",
+  "mutant_id": "liot/core/egress_gate.py:234:8:guard_removal:9d4e1e23",
+  "note": "좌표 일반화(0.1도 격자)가 list 안 좌표를 건드리지 않아도 안 깨진다 — 위치 정밀도 유출 가능 (테스트 없음)"
+ },
+ {
+  "class": "safety_gap",
+  "mutant_id": "liot/core/egress_gate.py:315:8:guard_removal:9d4e1e23",
+  "note": "송신처 허용 목록 밖이면 막는 가드가 한 번도 실행되지 않는다 (송신 게이트의 핵심 거부 경로)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/core/egress_gate.py:318:8:guard_removal:9d4e1e23",
+  "note": "payload 가 dict 가 아닐 때의 거부 — 지워도 다음 줄에서 예외가 나서 닫힌 채로 실패한다 (예외 종류만 다름)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/core/risk.py:44:12:guard_removal:9d4e1e23",
+  "note": "RiskTier 는 IntEnum 이라 isinstance(int) 분기가 같은 값을 돌려준다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/core/risk.py:103:26:cmp_boundary:091385be",
+  "note": "max(cur,target) 에서 같을 때 어느 쪽을 돌려줘도 값이 같다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/core/severity.py:95:12:guard_removal:9d4e1e23",
+  "note": "SeverityLevel 은 IntEnum 이라 isinstance(int) 분기가 같은 값을 돌려준다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/core/severity.py:136:26:cmp_boundary:091385be",
+  "note": "max(cur,target) 에서 같을 때 어느 쪽을 돌려줘도 값이 같다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/core/severity.py:325:15:return_const:6eef6648",
+  "note": "situation() 은 운영 코드가 부르지 않고 테스트도 안 부른다 (죽은 조회 API)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/core/severity.py:392:8:guard_removal:9d4e1e23",
+  "note": "표가 매핑이 아닐 때 — 지워도 다음 줄에서 AttributeError 로 닫힌 채 실패 (예외 종류만 다름)"
+ },
+ {
+  "class": "safety_gap",
+  "mutant_id": "liot/core/severity.py:394:7:bool_swap:d388f8ee",
+  "note": "표 행 검사의 '중복 키' 반쪽이 약해져도 안 깨진다 — 같은 행이 두 번 있으면 뒤 값이 앞 값을 조용히 덮는다 (파급도 하한 표)"
+ },
+ {
+  "class": "safety_gap",
+  "mutant_id": "liot/core/severity.py:395:8:guard_removal:9d4e1e23",
+  "note": "표에 행이 모자라거나 남아도(중복 포함) 받아들이는 가드를 지워도 안 깨진다 (파급도 하한 표 검증)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/core/severity.py:402:12:guard_removal:9d4e1e23",
+  "note": "표의 행이 매핑이 아닐 때 — 지워도 AttributeError 로 닫힌 채 실패"
+ },
+ {
+  "class": "safety_gap",
+  "mutant_id": "liot/core/severity.py:404:11:bool_swap:283a2fc1",
+  "note": "표 열 검사의 '중복 키' 반쪽이 약해져도 안 깨진다 — 같은 열이 두 번 있으면 뒤 값이 앞 값을 덮는다"
+ },
+ {
+  "class": "safety_gap",
+  "mutant_id": "liot/core/severity.py:405:12:guard_removal:9d4e1e23",
+  "note": "표 열이 모자라거나 남아도(중복 포함) 받아들이는 가드를 지워도 안 깨진다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/core/severity.py:418:7:bool_swap:311d17b7",
+  "note": "abnormal_when 이 'above' 없는 매핑일 때 — KeyError 로 닫힌 채 실패 (예외 종류만 다름)"
+ },
+ {
+  "class": "safety_gap",
+  "mutant_id": "liot/core/severity.py:421:12:bool_swap:362a7c1a",
+  "note": "임계값이 bool·문자열·NaN·inf 인 설정을 막는 검사가 통째로 비어도 안 깨진다 — inf 임계값이면 '이상' 판정이 영영 안 나서 안전 알림이 침묵할 수 있다(NaN 은 오히려 항상 이상으로 판정돼 시끄러울 뿐)"
+ },
+ {
+  "class": "safety_gap",
+  "mutant_id": "liot/core/severity.py:425:12:guard_removal:9d4e1e23",
+  "note": "임계값이 유한한 숫자가 아닐 때 거부하는 가드를 지워도 안 깨진다 (위와 같은 경로: inf 임계값 → 침묵 가능)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/core/severity.py:434:8:guard_removal:9d4e1e23",
+  "note": "situations 가 매핑이 아닐 때 — 지워도 닫힌 채 실패 (예외 종류만 다름)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/core/severity.py:445:12:guard_removal:9d4e1e23",
+  "note": "situations 행이 매핑이 아닐 때 — 지워도 닫힌 채 실패 (예외 종류만 다름)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/core/severity.py:475:8:guard_removal:9d4e1e23",
+  "note": "최상위 문서가 매핑이 아닐 때 — 지워도 닫힌 채 실패 (예외 종류만 다름)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/core/severity.py:476:7:bool_swap:d7d5cf1d",
+  "note": "table/situations 중 하나만 빠진 경우 — KeyError 로 닫힌 채 실패 (예외 종류만 다름)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/core/severity.py:477:8:guard_removal:9d4e1e23",
+  "note": "table/situations 가 없을 때 — KeyError 로 닫힌 채 실패 (예외 종류만 다름)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/guardrail.py:202:34:cond_negate:18c05253",
+  "note": "Gate1 판정 설명 문자열(감사용)의 block/allow 표기 — 판정 값은 안 바뀐다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/guardrail.py:203:61:cond_negate:39ec46cd",
+  "note": "Gate1 판정 설명 문자열(감사용)의 규칙 목록 표기 — 판정 값은 안 바뀐다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:136:21:num_const:93ec1d5b",
+  "note": "FakeLLM(시험용 가짜 모델)이 돌려주는 confidence 값 — 하한 합성에 쓰이지 않는다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:136:21:num_const:93693136",
+  "note": "FakeLLM(시험용 가짜 모델)이 돌려주는 confidence 값 — 하한 합성에 쓰이지 않는다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:136:21:num_const:21de356b",
+  "note": "FakeLLM(시험용 가짜 모델)이 돌려주는 confidence 값 — 하한 합성에 쓰이지 않는다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:136:28:bool_swap:23ec171b",
+  "note": "FakeLLM(시험용 가짜 모델)이 돌려주는 confidence 값 — 하한 합성에 쓰이지 않는다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:136:28:cond_negate:b88e2c14",
+  "note": "FakeLLM(시험용 가짜 모델)이 돌려주는 confidence 값 — 하한 합성에 쓰이지 않는다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:136:37:cmp_identity:2babff97",
+  "note": "FakeLLM(시험용 가짜 모델)이 돌려주는 confidence 값 — 하한 합성에 쓰이지 않는다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:136:68:cmp_eq:d066fc08",
+  "note": "FakeLLM(시험용 가짜 모델)이 돌려주는 confidence 값 — 하한 합성에 쓰이지 않는다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:136:91:num_const:e8dc057d",
+  "note": "FakeLLM(시험용 가짜 모델)이 돌려주는 confidence 값 — 하한 합성에 쓰이지 않는다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:136:91:num_const:aa8f289e",
+  "note": "FakeLLM(시험용 가짜 모델)이 돌려주는 confidence 값 — 하한 합성에 쓰이지 않는다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:136:91:num_const:3d46e9a5",
+  "note": "FakeLLM(시험용 가짜 모델)이 돌려주는 confidence 값 — 하한 합성에 쓰이지 않는다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:219:12:guard_removal:9d4e1e23",
+  "note": "객체가 아니면 LLMUnavailable — 지워도 다음 줄의 data['tier'] 가 TypeError 를 내고 같은 LLMUnavailable 로 바뀐다 (메시지만 다름)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:222:54:num_const:3d46e9a5",
+  "note": "모델이 confidence 를 빼먹었을 때의 기본값 0.5 — 하한 합성에 쓰이지 않는다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:222:54:num_const:e8dc057d",
+  "note": "모델이 confidence 를 빼먹었을 때의 기본값 0.5 — 하한 합성에 쓰이지 않는다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:222:54:num_const:aa8f289e",
+  "note": "모델이 confidence 를 빼먹었을 때의 기본값 0.5 — 하한 합성에 쓰이지 않는다"
+ },
+ {
+  "class": "safety_gap",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:257:20:bool_swap:9eacca29",
+  "note": "안전 판단의 두 신호(gate1.safety_critical, 카테고리)가 하나만 참인 경우를 시험하는 테스트가 없다 — 모델 불가(degraded) 때 EMBER 유지가 이 한 줄에 달려 있다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:291:57:num_const:b6589fc6",
+  "note": "모델 불가 + 비안전일 때 '한 단계 승격' 이 사라져도 안 깨진다 (보수적 승격, 하한은 그대로)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:297:25:num_const:e8dc057d",
+  "note": "모델 불가 결과의 confidence=0.0 — 하한 합성에 쓰이지 않는다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l3_judgment/llm_judge.py:297:25:num_const:6406eb07",
+  "note": "모델 불가 결과의 confidence=0.0 — 하한 합성에 쓰이지 않는다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/escalation.py:32:3:cond_negate:d0093ae0",
+  "note": "TYPE_CHECKING 블록(타입 전용 import) — 뒤집어도 실행 동작이 같다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/escalation.py:74:36:num_const:a33beb13",
+  "note": "사다리 루프 해상도 5초 — 4초로 바꿔도 안 깨진다 (명세 시각 검증은 E7)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/escalation.py:76:51:num_const:7719a1c7",
+  "note": "전송 실패 뒤 재시도 간격 30초 — 29초로 바꿔도 안 깨진다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/escalation.py:179:31:cmp_boundary:8a681a2f",
+  "note": "now == opened 일 때 due = 0 // interval = 0 이라 같다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/escalation.py:237:51:cmp_boundary:6c22e68f",
+  "note": "안내 시각이 딱 지금일 때 재시도 간격만큼 밀리는 경계 / 밀 방향(+→-) 을 시험하는 테스트가 없다 (재시도 간격 위반, 침묵은 아님)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/escalation.py:237:66:arith_swap:3bc15c8a",
+  "note": "안내 시각이 딱 지금일 때 재시도 간격만큼 밀리는 경계 / 밀 방향(+→-) 을 시험하는 테스트가 없다 (재시도 간격 위반, 침묵은 아님)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/escalation.py:302:24:num_const:da4b9237",
+  "note": "SituationInfo.home_id / closed_at 필드 값을 검사하는 테스트가 없다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/escalation.py:302:24:num_const:b6589fc6",
+  "note": "SituationInfo.home_id / closed_at 필드 값을 검사하는 테스트가 없다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/escalation.py:306:54:num_const:1b645389",
+  "note": "SituationInfo.home_id / closed_at 필드 값을 검사하는 테스트가 없다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/escalation.py:306:54:num_const:c1dfd96e",
+  "note": "SituationInfo.home_id / closed_at 필드 값을 검사하는 테스트가 없다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/escalation.py:324:7:bool_swap:11e21cb7",
+  "note": "제안이 하나도 없을 때(None 반환) 경로를 시험하는 테스트가 없다 — 지금은 int(None) 오류가 날 것"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/escalation.py:324:26:num_const:eb883130",
+  "note": "제안이 하나도 없을 때(None 반환) 경로를 시험하는 테스트가 없다 — 지금은 int(None) 오류가 날 것"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/escalation.py:325:8:guard_removal:9d4e1e23",
+  "note": "제안이 하나도 없을 때(None 반환) 경로가 한 번도 실행되지 않는다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/escalation.py:326:42:num_const:eb883130",
+  "note": "한 열짜리 결과라 row[-1] 과 row[0] 이 같다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/escalation.py:343:44:num_const:eb883130",
+  "note": "한 열짜리 결과라 row[-1] 과 row[0] 이 같다"
+ },
+ {
+  "class": "safety_gap",
+  "mutant_id": "liot/layers/l4_execution/executor.py:303:12:guard_removal:9d4e1e23",
+  "note": "허용 목록엔 있으나 HA 서비스로 매핑 안 된 기능을 막는 거부가 한 번도 실행되지 않는다 (작동기 호출 게이트)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/feedback_gateway.py:20:3:cond_negate:d0093ae0",
+  "note": "TYPE_CHECKING 블록(타입 전용 import) — 뒤집어도 실행 동작이 같다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/feedback_gateway.py:155:12:guard_removal:9d4e1e23",
+  "note": "모르는 액션 이름 거부 — 지워도 서명 검증/KeyError 에서 막힌다 (예외 종류만 다름)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/intervention.py:40:12:num_const:eb883130",
+  "note": "확인 강도 순서는 상대 비교뿐이라 값 하나의 평행 이동은 결과가 같다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/intervention.py:42:16:num_const:77de68da",
+  "note": "explicit 과 double 이 같은 순위가 돼도 결과 문자열이 같다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/intervention.py:43:14:num_const:da4b9237",
+  "note": "double 의 숫자만 바뀌어도 explicit 보다 크면 결과가 같다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/intervention.py:43:14:num_const:c1dfd96e",
+  "note": "double 의 숫자만 바뀌어도 explicit 보다 크면 결과가 같다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/intervention.py:43:14:num_const:1b645389",
+  "note": "double 의 숫자만 바뀌어도 explicit 보다 크면 결과가 같다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/intervention.py:79:36:cmp_boundary:091385be",
+  "note": "기준선과 같을 때 base 든 baseline 이든 같은 문자열"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:42:3:cond_negate:d0093ae0",
+  "note": "TYPE_CHECKING 블록(타입 전용 import) — 뒤집어도 실행 동작이 같다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:62:20:num_const:356a192b",
+  "note": "_DEDUP_WINDOW_SEC 는 어디서도 읽지 않는 죽은 상수 (창은 서비스가 계산)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:62:20:num_const:77de68da",
+  "note": "_DEDUP_WINDOW_SEC 는 어디서도 읽지 않는 죽은 상수 (창은 서비스가 계산)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:62:20:num_const:1b645389",
+  "note": "_DEDUP_WINDOW_SEC 는 어디서도 읽지 않는 죽은 상수 (창은 서비스가 계산)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:62:24:num_const:6c1e671f",
+  "note": "_DEDUP_WINDOW_SEC 는 어디서도 읽지 않는 죽은 상수 (창은 서비스가 계산)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:62:24:num_const:775bc5c3",
+  "note": "_DEDUP_WINDOW_SEC 는 어디서도 읽지 않는 죽은 상수 (창은 서비스가 계산)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:62:24:num_const:5a5b0f9b",
+  "note": "_DEDUP_WINDOW_SEC 는 어디서도 읽지 않는 죽은 상수 (창은 서비스가 계산)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:62:29:num_const:5a5b0f9b",
+  "note": "_DEDUP_WINDOW_SEC 는 어디서도 읽지 않는 죽은 상수 (창은 서비스가 계산)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:62:29:num_const:775bc5c3",
+  "note": "_DEDUP_WINDOW_SEC 는 어디서도 읽지 않는 죽은 상수 (창은 서비스가 계산)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:62:29:num_const:6c1e671f",
+  "note": "_DEDUP_WINDOW_SEC 는 어디서도 읽지 않는 죽은 상수 (창은 서비스가 계산)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:63:22:num_const:7719a1c7",
+  "note": "_REJECT_WINDOW_DAYS 는 어디서도 읽지 않는 죽은 상수 (창은 서비스가 계산)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:63:22:num_const:63266754",
+  "note": "_REJECT_WINDOW_DAYS 는 어디서도 읽지 않는 죽은 상수 (창은 서비스가 계산)"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:63:22:num_const:e6c3dd63",
+  "note": "_REJECT_WINDOW_DAYS 는 어디서도 읽지 않는 죽은 상수 (창은 서비스가 계산)"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:70:24:num_const:ac3478d6",
+  "note": "NotificationBudget 기본값 6 — 운영(service)은 값을 직접 넘기고 기본값은 시연만 쓴다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:70:24:num_const:7b52009b",
+  "note": "NotificationBudget 기본값 6 — 운영(service)은 값을 직접 넘기고 기본값은 시연만 쓴다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:70:24:num_const:902ba3cd",
+  "note": "NotificationBudget 기본값 6 — 운영(service)은 값을 직접 넘기고 기본값은 시연만 쓴다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:158:32:cmp_boundary:8a681a2f",
+  "note": "EMBER 는 bypass 라서 '<' 든 '<=' 든 IMMEDIATE 로 같다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:185:8:guard_removal:9d4e1e23",
+  "note": "RiskTier 는 IntEnum 이라 뒤의 int(value) 분기가 같은 값을 돌려준다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:288:14:bool_swap:15451b4b",
+  "note": "gate_pipeline 이 now 를 읽지 않는다고 코드에 적혀 있다 — now 를 바꿔도 결과가 같다"
+ },
+ {
+  "class": "equivalent",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:333:14:bool_swap:15451b4b",
+  "note": "gate_pipeline 이 now 를 읽지 않는다고 코드에 적혀 있다 — now 를 바꿔도 결과가 같다"
+ },
+ {
+  "class": "untested",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:336:12:guard_removal:9d4e1e23",
+  "note": "IMMEDIATE 가 아닌 결정에도 페이로드를 만들고 예산을 깎아도 안 깨진다 (호출자가 decision 을 다시 검사해 외부 영향은 없으나 예산이 새어 비안전 알림이 묶임)"
+ },
+ {
+  "class": "safety_gap",
+  "mutant_id": "liot/layers/l4_execution/notifier.py:378:15:bool_swap:e424d13c",
+  "note": "보호자 확인 링크를 situation_id 와 guardian_id 가 둘 다 있을 때만 만든다는 계약을 시험하는 테스트가 없다 (보호자 전용 링크 서명)"
+ }
+]
