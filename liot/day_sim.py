@@ -37,7 +37,7 @@ import shutil
 import tempfile
 import threading
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -66,7 +66,7 @@ from liot.db.database import init_db
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l2_context.evaluator import CandidateEvaluator
 from liot.layers.l2_context.external_provider import FakeExternalProvider
-from liot.layers.l2_context.feature_vector import NEUTRAL_PREF, load_cells
+from liot.layers.l2_context.feature_vector import NEUTRAL_PREF, load_cells, save_cells
 from liot.layers.l2_context.feedback_store import InMemoryFeedbackStore, candidate_key
 from liot.layers.l2_context.proactive import (
     PROACTIVE_TIER_CEILING,
@@ -92,13 +92,17 @@ from liot.service import DispatchResult, LiotService
 __all__ = [
     "HOME_TZ",
     "MAX_DAYS",
+    "MAX_DAYS_DIRECT",
     "MAX_PACE_MS",
     "MODELS",
     "PERSONAS",
     "SCENES",
+    "CONFIRMATION_EFFORT",
     "DayRequest",
     "DayRuns",
     "DaySim",
+    "SceneTaste",
+    "StochasticResident",
     "build_script",
     "parse_day_request",
 ]
@@ -141,6 +145,106 @@ TRAY_REVIEW_AT = "22:00"
 TRAY_PERSONAS: dict[str, dict[str, str]] = {
     "default": {"bedtime": "accepted", "desk_light": "coin"},
 }
+
+# 직접 파이썬 호출(연구용)의 날 수 상한. HTTP 경로는 MAX_DAYS(7)를 그대로 쓴다.
+MAX_DAYS_DIRECT = 60
+# 확인 강도가 거주자에게 드는 수고 단위(none < light < explicit < double).
+CONFIRMATION_EFFORT: dict[str, int] = {"none": 0, "light": 1, "explicit": 2, "double": 3}
+
+
+@dataclass(frozen=True)
+class SceneTaste:
+    """한 장면에 대한 거주자의 속마음: 보고 반응할 때 [도움됐어요]·[그만해]를 고를 확률.
+
+    나머지(1 - accept - dismiss)는 보고도 누르지 않는 쪽이다. accept >= 0.5 이면 그 장면은
+    '도움이 되는 제안'(속마음 기준 정답)이다.
+    """
+
+    accept: float
+    dismiss: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not (0.0 <= self.accept <= 1.0 and 0.0 <= self.dismiss <= 1.0
+                and self.accept + self.dismiss <= 1.0 + 1e-9):
+            raise ValueError("accept·dismiss 는 0~1 이고 합이 1 을 넘으면 안 됩니다.")
+
+    @property
+    def helpful(self) -> bool:
+        return self.accept >= 0.5
+
+
+@dataclass(frozen=True)
+class StochasticResident:
+    """확률적 가상 거주자(연구용, 기본 꺼짐). 옛 성향 표(``PERSONAS``)는 그대로 둔다.
+
+    폰 알림(IMMEDIATE) 하나가 오면 순서대로:
+      1. 알아챔 — ``attention × 피로계수``. 피로계수 = ``1 / (1 + fatigue × 부하)``,
+         부하 = 최근 알림 수 + 확인 수고(``CONFIRMATION_EFFORT``)의 지수 감쇠 합(반감기
+         ``load_half_life_steps`` 단계). ``fatigue = 0`` 이면 피로가 없다.
+      2. 수고 — 누르려면 ``max(0, 1 - effort_cost × 수고단위)`` 만큼만 실제로 누른다.
+         확인 강도가 센 제안(explicit·double)일수록 덜 눌린다. ``effort_cost = 0`` 이면 무관.
+      3. 속마음 — 장면별 ``SceneTaste`` 로 [도움됐어요]·[그만해]·누르지 않음.
+      4. 지연 — ``latency_pmf[k-1]`` = k 단계(15분) 뒤에 누를 확률(k >= 1). 제안이 그 전에
+         만료되면 누르지 않은 것과 같다.
+    모아보기(DIGEST)는 22시에 ``tray_open × 피로계수`` 로 열고, 항목마다 2·3 을 거친다.
+    ``flip_day`` 일째부터는 ``tastes_after`` 의 장면만 속마음이 바뀐다(선호 뒤집기).
+    난수는 사건마다 ``random.Random(f"{seed}:resident:...")`` 로 따로 뽑는다(기존 ``:script``·
+    ``:persona`` 흐름은 건드리지 않고, 팔마다 같은 사건이 같은 난수를 받는다).
+    """
+
+    tastes: Mapping[str, SceneTaste]
+    attention: float = 0.9
+    latency_pmf: tuple[float, ...] = (0.5, 0.25, 0.15, 0.1)
+    fatigue: float = 0.15
+    effort_cost: float = 0.12
+    load_half_life_steps: float = 16.0
+    tray_open: float = 0.8
+    flip_day: int | None = None
+    tastes_after: Mapping[str, SceneTaste] | None = None
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.attention <= 1.0 or not 0.0 <= self.tray_open <= 1.0:
+            raise ValueError("attention·tray_open 은 0~1 이어야 합니다.")
+        if self.fatigue < 0.0 or not 0.0 <= self.effort_cost <= 0.33:
+            raise ValueError("fatigue 는 0 이상, effort_cost 는 0~0.33 이어야 합니다.")
+        if self.load_half_life_steps <= 0.0:
+            raise ValueError("load_half_life_steps 는 양수여야 합니다.")
+        if not self.latency_pmf or abs(sum(self.latency_pmf) - 1.0) > 1e-9 \
+                or any(q < 0.0 for q in self.latency_pmf):
+            raise ValueError("latency_pmf 는 음수가 없고 합이 1 이어야 합니다.")
+        if (self.flip_day is None) != (self.tastes_after is None):
+            raise ValueError("flip_day 와 tastes_after 는 함께 줘야 합니다.")
+
+    def taste(self, scene: str | None, day: int) -> SceneTaste:
+        """그날(1부터) 이 장면에 대한 속마음. 모르는 장면은 늘 누르지 않는다."""
+        table = self.tastes
+        if self.flip_day is not None and self.tastes_after is not None and day >= self.flip_day:
+            table = {**self.tastes, **self.tastes_after}
+        return table.get(scene or "", SceneTaste(0.0))
+
+    def helpful(self, scene: str | None, day: int) -> bool:
+        return self.taste(scene, day).helpful
+
+    def latency_steps(self, u: float) -> int:
+        """균등 난수 u → 응답 지연(단계, 1 이상)."""
+        acc = 0.0
+        for k, q in enumerate(self.latency_pmf, start=1):
+            acc += q
+            if u < acc:
+                return k
+        return len(self.latency_pmf)
+
+    def to_dict(self) -> dict[str, Any]:
+        def tab(t: Mapping[str, SceneTaste] | None) -> dict[str, Any] | None:
+            return None if t is None else {k: {"accept": v.accept, "dismiss": v.dismiss}
+                                           for k, v in sorted(t.items())}
+        return {
+            "tastes": tab(self.tastes), "attention": self.attention,
+            "latency_pmf": list(self.latency_pmf), "fatigue": self.fatigue,
+            "effort_cost": self.effort_cost, "load_half_life_steps": self.load_half_life_steps,
+            "tray_open": self.tray_open, "flip_day": self.flip_day,
+            "tastes_after": tab(self.tastes_after),
+        }
 
 # 화면이 계산하지 않도록 서버가 붙이는 한국어 문구.
 _DECISION_KO = {"IMMEDIATE": "바로 폰 알림", "DIGEST": "모아보기", "SUPPRESS": "보내지 않음"}
@@ -763,10 +867,53 @@ class DaySim:
     luna_results: list[dict[str, Any]] = field(default_factory=list)
     # 시연용 단계 기록(trace 사건). 끄면(기본) 사건·요약이 예전과 같다.
     trace: bool = False
+    # 연구용 옵션(전부 기본 꺼짐 — 하나도 안 켜면 사건·요약이 예전과 바이트까지 같다).
+    condition: str | None = None  # "A"|"B": LiotApp 의 개입 조건(None = 앱 기본)
+    resident: StochasticResident | None = None  # None = 옛 성향 표(PERSONAS)
+    learning_rate: float | None = None  # 선호 EMA 학습률 재정의(None = 0.3, 0 = 학습 없음)
+    decay_rate: float | None = None  # 선호 시간감쇠율 재정의(None = 0.05)
+    permanent_block_on_dismiss: bool = False  # [그만해] 뒤 같은 류를 실행 끝까지 쉼
+    reject_window_days: int | None = None  # [그만해] 뒤 쉬는 일수 재정의(None = 30, 0 = 안 쉼)
+    # 탐색 재제안: N 일마다(N, 2N, ...일째) 그날 하루만 쉬는 창을 걷고 부정 쪽으로 학습된 선호 셀
+    # (0.45 이하)을 중립으로 되돌린다 — 막힌 제안을 가끔 다시 물어보는 대안(None = 안 함).
+    explore_every_days: int | None = None
+    research: bool = False  # 다른 옵션 없이도 연구 기록(첫 알림 시간·기회 기록)을 켠다
 
     def __post_init__(self) -> None:
         if self.persona not in PERSONAS:
             raise ValueError(f"unknown persona {self.persona!r}")
+        if self.days > MAX_DAYS_DIRECT:
+            raise ValueError(f"days 는 {MAX_DAYS_DIRECT} 이하여야 합니다.")
+        if self.condition is not None:
+            self.condition = self.condition.strip().upper()
+            if self.condition not in ("A", "B"):
+                raise ValueError(f"unknown condition {self.condition!r}")
+        if self.learning_rate is not None and not 0.0 <= self.learning_rate <= 1.0:
+            raise ValueError("learning_rate 는 0~1 이어야 합니다.")
+        if self.decay_rate is not None and not 0.0 <= self.decay_rate <= 1.0:
+            raise ValueError("decay_rate 는 0~1 이어야 합니다.")
+        if self.reject_window_days is not None and self.reject_window_days < 0:
+            raise ValueError("reject_window_days 는 0 이상이어야 합니다.")
+        if self.explore_every_days is not None and self.explore_every_days < 1:
+            raise ValueError("explore_every_days 는 1 이상이어야 합니다.")
+        if self.permanent_block_on_dismiss and self.reject_window_days is not None:
+            raise ValueError("permanent_block_on_dismiss 와 reject_window_days 는 함께 못 씁니다.")
+        if self.resident is not None and self.models == "cloud":
+            raise ValueError("확률적 거주자는 fake 모드에서만 씁니다(cloud 는 자체 거주자 모델).")
+        self._research = bool(
+            self.research or self.condition is not None or self.resident is not None
+            or self.learning_rate is not None or self.decay_rate is not None
+            or self.permanent_block_on_dismiss or self.reject_window_days is not None
+            or self.explore_every_days is not None
+        )
+        self._tick_n = 0
+        self._explore_days: list[int] = []
+        self.pref_trace: list[tuple[int, dict[str, float]]] = []  # 연구용: 날마다 끝의 선호 셀
+        self._load_val = 0.0
+        self._load_tick = 0
+        self._resident_due: list[tuple[int, str, str]] = []
+        self.resident_log: list[dict[str, Any]] = []
+        self.opportunities: list[dict[str, Any]] = []
         if self.models not in MODELS:
             raise ValueError(f"unknown models {self.models!r}")
         if self.models == "cloud" and self.cloud is None:
@@ -837,6 +984,19 @@ class DaySim:
             "proposals": [dict(p) for p in self.proposals],
             "safety": [dict(s) for s in self.safety_events],
         }
+        if self._research:
+            out["research"] = {
+                "condition": self.condition,
+                "learning_rate": self.learning_rate,
+                "decay_rate": self.decay_rate,
+                "reject_window_days": self._reject_window(),
+                "explore_every_days": self.explore_every_days,
+                "explore_days": list(self._explore_days),
+                "resident": None if self.resident is None else self.resident.to_dict(),
+                "pref_cells": [{"day": d, "cells": dict(c)} for d, c in self.pref_trace],
+                "resident_log": [dict(r) for r in self.resident_log],
+                "opportunities": [dict(o) for o in self.opportunities],
+            }
         if self._kit is not None:
             out["models"] = self._models_view(self._kit)
             out["memory"] = [dict(m) for m in self.memory_events]
@@ -844,6 +1004,25 @@ class DaySim:
             out["luna"] = [{k: v for k, v in r.items() if self.trace or k != "entity_id"}
                            for r in self.luna_results]
         return out
+
+    def _reject_window(self) -> int:
+        """[그만해] 뒤 같은 류를 쉬는 일수(출하값 30)."""
+        if self.permanent_block_on_dismiss:
+            return 36500  # 실행 기간보다 훨씬 긴 창 = 영구 차단
+        return 30 if self.reject_window_days is None else self.reject_window_days
+
+    async def _explore_day(self, svc: LiotService, day: int) -> None:
+        """탐색 재제안일: 쉬는 창을 하루 걷고 부정 학습 셀을 중립으로 되돌린다(아니면 창을 되돌린다)."""
+        assert self.explore_every_days is not None
+        if day % self.explore_every_days != 0:
+            svc.reject_window_days = self._reject_window()
+            return
+        self._explore_days.append(day)
+        svc.reject_window_days = 0
+        cells = await load_cells(svc.prefs)
+        reset = {k: (NEUTRAL_PREF if v <= 0.45 else v) for k, v in cells.items()}
+        if reset != cells:
+            await save_cells(svc.prefs, reset, updated_at=svc.clock.now_utc())
 
     @property
     def _kit(self) -> CloudKit | None:
@@ -887,6 +1066,8 @@ class DaySim:
             generator.recorder = rec
             timed = {"guardrail": _TimedGuardrail(rec),
                      "evaluator": _TimedEvaluator(rec, catalog=catalog)}
+        if self.condition is not None:
+            timed["condition"] = self.condition  # 연구 조건 A/B(demo_server 와 같은 방식으로 앱에 넘김)
         app = LiotApp(
             clock=clock,
             catalog=catalog,
@@ -909,6 +1090,13 @@ class DaySim:
                           secret=secret,
                           phase2_deadline_s=None if self._kit is None else CLOUD_PHASE2_DEADLINE_S)
         self._svc = svc
+        if self.learning_rate is not None:
+            svc.pref_alpha = self.learning_rate
+        if self.decay_rate is not None:
+            svc.pref_decay = self.decay_rate
+        window = self._reject_window()
+        if window != 30:
+            svc.reject_window_days = window
 
         async def out(stage: str, data: dict[str, Any]) -> None:
             # 모든 사건에 지금 시각(가상)을 붙인다 — 화면의 시계는 이 값만 쓴다.
@@ -927,6 +1115,8 @@ class DaySim:
         if rec is not None:
             self._trace_emit = out_trace
             transport.sent_at = {}
+        elif self._research:
+            transport.sent_at = {}  # 첫 알림 시간(first_alert_ms)을 재려고 송신 시각을 적는다
 
         last: dict[str, Any] = {}
         try:
@@ -948,6 +1138,8 @@ class DaySim:
                         "metrics": dict(metrics),
                     },
                 )
+                if self.explore_every_days is not None:
+                    await self._explore_day(svc, plan.day)
                 if self._kit is not None:
                     self._usage_mark = self._usage_totals(self._kit.meter.summary())
                 if self._kit is not None and plan is plans[0]:
@@ -961,6 +1153,8 @@ class DaySim:
                     await self._step(svc, app, generator, weather, transport, step, last, out,
                                      secret)
                 self._finish_day(metrics)
+                if self._research:
+                    self.pref_trace.append((plan.day, await load_cells(svc.prefs)))
                 end: dict[str, Any] = {"day": plan.day, "partial": stopped, "metrics": dict(metrics),
                                        "line_ko": f"{plan.day}일차가 끝났어요"}
                 if self._kit is not None:
@@ -994,6 +1188,7 @@ class DaySim:
         at = step.at_local
         hhmm = at.strftime("%H:%M")
         self._clock_ko = f"{step.day}일차 {hhmm}"
+        self._tick_n += 1
         self.log.append(("step", (step.day, hhmm)))
         if self._rec is not None:
             self._rec.begin_step()
@@ -1052,6 +1247,8 @@ class DaySim:
                 self._pref_tick = (self._pref_tick[0], self._pref_tick[1],
                                    (await self._pref_cells(svc))[1])
         silence = self._silence(app, generator, result)
+        if self._research:
+            self._log_opportunity(app, generator, step, result, silence)
         # 같은 규칙이 같은 까닭으로 단계마다 건너뛰면 처음 한 번만 남긴다(타임라인이 넘치지 않게).
         key = None if silence is None else (tuple(silence["rules"]), silence["reason"])
         if key is not None and key == self._last_silence:
@@ -1238,7 +1435,11 @@ class DaySim:
             metrics["scenes"][scene] = metrics["scenes"].get(scene, 0) + 1
         if result.decision == "IMMEDIATE":
             metrics["pushes"] += 1
-            if self._kit is None:
+            if self._kit is None and self.resident is not None:
+                self._resident_push(sim_id, scene, p.required_confirmation, step,
+                                    rec["expires_at"], rec)
+                reaction = None
+            elif self._kit is None:
                 reaction = self._persona_reaction(scene)
             else:
                 reaction = await self._cloud_reaction(self._kit, sim_id, scene, title,
@@ -1263,6 +1464,124 @@ class DaySim:
             choice = "accepted" if self._rng.random() < 0.5 else "ignore"
         return None if choice == "ignore" else choice
 
+    # ── 확률적 거주자(연구용, resident 를 줬을 때만 불린다) ────────────────────
+
+    def _load_now(self) -> float:
+        r = self.resident
+        assert r is not None
+        return float(self._load_val * 0.5 ** ((self._tick_n - self._load_tick) / r.load_half_life_steps))
+
+    def _load_add(self, weight: float) -> None:
+        """알림·확인 부하를 더한다(옛 부하는 반감기만큼 줄어든 뒤)."""
+        if self.resident is None:
+            return
+        self._load_val = self._load_now() + weight
+        self._load_tick = self._tick_n
+
+    def _fatigue_factor(self) -> float:
+        r = self.resident
+        assert r is not None
+        return 1.0 / (1.0 + r.fatigue * self._load_now())
+
+    def _resident_react(self, channel: str, key: str, scene: str | None, day: int,
+                        confirmation: str, *, gate: float) -> tuple[str | None, dict[str, Any]]:
+        """한 사건에 대한 거주자의 반응(accepted·dismissed·None)과 그 근거.
+
+        ``gate`` = 알아채는(또는 모아보기를 여는) 확률의 바탕. 난수는 사건 열쇠마다 따로 뽑는다.
+        """
+        r = self.resident
+        assert r is not None
+        rng = random.Random(f"{self.seed}:resident:{channel}:{day}:{key}")
+        u_notice, u_act, u_react, u_lat = (rng.random() for _ in range(4))
+        load = self._load_now()
+        p_notice = gate * self._fatigue_factor()
+        effort = CONFIRMATION_EFFORT.get(confirmation, 0)
+        p_act = max(0.0, 1.0 - r.effort_cost * effort)
+        taste = r.taste(scene, day)
+        reaction: str | None = None
+        if u_notice < p_notice and u_act < p_act:
+            if u_react < taste.accept:
+                reaction = "accepted"
+            elif u_react < taste.accept + taste.dismiss:
+                reaction = "dismissed"
+        if reaction == "accepted":
+            self._load_add(float(effort))
+        elif reaction == "dismissed":
+            self._load_add(1.0)
+        info = {
+            "channel": channel, "day": day, "scene": scene, "confirmation": confirmation,
+            "load": round(load, 4), "p_notice": round(p_notice, 4), "p_act": round(p_act, 4),
+            "notices": u_notice < p_notice, "acts": u_notice < p_notice and u_act < p_act,
+            "helpful": taste.helpful, "reaction": reaction,
+            "latency_steps": r.latency_steps(u_lat),
+        }
+        return reaction, info
+
+    def _resident_push(self, sim_id: str, scene: str | None, confirmation: str,
+                       step: StepPlan, expires_at: str | None, rec: dict[str, Any]) -> None:
+        """폰 알림 하나에 대한 거주자의 반응을 정하고, 지연 단계 뒤에 누르도록 예약한다."""
+        r = self.resident
+        assert r is not None
+        hhmm = step.at_local.strftime("%H:%M")
+        reaction, info = self._resident_react("push", f"{hhmm}:{scene}", scene, step.day,
+                                              confirmation, gate=r.attention)
+        self._load_add(1.0)  # 알림 한 건이 폰에 떴다(눌렀든 아니든)
+        latency = int(info["latency_steps"])
+        info["expired_first"] = False
+        if reaction is not None and expires_at is not None:
+            due_at = step.at_local + latency * STEP
+            if due_at >= datetime.fromisoformat(expires_at):
+                info["expired_first"] = True  # 누르기 전에 만료 — 누르지 않은 것과 같다
+                reaction = None
+        info["id"] = sim_id
+        rec["resident"] = {k: info[k] for k in ("p_notice", "p_act", "reaction", "latency_steps",
+                                                 "expired_first")}
+        self.resident_log.append(info)
+        if reaction is not None:
+            self._resident_due.append((self._tick_n + latency, sim_id, reaction))
+
+    def _resident_tray_open(self, step: StepPlan) -> bool:
+        r = self.resident
+        assert r is not None
+        u = random.Random(f"{self.seed}:resident:trayopen:{step.day}").random()
+        opened = u < r.tray_open * self._fatigue_factor()
+        self.resident_log.append({"channel": "tray_open", "day": step.day, "opened": opened,
+                                  "load": round(self._load_now(), 4)})
+        return opened
+
+    def _resident_tray(self, t: _Tracked, step: StepPlan) -> str | None:
+        rec0 = self._records[t.sim_id]
+        reaction, info = self._resident_react(
+            "tray", f"{rec0['hhmm']}:{t.scene}", t.scene, step.day,
+            str(rec0["confirmation"]), gate=1.0)
+        info["id"] = t.sim_id
+        self.resident_log.append(info)
+        return reaction
+
+    def _log_opportunity(self, app: LiotApp, generator: _RecordingGenerator, step: StepPlan,
+                         result: DispatchResult | None, silence: dict[str, Any] | None) -> None:
+        """규칙이 성립한 틱마다 결과를 적는다(연구용: 도움될 제안이 왜 안 나갔는지 사후 분석)."""
+        d = generator.last_decision
+        matched = list(getattr(d, "matched_rule_ids", ()) or ())
+        if not matched:
+            return
+        winner = None if result is None else _rule_of(result.proposal.action.params)
+
+        def name(rid: str | None) -> str | None:
+            return None if rid is None else SCENES.get(rid, rid)
+
+        skipped = [] if result is None else [
+            {"scene": name(sk["rule_id"]), "reason": sk["reason"]}
+            for sk in self._skipped(app, generator, matched, winner)
+        ]
+        self.opportunities.append({
+            "day": step.day, "hhmm": step.at_local.strftime("%H:%M"),
+            "matched": [name(m) for m in matched], "winner": name(winner),
+            "decision": None if result is None else result.decision,
+            "silence": None if silence is None else silence["reason"],
+            "skipped": skipped,
+        })
+
     # ── 응답 적용(시뮬레이터 스레드, 단계 경계) ─────────────────────────────
 
     async def _apply_taps(
@@ -1283,6 +1602,10 @@ class DaySim:
             viewer.append((sim_id, signal, "viewer"))
         persona = [(sid, sig, "persona") for sid, sig in self._persona_due]
         self._persona_due = []
+        if self._resident_due:  # 확률적 거주자: 지연 단계가 찬 반응만 지금 누른다
+            persona += [(sid, sig, "persona") for due, sid, sig in self._resident_due
+                        if due <= self._tick_n]
+            self._resident_due = [x for x in self._resident_due if x[0] > self._tick_n]
         for sim_id, signal, source in viewer + persona:
             await self._tap(svc, step, sim_id, signal, source, out, secret)
 
@@ -1295,13 +1618,16 @@ class DaySim:
     ) -> None:
         """22시: 거주자가 모아보기를 연다. 아직 살아 있는 항목만 성향대로 누른다(만료는 그대로)."""
         table = TRAY_PERSONAS.get(self.persona, {})
+        opened = self._resident_tray_open(step) if self.resident is not None else True
         items: list[dict[str, Any]] = []
         for t in self._tracked.values():
             if t.kind != "comfort" or t.decision != "DIGEST" or t.day != step.day:
                 continue
             before = t.state
             reaction: str | None = None
-            if before == "pending" and self._kit is None:
+            if before == "pending" and self._kit is None and self.resident is not None:
+                reaction = self._resident_tray(t, step) if opened else None
+            elif before == "pending" and self._kit is None:
                 reaction = self._persona_reaction(t.scene, table)
             elif before == "pending" and self._kit is not None:
                 rec0 = self._records[t.sim_id]
@@ -1494,6 +1820,11 @@ class DaySim:
                    "guardian_forwarded": False,
                    "line_ko": f"{situation_ko} — 바로 경보를 보냈어요",
                    "metrics": dict(day_m)}
+            if self._research:
+                sent = (transport.sent_at or {}).get(p.proposal_id)
+                rec["first_alert_ms"] = (None if sent is None or t_read is None
+                                         else round((sent - t_read) * 1000.0, 3))
+            self._load_add(1.0)  # 안전 첫 알림도 폰에 뜬 알림이다(확률적 거주자의 피로 부하)
             self.safety_events.append(rec)
             await out("safety", rec)
             if self._rec is not None:

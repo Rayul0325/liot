@@ -179,6 +179,12 @@ class DispatchResult:
 class LiotService:
     """파이프라인 + 영속 + 알림 + 만료 + 피드백을 잇는 상시 서비스."""
 
+    # 연구용 재정의(기본 = 출하값, 운영 경로는 건드리지 않는다). 하루 시뮬레이터가 인스턴스에만
+    # 덮어쓴다: 선호 EMA 학습률·감쇠율, '그만해' 뒤 같은 류를 쉬는 일수(0 = 쉬지 않음).
+    pref_alpha: float | None = None
+    pref_decay: float | None = None
+    reject_window_days: int = 30
+
     def __init__(
         self,
         app: LiotApp,
@@ -317,7 +323,7 @@ class LiotService:
         charter = await self.prefs.get("charter_enabled", True)
         muted_cats = await self.prefs.get("muted_categories", [])
         muted_ents = await self.prefs.get("muted_entities", [])
-        rejected = await self.proposals.recently_rejected_keys()
+        rejected = await self.proposals.recently_rejected_keys(days=self.reject_window_days)
         return NotificationContext(
             charter_enabled=bool(charter),
             muted_categories=frozenset(muted_cats or []),
@@ -1251,8 +1257,8 @@ class LiotService:
         if key is None or proposal_id in self._pref_signaled:
             return
         cells = await load_cells(self.prefs)
-        cells = apply_decay(cells, steps=1, exclude=frozenset({key}))
-        cells = apply_signal(cells, key, signal)
+        cells = apply_decay(cells, steps=1, exclude=frozenset({key}), rate=self.pref_decay)
+        cells = apply_signal(cells, key, signal, alpha=self.pref_alpha)
         await save_cells(self.prefs, cells, updated_at=self.clock.now_utc())
         self._pref_signaled.add(proposal_id)
 
@@ -1349,7 +1355,7 @@ class LiotService:
         L2 평가기는 동기·결정론을 유지해야 하므로(비동기 DB 조회 금지),
         비동기 조회는 여기(서비스)서 하고 결과만 넘긴다.
         """
-        rejected = await self.proposals.recently_rejected_keys()
+        rejected = await self.proposals.recently_rejected_keys(days=self.reject_window_days)
         rates = await self.proposals.accept_rate()
         self.app.feedback_store = InMemoryFeedbackStore(
             rejected_keys=rejected,

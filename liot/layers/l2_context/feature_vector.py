@@ -91,18 +91,20 @@ class FakePreferenceEmbedder:
 
 
 def apply_signal(
-    cells: Mapping[str, float], key: str, signal: str
+    cells: Mapping[str, float], key: str, signal: str, *, alpha: float | None = None
 ) -> dict[str, float]:
     """한 셀에 알림 응답 신호를 온라인 EMA 로 반영한다(수락↑/거부↓/무시 약↓).
 
     ``cell += α·(target − cell)``. 미지 신호는 무시(원본 유지). 순수 함수.
+    ``alpha`` 는 연구용 재정의(None = ``EMA_ALPHA``, 출하값). 운영 경로는 넘기지 않는다.
     """
     target = SIGNAL_TARGET.get(signal)
     out = dict(cells)
     if target is None:
         return out
     cur = out.get(key, NEUTRAL_PREF)
-    out[key] = round(cur + EMA_ALPHA * (target - cur), 4)
+    rate = EMA_ALPHA if alpha is None else alpha
+    out[key] = round(cur + rate * (target - cur), 4)
     return out
 
 
@@ -111,15 +113,17 @@ def apply_decay(
     *,
     steps: int = 1,
     exclude: frozenset[str] = frozenset(),
+    rate: float | None = None,
 ) -> dict[str, float]:
     """갱신 없는 셀을 중립(0.5)으로 시간감쇠한다(steps 스텝).
 
     ``cell = 0.5 + (cell−0.5)·(1−λ)^steps``. exclude 의 셀은 그대로 둔다
     (이번에 방금 갱신된 셀). 최근 취향이 우세, 옛 취향은 서서히 망각.
+    ``rate`` 는 연구용 재정의(None = ``DECAY_RATE``, 출하값). 운영 경로는 넘기지 않는다.
     """
     if steps <= 0:
         return dict(cells)
-    keep = (1.0 - DECAY_RATE) ** steps
+    keep = (1.0 - (DECAY_RATE if rate is None else rate)) ** steps
     out: dict[str, float] = {}
     for k, v in cells.items():
         if k in exclude:
