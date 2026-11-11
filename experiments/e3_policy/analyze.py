@@ -160,7 +160,7 @@ def cls(d: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
 
 
 def pooled(blk: Block, ka: str, kb: str, metric: str, mask: np.ndarray) -> dict[str, float]:
-    """Mean over sets of the paired difference, CI from the common seed bootstrap."""
+    """Mean over sets of the paired difference; lo/hi = seed noise only, set_* = spread across sets."""
     na, da = metric_arrays(blk, ka, metric)
     nb, db = metric_arrays(blk, kb, metric)
     c = _counts(blk.n_seeds)
@@ -168,8 +168,13 @@ def pooled(blk: Block, ka: str, kb: str, metric: str, mask: np.ndarray) -> dict[
     est = ratio(na, da) - ratio(nb, db)
     ok = mask & ~np.isnan(est)
     bt = np.nanmean(d[ok], axis=0)
+    q = np.percentile(est[ok], [10, 25, 50, 75, 90])
+    # lo/hi = seed-noise interval (seeds resampled inside each of the fixed sets); the spread
+    # between parameter sets is the set_* quartiles
     return {"mean": float(np.mean(est[ok])), "lo": float(np.percentile(bt, 2.5)),
-            "hi": float(np.percentile(bt, 97.5)), "n_sets": int(ok.sum())}
+            "hi": float(np.percentile(bt, 97.5)), "n_sets": int(ok.sum()),
+            "set_p10": float(q[0]), "set_q25": float(q[1]), "set_median": float(q[2]),
+            "set_q75": float(q[3]), "set_p90": float(q[4])}
 
 
 def area(x: np.ndarray, mask: np.ndarray) -> dict[str, float]:
@@ -342,9 +347,12 @@ def h22(blk: Block) -> dict[str, Any]:
             d = paired(blk, kp, flat, "harm")
             c = cls(d)
             res[pol] = {"pooled_diff_vs_flat": pooled(blk, kp, flat, "harm", allm),
-                        "areas": cls_areas(c, allm), "set_dist_diff": dist(d["est"], allm)}
+                        "areas": cls_areas(c, allm), "set_dist_diff": dist(d["est"], allm),
+                        "share_sets_difference_exactly_zero": float(np.mean(d["est"] == 0)),
+                        "share_sets_flat_not_higher": float(np.mean(d["est"] >= 0))}
         out[f"m{m:.1f}"] = res
     out["u_shape"] = {f"s{s:.1f}": u_shape(blk, "na", s, np.ones(blk.n_sets, bool)) for s in (0.0, 0.5, 1.0)}
+    out["u_shape"] = {k: v for k, v in out["u_shape"].items() if v}
     ver: dict[str, Any] = {}
     for pol in ("liot_full", "liot_real"):
         pd_ = out["m0.0"][pol]["pooled_diff_vs_flat"]
@@ -354,8 +362,8 @@ def h22(blk: Block) -> dict[str, Any]:
             "share_sets_flat_strictly_lower": out["m0.0"][pol]["areas"]["higher"]["share"],
             "share_sets_flat_strictly_higher": out["m0.0"][pol]["areas"]["lower"]["share"],
         }
-    ver["u_shape_vanishes_all_sigma"] = all(
-        out["u_shape"][k]["u_shape_sig"]["share"] == 0.0 for k in out["u_shape"])
+    ver["u_shape_vanishes_all_sigma"] = (all(
+        out["u_shape"][k]["u_shape_sig"]["share"] == 0.0 for k in out["u_shape"]) if out["u_shape"] else None)
     out["verdict_inputs"] = ver
     return out
 
@@ -435,6 +443,7 @@ def h24(blk: Block) -> dict[str, Any]:
                 cl[f"{pol}_vs_binary_ext"] = cls(paired(blk, kp, ext, "harm"))["lower"]
             both = (cl["liot_real_vs_flat"] & cl["liot_full_vs_flat"] & cl["liot_real_vs_binary_opt"]
                     & cl["liot_full_vs_binary_opt"])
+            full_only = cl["liot_full_vs_flat"] & cl["liot_full_vs_binary_opt"]
             both_ext = (cl["liot_real_vs_flat"] & cl["liot_full_vs_flat"] & cl["liot_real_vs_binary_ext"]
                         & cl["liot_full_vs_binary_ext"])
             ratios = {}
@@ -446,6 +455,7 @@ def h24(blk: Block) -> dict[str, Any]:
             rows.append({
                 "m": m,
                 "area_both_lower_than_flat_and_binary_opt": area(both, fpos),
+                "area_liot_full_only_lower_than_flat_and_binary_opt": area(full_only, fpos),
                 "area_both_lower_than_flat_and_binary_ext": area(both_ext, fpos),
                 **{f"area_{k}": area(v, fpos) for k, v in cl.items()},
                 "harm_ratio_vs_flat": ratios,
@@ -479,13 +489,6 @@ def h25(blk: Block, m: float = M_DEFAULT) -> dict[str, Any]:
                     d = paired(blk, kb, kl, met)
                     row[met] = {"pooled_binary_minus_liot": pooled(blk, kb, kl, met, fpos),
                                 "areas": cls_areas(cls(d), fpos)}
-                bb = ratio(*metric_arrays(blk, kb, "burden"))
-                bl = ratio(*metric_arrays(blk, kl, "burden"))
-                with np.errstate(invalid="ignore", divide="ignore"):
-                    close = np.abs(bb - bl) <= 0.2 * bl
-                dh = paired(blk, kb, kl, "harm")
-                row["burden_within_20pct"] = area(close, fpos)
-                row["binary_harm_not_higher_and_burden_within_20pct"] = area(close & (dh["hi"] >= 0) & (dh["est"] <= 0), fpos)
                 res[f"{bname}_vs_{lname}"] = row
         ks = np.array([r["res"][key("binary_opt", sh, m)]["k"] for r in blk.recs])
         res["binary_opt_chosen_k"] = {str(k): float(np.mean(ks == k)) for k in sorted(set(ks.tolist()))}
@@ -584,12 +587,12 @@ def p2_p3_separate(blk: Block) -> dict[str, Any]:
                 d = {}
                 for met in ("harm", "help", "hz_ok", "burden"):
                     pd_ = pooled(blk, key(pol, sh, m), flat, met, fpos)
-                    d[met] = {"mean": pd_["mean"], "lo": pd_["lo"], "hi": pd_["hi"]}
+                    d[met] = pd_
                 row[pol] = d
             d = {}
             for met in ("harm", "help", "hz_ok"):
                 pd_ = pooled(blk, key("liot_real", sh, m), key("liot_full", sh, m), met, fpos)
-                d[met] = {"mean": pd_["mean"], "lo": pd_["lo"], "hi": pd_["hi"]}
+                d[met] = pd_
             row["liot_real_minus_liot_full"] = d
             rows.append(row)
         out[sh] = rows
@@ -830,6 +833,36 @@ def h24_one(blk: Block, sh: str, m: float, mask: np.ndarray) -> float:
     return area(ok, mask)["share"]
 
 
+def harm_alignment(blk: Block) -> dict[str, Any]:
+    """Where the generator's harmful proposals land on LIOT's own tiers (no misclassification)."""
+    ht = np.array([r["harm_by_tier"] for r in blk.recs], float)  # (sets, 4)
+    hp = np.array([r["help_by_tier"] for r in blk.recs], float)
+    pooled_ = ht.sum(0) / ht.sum()
+    per_set = ht / np.maximum(1, ht.sum(1))[:, None]
+    names = ("AMBIENT", "BREATH", "DUSK", "EMBER")
+    return {
+        "harmful_share_by_tier_pooled": dict(zip(names, (float(x) for x in pooled_), strict=True)),
+        "harmful_share_by_tier_mean_over_sets": dict(zip(names, (float(x) for x in per_set.mean(0)), strict=True)),
+        "harmful_share_dusk_or_ember_pooled": float(pooled_[2:].sum()),
+        "harmful_share_dusk_or_ember_mean_over_sets": float(per_set[:, 2:].sum(1).mean()),
+        "harmful_share_dusk_or_ember_quartiles_over_sets": [float(x) for x in np.percentile(per_set[:, 2:].sum(1), [25, 50, 75])],
+        "helpful_share_by_tier_pooled": dict(zip(names, (float(x) for x in hp.sum(0) / hp.sum()), strict=True)),
+        "note": "alignment is authored by generator.py (harm rules and templates), not measured from the world",
+    }
+
+
+def auc_summary(blk: Block) -> dict[str, Any]:
+    keys = [k for k in blk.recs[0]["auc"] if k != "score_sd"]
+    out: dict[str, Any] = {}
+    for k in keys:
+        v = np.array([r["auc"][k] if r["auc"][k] is not None else np.nan for r in blk.recs], float)
+        v = v[~np.isnan(v)]
+        out[k] = {"median": float(np.median(v)), "q25": float(np.percentile(v, 25)),
+                  "q75": float(np.percentile(v, 75))} if v.size else None
+    out["score_sd_median"] = float(np.median([r["auc"]["score_sd"] for r in blk.recs]))
+    return out
+
+
 def _realized(blk: Block) -> dict[str, float]:
     keys = ("help", "unw", "harm", "events_per_seed")
     return {k: float(np.mean([r["realized"][k] for r in blk.recs])) for k in keys}
@@ -855,13 +888,17 @@ def _summarize(raw_dir: Path) -> dict[str, Any]:
     }
     out["policy_table"] = {sh: {f"m{m:.1f}": policy_table(main, sh, m) for m in (0.0, M_DEFAULT, 0.4)} for sh in SHAPES}
     out["h2_1"] = {sh: {f"m{m:.1f}": strip_private(h21(main, sh, m)) for m in (0.0, M_DEFAULT, 0.4)} for sh in SHAPES}
+    if "f0_g0" in blocks:
+        out["h2_2_g0"] = strip_private(h22(blocks["f0_g0"]))
     if "f0" in blocks:
         out["h2_2"] = strip_private(h22(blocks["f0"]))
         out["policy_table_f0"] = {f"m{m:.1f}": policy_table(blocks["f0"], "na", m) for m in (0.0, M_DEFAULT)}
     out["h2_3"] = strip_private(h23(main))
     out["h2_4"] = h24(main)
-    out["h2_5"] = h25(main)
+    out["h2_5"] = {"m0.0": h25(main, 0.0), "m0.1": h25(main, M_DEFAULT)}
     out["h2_6"] = h26(main)
+    out["harm_alignment"] = harm_alignment(main)
+    out["auc_theta_and_tiers"] = auc_summary(main)
     out["h2_6_device_sweep"] = silenced_sweep(main)
     out["p2_p3_separate"] = p2_p3_separate(main)
     out["h2_7"] = h27(main)
@@ -875,4 +912,16 @@ def _summarize(raw_dir: Path) -> dict[str, Any]:
     if "gated" in blocks:
         heads["gated_never_open_for_all"] = headline(blocks["gated"], gate=True)
     out["headline_by_block"] = heads
+    from . import analyze_c2 as c2
+    from . import sim as sim_mod
+
+    c21_names = tuple(f"c21_p{round(p_ * 100):03d}" for p_ in sim_mod.P_LOW_GRID)
+    if any(b in blocks for b in c21_names):
+        out["c2_1"] = c2.c21(blocks, c21_names)
+    if "c22" in blocks:
+        out["c2_2"] = c2.c22(blocks["c22"])
+    if "c23" in blocks:
+        out["c2_3"] = c2.c23(blocks["c23"])
+    if "c24" in blocks:
+        out["c2_4"] = c2.c24(blocks["c24"])
     return strip_private(out)

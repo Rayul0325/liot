@@ -264,6 +264,92 @@ def silenced_by_device(summary: dict[str, Any], exp_dir: Path) -> Path:
     return plotstyle.save(fig, exp_dir, "silenced_helpful_by_device")
 
 
+def c21_fig(summary: dict[str, Any], exp_dir: Path) -> Path:
+    rows = summary["c2_1"]["rows"]
+    x = [100 * r["realized_breath_or_below_share"] for r in rows]
+    fig, axes = plt.subplots(1, 3, figsize=(14.5, 4.3))
+    for m, ls in (("m0.0", "-"), ("m0.1", "--")):
+        axes[0].plot(x, [100 * r[m]["liot_real"]["area_harm_lower_seed_noise_sig"]["share"] for r in rows], ls,
+                     color=COLORS["liot_real"], marker="o", label=f"{LABEL['liot_real']} 낮음 · m={m[1:]}")
+        axes[0].plot(x, [100 * r[m]["liot_real"]["area_harm_higher_seed_noise_sig"]["share"] for r in rows], ls,
+                     color=plotstyle.GREY_DARK, marker="s", label=f"{LABEL['liot_real']} 높음 · m={m[1:]}")
+        axes[1].plot(x, [100 * r[m]["liot_full"]["area_harm_lower_seed_noise_sig"]["share"] for r in rows], ls,
+                     color=COLORS["liot_full"], marker="o", label=f"{LABEL['liot_full']} 낮음 · m={m[1:]}")
+        axes[1].plot(x, [100 * r[m]["liot_full"]["area_harm_higher_seed_noise_sig"]["share"] for r in rows], ls,
+                     color=plotstyle.GREY_DARK, marker="s", label=f"{LABEL['liot_full']} 높음 · m={m[1:]}")
+        d = [r[m]["liot_real"]["harm_diff_pooled"] for r in rows]
+        axes[2].plot(x, [v["set_median"] for v in d], ls, color=COLORS["liot_real"], marker="o", label=f"중앙값 · m={m[1:]}")
+        if m == "m0.1":
+            axes[2].fill_between(x, [v["set_q25"] for v in d], [v["set_q75"] for v in d], color=COLORS["liot_real"], alpha=0.18)
+    for ax in axes[:2]:
+        ax.axhline(50, color=plotstyle.GREY, lw=1, ls=":")
+        ax.set_ylim(-2, 102)
+        ax.set_ylabel("세트 비율 (%, 씨앗 잡음 구간이 0 을 넘는 경우)")
+        ax.legend(fontsize=6.5)
+    axes[2].axhline(0, color=plotstyle.GREY, lw=1, ls=":")
+    axes[2].set_ylabel("해로운 실행률 차이(LIOT 실제 - 모두 명시 확인), 세트 중앙값과 사분위")
+    axes[2].legend(fontsize=7)
+    for ax, t in zip(axes, ("LIOT 실제 대 모두 명시 확인(피해)", "LIOT 가상 대 모두 명시 확인(피해)", "피해 차이의 세트 간 분포"), strict=True):
+        ax.set_xlabel("해로운 제안 중 LIOT 단계가 숨결 이하인 비율 (%)")
+        ax.set_title(t, fontsize=9)
+    return plotstyle.save(fig, exp_dir, "c21_harm_template_shift")
+
+
+def c22_fig(summary: dict[str, Any], exp_dir: Path) -> Path:
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.2), sharey=True)
+    bases = [("flat_explicit", "모두 명시 확인 + 상한"), ("binary_ext", "이진(외부) + 상한"), ("auto_all", "모두 자동 + 상한")]
+    for ax, m in zip(axes, ("m0.0", "m0.1"), strict=True):
+        for i, (b, _lab) in enumerate(bases):
+            r = summary["c2_2"]["exp"][m][b]["liot_minus_generator_ceiling_at_matched_silence"]["harm_diff"]
+            ax.plot([r["p10"], r["p90"]], [i, i], color=plotstyle.GREY, lw=1.5)
+            ax.plot([r["p25"], r["p75"]], [i, i], color=COLORS["liot_real"], lw=5)
+            ax.plot([r["median"]], [i], "o", color="white", mec=plotstyle.GREY_DARK)
+        ax.axvline(0, color=plotstyle.GREY_DARK, lw=1)
+        ax.axvspan(-0.02, 0.02, color=plotstyle.GREY_LIGHT, alpha=0.5)
+        ax.set_yticks(range(len(bases)))
+        ax.set_yticklabels([lab for _, lab in bases], fontsize=8)
+        ax.set_xlabel("해로운 실행률 차이: LIOT 단계 상한 - 생성기 상한 (같은 침묵 비율)")
+        ax.set_title(f"오분류 {m[1:]} (회색 띠 = 등록한 ±2%p)", fontsize=9)
+    return plotstyle.save(fig, exp_dir, "c22_ceiling_matched_silence")
+
+
+def c23_fig(summary: dict[str, Any], exp_dir: Path) -> Path:
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
+    ms = [100 * m for m in M_GRID]
+    rows = summary["c2_3"]["exp"]
+    for tag, col, lab in (("liot_full", COLORS["liot_full"], "잔잔 자동 실행(LIOT 가상)"),
+                          ("liot_full_notify_only", COLORS["liot_real"], "잔잔 알림만"),
+                          ("liot_real", plotstyle.GREY_DARK, "LIOT 실제")):
+        axes[0].plot(ms, [100 * r[tag]["share_sets_harm_higher_point"] for r in rows], color=col, marker="o", label=lab)
+        axes[1].plot(ms, [r[tag]["harm_diff_pooled"]["set_median"] for r in rows], color=col, marker="o", label=lab)
+        axes[1].fill_between(ms, [r[tag]["harm_diff_pooled"]["set_q25"] for r in rows],
+                             [r[tag]["harm_diff_pooled"]["set_q75"] for r in rows], color=col, alpha=0.12)
+    axes[0].axhline(50, color=plotstyle.GREY, lw=1, ls=":")
+    axes[0].set_ylabel("모두 명시 확인보다 해로운 실행률이 높은 세트 (%, 점추정)")
+    axes[1].axhline(0, color=plotstyle.GREY, lw=1, ls=":")
+    axes[1].set_ylabel("해로운 실행률 차이의 세트 중앙값과 사분위")
+    for ax in axes:
+        ax.set_xlabel("오분류율 m (%) · 지연 증가 g=0")
+        ax.legend(fontsize=8)
+    return plotstyle.save(fig, exp_dir, "c23_ambient_notify_only")
+
+
+def c24_fig(summary: dict[str, Any], exp_dir: Path) -> Path:
+    c = summary["c2_4"]
+    fig, ax = plt.subplots(figsize=(7.5, 4.4))
+    for m, col in (("0.0", plotstyle.GREY_DARK), ("0.1", COLORS["liot_real"])):
+        rs = sorted([r for r in c["rows"] if f"{r['m']:.1f}" == m], key=lambda r: r["auc_median"])
+        ax.plot([r["auc_median"] for r in rs], [100 * r["share_sets_dominating_liot_full"]["share"] for r in rs],
+                marker="o", color=col, label=f"θ 정책이 LIOT 가상을 지배하는 세트 · m={m}")
+        ax.axvline(c["liot_tier_auc"]["tier0_median"] if m == "0.0" else c["liot_tier_auc"]["tier_m0.1_median"],
+                   color=col, ls="--", lw=1)
+    ax.axhline(50, color=plotstyle.GREY, lw=1, ls=":")
+    ax.set_xlabel("θ 점수의 AUC (점선 = LIOT 단계 자체의 AUC, m=0 / m=10%)")
+    ax.set_ylabel("세트 비율 (%)")
+    ax.legend(fontsize=8)
+    return plotstyle.save(fig, exp_dir, "c24_theta_auc")
+
+
 def make_all(raw_dir: Path, summary: dict[str, Any], exp_dir: Path) -> list[Path]:
     plotstyle.setup()
     blocks = analyze.load(raw_dir)
@@ -272,4 +358,7 @@ def make_all(raw_dir: Path, summary: dict[str, Any], exp_dir: Path) -> list[Path
            sensitivity(summary, exp_dir), silenced_by_device(summary, exp_dir)]
     if "policy_table_f0" in summary:
         out.append(f0_sanity(summary, exp_dir))
+    for key_, fn_ in (("c2_1", c21_fig), ("c2_2", c22_fig), ("c2_3", c23_fig), ("c2_4", c24_fig)):
+        if key_ in summary:
+            out.append(fn_(summary, exp_dir))
     return out
