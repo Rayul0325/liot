@@ -413,10 +413,35 @@ def _panel_e7(ax: Any) -> None:
     ax.legend(loc="upper left", fontsize=6, handlelength=1.6)
 
 
+def _panel_e8(ax: Any) -> None:
+    summary = load_summary("e8_mutation")
+    if summary is None:
+        _pending_panel(ax, "Q6 안전 모듈의 뮤테이션 점수 (E8)", "대기")
+        return
+    rows = []
+    for path, module in summary["modules"].items():
+        rows.append((path.rsplit("/", 1)[-1].removesuffix(".py"), module["score_core"] * 100, module["coverage_pct"]))
+    rows.sort(key=lambda r: r[1])
+    ypos = np.arange(len(rows))
+    for y, (_name, score, cov) in zip(ypos, rows, strict=True):
+        color = LIOT_BETTER if score >= 90 else LIOT_WORSE
+        ax.barh(y, score, color=color, height=0.62)
+        ax.text(103, y, f"{score:.0f}%  (커버리지 {cov:.0f}%)", va="center", fontsize=6.4)
+    ax.axvline(90, color="#3F3F3F", linestyle="--", linewidth=0.8)
+    ax.text(90, -0.95, "90%", fontsize=6.2, color="#3F3F3F", va="top", ha="center")
+    ax.set_yticks(ypos, [r[0] for r in rows])
+    ax.set_xlim(0, 160)
+    ax.set_ylim(-1.0, len(rows) - 0.4)
+    ax.set_xticks([0, 25, 50, 75, 100])
+    ax.set_xlabel("뮤테이션 점수 (%, 핵심 연산자 · 높을수록 테스트가 오류를 잡음)")
+    ax.set_title("Q6 안전 모듈 10개: 커버리지는 높은데 점수는 모듈마다 다르다", loc="left", fontweight="bold")
+    ax.grid(axis="y", visible=False)
+
+
 def make_overview() -> Path:
     _apply_print_style()
-    fig = plt.figure(figsize=(4.7, 7.9))
-    gs = fig.add_gridspec(4, 2, hspace=0.80, wspace=0.52, left=0.12, right=0.985, top=0.965, bottom=0.085)
+    fig = plt.figure(figsize=(4.7, 10.1))
+    gs = fig.add_gridspec(5, 2, hspace=0.82, wspace=0.52, left=0.12, right=0.985, top=0.97, bottom=0.07, height_ratios=[1, 1.05, 1, 1, 1.15])
     _panel_e1(fig.add_subplot(gs[0, 0]))
     _panel_e2(fig.add_subplot(gs[0, 1]))
     _panel_e3(fig, gs[1, :])
@@ -424,6 +449,7 @@ def make_overview() -> Path:
     _panel_e5(fig.add_subplot(gs[2, 1]))
     _panel_e6(fig.add_subplot(gs[3, 0]))
     _panel_e7(fig.add_subplot(gs[3, 1]))
+    _panel_e8(fig.add_subplot(gs[4, :]))
     fig.text(
         0.12,
         0.012,

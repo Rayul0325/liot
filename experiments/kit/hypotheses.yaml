@@ -40,8 +40,8 @@ hypotheses:
   - {id: C2.2, q: Q2, cycle: 2, exp: e3_policy, name: 같은 침묵 비율이면 같은 맞교환, verdict: 반증, raw: "반증(이진·모두 자동 기준) — 모두 명시 확인+상한 기준은 대체로 성립; 우위는 구조상 결과", claims: [E3-08, E3-02]}
   - {id: C2.3, q: Q2, cycle: 2, exp: e3_policy, name: 잔잔 자동 실행이 열세의 원인, verdict: 지지, raw: 지지(알림만으로 바꾸면 피해 열세 사라지고 도움 감소), claims: [E3-09]}
   - {id: C2.4, q: Q2, cycle: 2, exp: e3_policy, name: 점수가 얼마나 정확해야 θ 정책이 이기나, verdict: 기술 결과, raw: 기술 결과(기준값 없음), claims: [E3-12]}
-  - {id: C2.11a, q: Q2, cycle: 2, exp: e3_policy, name: 해로움이 잔잔에 놓이면, verdict: 지지, raw: "지지(예측대로 — 잔잔 비율 약 20%부터 이점 소멸)", claims: [E3-10]}
-  - {id: C2.11b m=10%, q: Q2, cycle: 2, exp: e3_policy, name: 탭 한 번이 더 쉽게 승인(m=10%), verdict: 지지, raw: "지지(m=10%)", claims: [E3-11]}
+  - {id: C2.11a, q: Q2, cycle: 2, exp: e3_policy, name: 해로움이 잔잔에 놓이면, verdict: 지지, raw: "지지(예측대로) — 단 잔잔 50% 이상 구간의 손실은 정의에 가까운 구조상 결과이고 정보는 교차점(잔잔 약 16~20%)", claims: [E3-10]}
+  - {id: C2.11b m=10%, q: Q2, cycle: 2, exp: e3_policy, name: 탭 한 번이 더 쉽게 승인(m=10%), verdict: 지지, raw: "지지(m=10%) — 단 조건이 기준선에서 이미 충족, 발견은 2.0배의 한계 효과 +1.5%p", claims: [E3-11]}
   - {id: C2.11b m=0, q: Q2, cycle: 2, exp: e3_policy, name: 탭 한 번이 더 쉽게 승인(m=0), verdict: 판정 불가, raw: "m=0 은 판정 불가(점추정은 과반, 유의 기준은 아님)", claims: [E3-11]}
   # ---- Q3
   - {id: H3.1, q: Q3, cycle: 1, exp: e4_scoring, name: 방식별 성질(표·곱셈·단일·모델), verdict: 기술 결과, raw: 판정 대상 아님 — 관찰만, claims: [E4-01, E4-02, E4-03]}
@@ -62,4 +62,4 @@ hypotheses:
   - {id: H6.1, q: Q6, cycle: 1, exp: e7_ladder, name: 사다리 명세 적합, verdict: 반증, raw: "반증(등록 문구대로 — 5초 틱 해상도)", claims: [E7-01]}
   - {id: H6.2, q: Q6, cycle: 1, exp: e7_ladder, name: 동시 대 순차 호출, verdict: 기술 결과, raw: 기술 결과(판정 없음), claims: [E7-02]}
   - {id: C2.10, q: Q6, cycle: 2, exp: e7_ladder, name: 방관 효과를 동시 호출 수로 계산, verdict: 읽기에 따라 갈림, raw: 해석 N 은 반증 조건에 걸리고 해석 동시 호출 수는 지지 — 결론은 해석에 달렸다, claims: [E7-03]}
-  - {id: H6.3, q: Q6, cycle: 1, exp: e8_mutation, name: 테스트 강도(뮤테이션), verdict: 대기, raw: e8 진행 중(품질 확인 — 연구 결론에서 제외), claims: [E8-00]}
+  - {id: H6.3, q: Q6, cycle: 2, exp: e8_mutation, name: 안전 모듈의 뮤테이션 점수, verdict: 지지, raw: "지지(반증 실패) — 커버리지 95% 이상인데 10개 모듈 중 7개가 90% 미만(개수는 가정에 따라 7→4→2); 안전 관련 빈틈 15곳. 등록 때는 품질 확인이라 연구 결론에서 제외", claims: [E8-01, E8-02, E8-03]}
