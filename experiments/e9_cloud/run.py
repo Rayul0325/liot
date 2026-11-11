@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -125,9 +126,8 @@ def main() -> None:
         print(f"figure: {make_figure(summary)}")
         return
     if args.quick:
-        scratch = Path("/private/tmp/claude-501/-Users-rayul-liot/b877ae61-64ae-4512-b8b4-d5ca79c8f749/"
-                       "scratchpad")
-        n = collect((1,), 1, scratch / "b3_e9_quick_derived.jsonl", scratch / "b3_e9_quick_cloud.jsonl")
+        scratch = Path(tempfile.mkdtemp(prefix="e9-quick-"))  # scratch, never committed
+        n = collect((1,), 1, scratch / "derived.jsonl", scratch / "cloud_runs.jsonl")
         print(f"wrote {n} quick records")
         return
     n = collect(SEEDS, DAYS, DERIVED, CLOUD_RAW)

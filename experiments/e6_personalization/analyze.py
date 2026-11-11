@@ -25,7 +25,8 @@ WINDOWS = {"d1_14": (1, 14), "d15_30": (15, 30), "d31_60": (31, 60), "d1_30": (1
 RATE_METRICS = ("acc_help", "acc_help_imm", "acc_help_tray", "ws_help", "ws_help_phone", "ws_new",
                 "new_acc", "new_offer_imm", "pushes_imm", "offered_help_imm", "offered_unhelp_imm",
                 "dis", "exp_imm", "exp_dig", "digest_made", "opp_help")
-CONTRAST_METRICS = ("acc_help", "ws_help", "pushes_imm", "offered_unhelp_imm", "accept_rate")
+CONTRAST_METRICS = ("acc_help", "ws_help_phone", "ws_help", "pushes_imm", "offered_unhelp_imm",
+                    "accept_rate")
 CONTRASTS = (("lr30", "none"), ("lr30", "explicit_only"), ("lr10", "lr30"), ("lr60", "lr30"),
              ("permanent", "lr30"), ("no_gate", "lr30"), ("explore7", "lr30"))
 HEADLINE_WINDOWS = ("d1_14", "d15_30", "d31_60", "d1_60")

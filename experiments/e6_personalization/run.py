@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import multiprocessing as mp
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -106,8 +107,7 @@ def main() -> None:
             print(f"figure: {p}")
         return
     if args.quick:
-        path = Path("/private/tmp/claude-501/-Users-rayul-liot/b877ae61-64ae-4512-b8b4-d5ca79c8f749/"
-                    "scratchpad/b3_e6_quick.jsonl")
+        path = Path(tempfile.mkdtemp(prefix="e6-quick-")) / "runs.jsonl"  # scratch, never committed
         todo = jobs((1,), 30, personas=("hater",), variants=("main",))
         print(f"quick -> {path}")
         n = collect(args.workers, todo, path)

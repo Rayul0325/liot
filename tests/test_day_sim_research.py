@@ -454,6 +454,31 @@ def test_stochastic_resident_does_not_delay_or_drop_safety_alerts() -> None:
     assert all(s["decision"] == "IMMEDIATE" and s["sent"] for s in firsts)
 
 
+# ── 쉬는 창 0 일(ProposalService) ─────────────────────────────────────────────
+
+
+async def test_reject_window_zero_days_is_empty_even_for_a_dismissal_created_now(tmp_db: Any) -> None:
+    """같은 시각에 만든 [그만해] 제안은 창 0일에서도 `>=` 비교에 걸린다 — 빈 집합은 명시 분기의 몫이다."""
+    from liot.core.clock import Clock
+    from liot.core.contracts import CandidateAction, Proposal
+    from liot.core.risk import RiskTier
+    from liot.layers.l4_execution.proposal_service import ProposalService
+
+    now = "2026-06-02T12:00:00+00:00"
+    svc = ProposalService(tmp_db, clock=Clock(fixed=now))
+    action = CandidateAction(capability="fan", action="set_speed", params={},
+                             entity_id="fan.living", category="comfort")
+    await svc.save(Proposal.model_validate({
+        "proposal_id": "p-now", "judgment_id": "j-1", "home_id": "singleton",
+        "risk_tier": RiskTier.BREATH, "action": action, "rationale": "r",
+        "required_confirmation": "light", "created_at": now}))
+    await svc.set_state("p-now", "dismissed")
+    key = "fan:set_speed:fan.living:comfort"
+    assert await svc.recently_rejected_keys() == frozenset({key})
+    assert await svc.recently_rejected_keys(days=1) == frozenset({key})
+    assert await svc.recently_rejected_keys(days=0) == frozenset()
+
+
 # ── cloud 모드의 연구 기록(가짜 외부 서비스만 쓴다) ─────────────────────────────
 
 
