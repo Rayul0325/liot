@@ -21,6 +21,7 @@ import http.client
 import json
 import math
 import re
+import threading
 import time
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol, runtime_checkable
@@ -175,7 +176,23 @@ class JevBackend:
         )
         self._evidence = EvidenceBuilder(model, alias=alias)
         # 마지막 호출의 관찰값(지연·토큰·응답 모델) — 시뮬레이터가 비용·지연을 센다.
-        self.last_usage: dict[str, Any] = {}
+        # 스레드마다 따로 둔다: 컴포트 판정과 2단계 판정이 서로 다른 워커 스레드에서 겹쳐 돌 수
+        # 있어, 객체 하나에 두면 한 호출의 사용량을 다른 호출이 덮어쓴다. 한 호출은 한 스레드에서
+        # 끝나고 읽는 쪽도 같은 스레드(판정 직후)라서 읽는 방법(`backend.last_usage`)은 그대로다.
+        self._usage_tls = threading.local()
+
+    @property
+    def last_usage(self) -> dict[str, Any]:
+        """이 스레드에서 마지막으로 끝난 호출의 사용량(호출이 없었으면 빈 dict)."""
+        usage: dict[str, Any] | None = getattr(self._usage_tls, "usage", None)
+        if usage is None:
+            usage = {}
+            self._usage_tls.usage = usage
+        return usage
+
+    @last_usage.setter
+    def last_usage(self, value: dict[str, Any]) -> None:
+        self._usage_tls.usage = value
 
     def __repr__(self) -> str:
         return f"JevBackend(model_id={self.model_id!r})"
@@ -205,6 +222,7 @@ class JevBackend:
         severity_floor: SeverityLevel | None = None,
     ) -> LLMResult:
         """한 번 POST(재시도 없음). 위험도는 늘, 파급도는 하한이 있을 때만. 실패는 LLMUnavailable."""
+        self.last_usage = {}  # 이 스레드의 앞 호출 값이 이 호출 것으로 읽히지 않게 비운다
         body = self.request_body(candidate, ctx, gate1_floor, severity_floor)
         t0 = time.perf_counter()
         try:
