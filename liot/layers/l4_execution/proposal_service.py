@@ -244,7 +244,10 @@ class ProposalService:
         """최근 N일 내 dismissed 된 제안들의 dedup-key 집합(발화 억제 입력).
 
         notifier.gate_pipeline 의 recently_rejected_keys 로 그대로 넘긴다.
+        ``days <= 0`` 이면 쉬는 창이 없다(빈 집합) — 연구용 재정의이며 기본(30)은 그대로다.
         """
+        if days <= 0:
+            return frozenset()
         cutoff = (self._clock.now_dt() - timedelta(days=days)).replace(microsecond=0).isoformat()
         rows = await self._repo.fetchall(
             self._db,
