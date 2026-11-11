@@ -21,7 +21,7 @@ def _vacuum(action: str = "start") -> CandidateAction:
     )
 
 
-def _executor(calls: list) -> HAExecutor:
+def _executor(calls: list[tuple[object, ...]]) -> HAExecutor:
     async def call(domain, service, entity_id, data):
         calls.append((domain, service, entity_id, data))
 
@@ -29,14 +29,14 @@ def _executor(calls: list) -> HAExecutor:
 
 
 async def test_allowlisted_but_unmapped_capability_is_denied_before_any_call() -> None:
-    calls: list = []
+    calls: list[tuple[object, ...]] = []
     with pytest.raises(ExecutionDenied, match="unmapped capability: 'vacuum'"):
         await _executor(calls).execute(_vacuum())
     assert calls == []  # HA 로는 아무것도 나가지 않았다
 
 
 async def test_unmapped_capability_undo_is_denied_before_any_call() -> None:
-    calls: list = []
+    calls: list[tuple[object, ...]] = []
     with pytest.raises(ExecutionDenied, match="unmapped capability: 'vacuum'"):
         await _executor(calls).undo(_vacuum(), {"attributes": {}})
     assert calls == []
@@ -44,7 +44,7 @@ async def test_unmapped_capability_undo_is_denied_before_any_call() -> None:
 
 async def test_mapped_capability_still_executes() -> None:
     # 대조군: 매핑된 기능(switch.toggle 확장분)은 도메인으로 번역돼 호출된다.
-    calls: list = []
+    calls: list[tuple[object, ...]] = []
 
     async def call(domain, service, entity_id, data):
         calls.append((domain, service, entity_id, data))

@@ -32,7 +32,7 @@ def _write(tmp_path: Path, *, table_lines: list[str] | None = None, situations: 
 def _failed(t: SeverityTable, needle: str) -> None:
     """fail-closed 표이고 사유에 needle 이 들어 있다(= 그 가드가 막았다)."""
     assert t.load_failed is True
-    assert needle in t.load_error, t.load_error
+    assert t.load_error is not None and needle in t.load_error, t.load_error
     res = t.compute("gas", vulnerable_resident=False)
     assert res is not None and res.floor is SeverityLevel.CRITICAL
     assert t.is_abnormal("high_temp", 1.0) is True  # 임계값을 못 읽었으니 수치는 이상
@@ -61,3 +61,17 @@ def test_duplicate_above_key_in_yaml_is_refused(tmp_path: Path) -> None:
     _failed(load_severity_table(_write(tmp_path, situations=sit)), "duplicate")
 
 
+
+
+def test_unhashable_mapping_key_in_yaml_is_refused(tmp_path: Path) -> None:
+    sit = _GAS + "  ? [a, b]\n  : { damage: life, time: minutes }\n"
+    t = load_severity_table(_write(tmp_path, situations=sit))
+    assert t.load_failed is True
+    assert t.compute("gas", vulnerable_resident=False).floor is SeverityLevel.CRITICAL  # type: ignore[union-attr]
+
+
+def test_distinct_keys_and_repeated_values_are_not_duplicates(tmp_path: Path) -> None:
+    # 값이 같은 것은 중복이 아니다 — 같은 키만 중복.
+    sit = _GAS + "  smoke: { damage: life, time: minutes }\n"
+    t = load_severity_table(_write(tmp_path, situations=sit))
+    assert t.load_failed is False, t.load_error

@@ -34,7 +34,7 @@ def _write(tmp_path: Path, *, table_lines: list[str] | None = None, situations: 
 def _failed(t: SeverityTable, needle: str) -> None:
     """fail-closed 표이고 사유에 needle 이 들어 있다(= 그 가드가 막았다)."""
     assert t.load_failed is True
-    assert needle in t.load_error, t.load_error
+    assert t.load_error is not None and needle in t.load_error, t.load_error
     res = t.compute("gas", vulnerable_resident=False)
     assert res is not None and res.floor is SeverityLevel.CRITICAL
     assert t.is_abnormal("high_temp", 1.0) is True  # 임계값을 못 읽었으니 수치는 이상
