@@ -49,7 +49,7 @@ from experiments.common.service_kit import (
     situations,
 )
 from experiments.e1_latency import analyze
-from experiments.e1_latency.arms import ARMS, make_arm
+from experiments.e1_latency.arms import ARMS, C27_ARMS, make_arm
 from liot.core.risk import RiskTier
 from liot.core.severity import SeverityLevel
 from liot.layers.l3_judgment.llm_judge import LLMResult, LLMUnavailable
@@ -151,6 +151,61 @@ async def collect_main(shard: int, nshards: int, n: int, raw: Path) -> int:
             if (i, arm, cond) in done:
                 continue
             io.append_jsonl(path, await one_incident(i, arm, cond))
+            written += 1
+    return written
+
+
+# ── C2.7: floor-aware model-first arm with the bench's real model latencies ──
+def bench_latencies() -> list[float]:
+    """Measured seconds per judgment (two questions) of the bench situation cases, answered
+    models only (jev-omni's readout failures are excluded). Sorted for a stable index."""
+    vals = [r["seconds"] for r in bench_situation_records()
+            if not r["degraded"] and r.get("seconds") is not None]
+    return sorted(float(v) for v in vals)
+
+
+async def one_c27(i: int, arm: str, lats: list[float]) -> dict[str, Any]:
+    spec = incident_spec(i)
+    eid, raw, floor = ENTITIES[spec["category"]]
+    model_s = lats[random.Random(5000 + i).randrange(len(lats))]  # paired across arms
+    answer = SeverityLevel.CRITICAL if spec["would_raise"] else floor
+    kit = await build_service(
+        backend=SlowBackend(model_s, tier=RiskTier.EMBER, severity=answer),
+        categories=CATEGORY_MAP, phase2_deadline_s=DEADLINE_S, transport=TimedTransport(),
+    )
+    kit = await make_arm(kit, arm, DEADLINE_S)
+    tr = kit.transport
+    try:
+        t0 = time.perf_counter()
+        await kit.svc.handle_reading(reading(eid, raw))
+        latency = (tr.stamps[0][0] - t0) if tr.stamps else None
+        await kit.svc.drain_phase2()
+        sevs = [_sev(s[3]) for s in tr.stamps]
+        return {
+            "incident": i, "arm": arm, "category": spec["category"], "floor": floor.name,
+            "would_raise": spec["would_raise"], "model_s": model_s,
+            "latency_s": latency, "pushes": len(sevs), "sev_labels": sevs,
+            "first_sev": sevs[0] if sevs else None, "final_sev": _final(sevs),
+            "changed": bool(sevs) and sevs[0] != _final(sevs), "meta": io.run_meta(),
+        }
+    finally:
+        shutdown = getattr(kit.svc, "shutdown", None)
+        await kit.close()
+        if shutdown is not None:
+            shutdown()
+
+
+async def collect_c27(shard: int, nshards: int, n: int, raw: Path) -> int:
+    path = raw / f"c27_s{shard}.jsonl"
+    done = io.done_keys(path, ("incident", "arm"))
+    lats = bench_latencies()
+    written = 0
+    for i in range(shard, n, nshards):
+        rot = i % len(C27_ARMS)
+        for arm in C27_ARMS[rot:] + C27_ARMS[:rot]:
+            if (i, arm) in done:
+                continue
+            io.append_jsonl(path, await one_c27(i, arm, lats))
             written += 1
     return written
 
@@ -541,7 +596,7 @@ def make_figures(summary: dict[str, Any]) -> list[Path]:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    p.add_argument("--part", choices=["main", "replay", "h12", "h13", "all"], default="all")
+    p.add_argument("--part", choices=["main", "replay", "h12", "h13", "c27", "all"], default="all")
     p.add_argument("--tag", default="before", help="H1.2 tag: before|after")
     p.add_argument("--shard", default="0/1", help="i/N sharding over incidents / reps")
     p.add_argument("--n", type=int, default=None, help="override sample size")
@@ -561,6 +616,9 @@ def main() -> None:
         if args.part in ("main", "all"):
             n = args.n or (3 if args.quick else N_INCIDENTS)
             print("main wrote", await collect_main(shard, nshards, n, raw))
+        if args.part in ("c27", "all"):
+            n = args.n or (6 if args.quick else 600)
+            print("c27 wrote", await collect_c27(shard, nshards, n, raw))
         if args.part in ("replay", "all"):
             print("replay wrote", await collect_replay(raw, 8 if args.quick else None))
         if args.part in ("h12", "all"):

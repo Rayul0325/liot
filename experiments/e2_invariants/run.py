@@ -32,7 +32,7 @@ from experiments.common.service_kit import (
     reading,
     situations,
 )
-from experiments.e2_invariants import analyze, fuzz, h15
+from experiments.e2_invariants import analyze, fuzz, h15, h15b, quota
 from liot.layers.l4_execution.escalation import guardian_path
 
 EXP_DIR = Path(__file__).resolve().parent
@@ -50,6 +50,65 @@ async def collect_fuzz(n_per: int, raw: Path) -> int:
             if (b, ep) in done:
                 continue
             rec = await fuzz.run_episode(b, ep)
+            rec["meta"] = io.run_meta()
+            io.append_jsonl(path, rec)
+            written += 1
+    return written
+
+
+# ── C2.8 h15b ───────────────────────────────────────────────────────────────
+def h15b_cells(quick: bool) -> list[dict[str, Any]]:
+    cells: list[dict[str, Any]] = []
+    aucs = (0.5, 0.9) if quick else h15b.AUC
+    for u, e, a, atk, mode in itertools.product(
+        (0.0, 0.1) if quick else h15b.UNREG, (0.0, 0.1) if quick else h15b.OBS, aucs,
+        (0.0, 0.3) if quick else h15b.ATTACK, ("honest", "blind"),
+    ):
+        cells.append({"unreg": u, "obs": e, "auc": a, "attack": atk, "mode": mode,
+                      "fpr": h15b.FPR, "point": "sweep"})
+    for u, e, atk, mode in itertools.product(
+        (0.0, 0.1) if quick else h15b.UNREG, (0.0, 0.1) if quick else h15b.OBS,
+        (0.0, 0.3) if quick else h15b.ATTACK, ("honest", "blind"),
+    ):
+        cells.append({"unreg": u, "obs": e, "auc": 0.5, "attack": atk, "mode": mode,
+                      "fpr": h15b.OPERATIONAL_FPR, "point": "e5_operational"})
+    return cells
+
+
+def h15b_key(c: dict[str, Any]) -> str:
+    return (f"u{c['unreg']}|obs{c['obs']}|auc{c['auc']}|a{c['attack']}|{c['mode']}|"
+            f"fpr{c['fpr']}|{c['point']}")
+
+
+def collect_h15b(raw: Path, quick: bool) -> int:
+    path = raw / "h15b.jsonl"
+    done = io.done_keys(path, ("key",))
+    n_seeds = 3 if quick else h15b.N_SEEDS
+    n_events = 2000 if quick else h15b.N_EVENTS
+    written = 0
+    for c in h15b_cells(quick):
+        key = h15b_key(c)
+        if (key,) in done:
+            continue
+        seeds = [h15b.run_cell(sd, unreg=c["unreg"], obs=c["obs"], auc=c["auc"],
+                               attack=c["attack"], mode=c["mode"], fpr=c["fpr"], n=n_events)
+                 for sd in range(n_seeds)]
+        io.append_jsonl(path, {"key": key, **c, "n_seeds": n_seeds, "seeds": seeds,
+                               "meta": io.run_meta()})
+        written += 1
+    return written
+
+
+# ── C2.9 coverage-quota fuzz ─────────────────────────────────────────────────
+async def collect_quota(n_per: int, raw: Path) -> int:
+    path = raw / "quota.jsonl"
+    done = io.done_keys(path, ("path", "episode"))
+    written = 0
+    for ep in range(n_per):
+        for pth in quota.PATHS:
+            if (pth, ep) in done:
+                continue
+            rec = await quota.run_episode(pth, ep)
             rec["meta"] = io.run_meta()
             io.append_jsonl(path, rec)
             written += 1
@@ -263,6 +322,28 @@ def make_figures(summary: dict[str, Any]) -> list[Path]:
 
     plotstyle.setup()
     out: list[Path] = []
+    hb = summary.get("h15b")
+    if hb:
+        fig, axes = plt.subplots(1, 3, figsize=(13, 4), sharey=True)
+        for ax, (u, e) in zip(axes, [(0.0, 0.1), (0.1, 0.1), (0.3, 0.1)], strict=True):
+            for mode, color in (("honest", plotstyle.ACCENT), ("blind", "#8E5A9B")):
+                for atk, ls in ((0.0, "-"), (0.3, "--")):
+                    xs, ys = [], []
+                    for a in h15b.AUC:
+                        v = hb["cells"].get(f"u{u}|obs{e}|auc{a}|a{atk}|{mode}|fpr0.05|sweep")
+                        if v and v["c_star"]["class"] == "tradeoff":
+                            xs.append(a)
+                            ys.append(v["c_star"]["point"])
+                    ax.plot(xs, ys, color=color, linestyle=ls, marker="o",
+                            label=f"{'진실을 보는 모델' if mode == 'honest' else '취약성 못 보는 모델(구조상)'} · 공격 {atk:.0%}")
+            ax.axhline(2.0, color=plotstyle.GREY, linestyle=":")
+            ax.set_yscale("log")
+            ax.set_xlabel("모델 신호 세기 AUC")
+            ax.set_title(f"미등록 취약 {u:.0%} · 관찰로 드러나는 위험 {e:.0%}", fontsize=9)
+        axes[0].set_ylabel("손익분기 비용비 c* (점선 = 2)")
+        axes[0].legend(fontsize=6)
+        fig.suptitle("C2.8 모델 신호 세기에 따른 c* (E5 운영 지점은 AUC 0.5·상향률 3%)", fontsize=11)
+        out.append(plotstyle.save(fig, EXP_DIR, "c28_cstar_vs_auc"))
     h = summary.get("h15")
     if not h:
         return out
@@ -353,7 +434,8 @@ def make_figures(summary: dict[str, Any]) -> list[Path]:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    p.add_argument("--part", choices=["fuzz", "h15", "validate", "all"], default="all")
+    p.add_argument("--part", choices=["fuzz", "h15", "validate", "quota", "h15b", "all"],
+                   default="all")
     p.add_argument("--n", type=int, default=None, help="fuzz episodes per behaviour")
     p.add_argument("--quick", action="store_true")
     p.add_argument("--analyze", action="store_true")
@@ -370,11 +452,15 @@ def main() -> None:
         if args.part in ("fuzz", "all"):
             n = args.n or (4 if args.quick else EPISODES_PER_BEHAVIOR)
             print("fuzz wrote", await collect_fuzz(n, raw))
+        if args.part in ("quota", "all"):
+            print("quota wrote", await collect_quota(args.n or (3 if args.quick else 100), raw))
         if args.part in ("validate", "all"):
             print("validate wrote", await collect_validate(10 if args.quick else 200, raw))
 
     if args.part in ("h15", "all"):
         print("h15 wrote", collect_h15(raw, args.quick))
+    if args.part in ("h15b", "all"):
+        print("h15b wrote", collect_h15b(raw, args.quick))
     asyncio.run(go())
 
 

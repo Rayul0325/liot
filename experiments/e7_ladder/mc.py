@@ -39,6 +39,25 @@ def p_respond(q: float, b: float, n: int) -> float:
     return (1.0 - q) / (n ** b)
 
 
+def _sequential(resp_delay: np.ndarray, n: int) -> tuple[np.ndarray, np.ndarray]:
+    """(time of first ack, people paged) per trial for sequential paging every SEQ_WAIT_S."""
+    trials = resp_delay.shape[0]
+    ack_t = SEQ_WAIT_S * np.arange(n)[None, :] + resp_delay  # ack time if paged
+    pages = np.zeros(trials)
+    t_first = np.full(trials, np.inf)
+    for t_i in range(trials):
+        best = np.inf
+        paged = 0
+        for k in range(n):
+            if best <= SEQ_WAIT_S * k:  # someone already acked before guardian k's turn
+                break
+            paged += 1
+            best = min(best, ack_t[t_i, k])
+        pages[t_i] = paged
+        t_first[t_i] = best
+    return t_first, pages
+
+
 def simulate_batch(
     seed: int, *, mu_min: float, q: float, b: float, n: int, trials: int = TRIALS_PER_BATCH,
 ) -> dict[str, Any]:
@@ -54,24 +73,15 @@ def simulate_batch(
     resp_delay = np.where(responds, delay, inf)
     # simultaneous: everyone paged at 0
     t_sim = resp_delay.min(axis=1)
-    # sequential: guardian k paged at 90 k while nobody has acked before
-    page_t = SEQ_WAIT_S * np.arange(n)[None, :]
-    ack_t = page_t + resp_delay                       # ack time if paged
-    # guardian k is paged iff no earlier-paged guardian acked before 90 k
-    pages_seq = np.zeros(trials)
-    t_seq = np.full(trials, inf)
-    for t_i in range(trials):
-        best = inf
-        paged = 0
-        for k in range(n):
-            if best <= SEQ_WAIT_S * k:  # someone already acked before guardian k's turn
-                break
-            paged += 1
-            best = min(best, ack_t[t_i, k])
-        pages_seq[t_i] = paged
-        t_seq[t_i] = best
+    # sequential: guardian k paged at 90 k while nobody has acked before. Two readings of the
+    # bystander effect (C2.10): 'N' = p computed from the number of guardians (cycle 1);
+    # 'concurrent' = p computed from the number paged AT THE SAME TIME (1 for sequential).
+    t_seq, pages_seq = _sequential(resp_delay, n)
+    resp_delay_c = np.where(u_resp < (1.0 - q), delay, inf)  # p = (1-q) / 1**b
+    t_seqc, pages_seqc = _sequential(resp_delay_c, n)
     out: dict[str, Any] = {"seed": seed, "trials": trials}
-    for name, t, pages in (("sim", t_sim, np.full(trials, float(n))), ("seq", t_seq, pages_seq)):
+    for name, t, pages in (("sim", t_sim, np.full(trials, float(n))), ("seq", t_seq, pages_seq),
+                           ("seq_concurrent", t_seqc, pages_seqc)):
         acked = np.isfinite(t)
         out[name] = {
             "n_ack": int(acked.sum()),
@@ -82,7 +92,39 @@ def simulate_batch(
     both = np.isfinite(t_sim) & np.isfinite(t_seq)
     out["paired"] = {"n_both": int(both.sum()),
                      "sum_diff_seq_minus_sim": float((t_seq[both] - t_sim[both]).sum())}
+    both_c = np.isfinite(t_sim) & np.isfinite(t_seqc)
+    out["paired_concurrent"] = {"n_both": int(both_c.sum()),
+                                "sum_diff_seq_minus_sim": float((t_seqc[both_c] - t_sim[both_c]).sum())}
     return out
+
+
+def _seq_closed(mu: float, p: float, n: int) -> dict[str, float]:
+    """Closed forms of sequential paging with per-guardian response probability ``p``."""
+    p_no = (1.0 - p) ** n
+
+    def surv(t: float) -> float:
+        out = 1.0
+        for j in range(n):
+            x = max(t - SEQ_WAIT_S * j, 0.0)
+            out *= 1.0 - p * (1.0 - math.exp(-x / mu))
+        return out
+
+    upper = 40.0 * mu + SEQ_WAIT_S * n
+    grid = np.linspace(0.0, upper, 200001)
+    s_grid = np.ones_like(grid)
+    for j in range(n):
+        x = np.maximum(grid - SEQ_WAIT_S * j, 0.0)
+        s_grid *= 1.0 - p * (1.0 - np.exp(-x / mu))
+    e_num = float(np.trapezoid(s_grid - p_no, grid))
+    e_t = e_num / (1.0 - p_no) if p_no < 1.0 else float("nan")
+    pages = 0.0
+    for k in range(n):
+        pk = 1.0
+        for j in range(k):
+            pk *= 1.0 - p * (1.0 - math.exp(-SEQ_WAIT_S * (k - j) / mu))
+        pages += pk
+    return {"e_t_ack": e_t, "p_ack_300": 1.0 - surv(GUIDANCE_WAIT_S), "pages": pages,
+            "p_no_ack": p_no}
 
 
 # ── closed forms ─────────────────────────────────────────────────────────────
@@ -98,30 +140,10 @@ def closed_form(mu_min: float, q: float, b: float, n: int) -> dict[str, Any]:
     e_sim = e_sim / (1.0 - p_no) if p_no < 1.0 else float("nan")
     p300_sim = 1.0 - (1.0 - p * (1.0 - math.exp(-GUIDANCE_WAIT_S / mu))) ** n
 
-    def surv(t: float) -> float:
-        s = 1.0
-        for j in range(n):
-            x = max(t - SEQ_WAIT_S * j, 0.0)
-            s *= 1.0 - p * (1.0 - math.exp(-x / mu))
-        return s
-
-    # E[T; ack] = integral (S(t) - S(inf)) dt, trapezoid on a fine grid
-    upper = 40.0 * mu + SEQ_WAIT_S * n
-    grid = np.linspace(0.0, upper, 200001)
-    s_grid = np.ones_like(grid)
-    for j in range(n):
-        x = np.maximum(grid - SEQ_WAIT_S * j, 0.0)
-        s_grid *= 1.0 - p * (1.0 - np.exp(-x / mu))
-    e_seq_num = float(np.trapezoid(s_grid - p_no, grid))
-    e_seq = e_seq_num / (1.0 - p_no) if p_no < 1.0 else float("nan")
-    pages = 0.0
-    for k in range(n):
-        pk = 1.0
-        for j in range(k):
-            pk *= 1.0 - p * (1.0 - math.exp(-SEQ_WAIT_S * (k - j) / mu))
-        pages += pk
+    seq = _seq_closed(mu, p, n)
+    seq_c = _seq_closed(mu, 1.0 - q, n)
     return {
         "p": p, "p_no_ack": p_no,
         "sim": {"e_t_ack": e_sim, "p_ack_300": p300_sim, "pages": float(n)},
-        "seq": {"e_t_ack": e_seq, "p_ack_300": 1.0 - surv(GUIDANCE_WAIT_S), "pages": pages},
+        "seq": seq, "seq_concurrent": seq_c,
     }
