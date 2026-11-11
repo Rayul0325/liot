@@ -85,6 +85,15 @@ def run_set(task: tuple[str, int, dict[str, float], int, int]) -> dict[str, Any]
         "n_haz": _ints((st.valid & (st.kind == 1)).sum(1)),
         "n_prop": _ints(ok.sum(1)),
     }
+    # helpful proposals and the ones silenced by the proactive cap, per device class (liot_real, m=0.1)
+    ir = next(i for i, g in enumerate(groups) if g.name == "liot_real" and g.shape != "hyp"
+              and abs((g.m or 0.0) - params.M_DEFAULT) < 1e-9)
+    helpful = (st.truth == 0) & ok
+    grp = generator.GROUP_OF[st.tmpl.astype(int)]
+    by_group = {
+        "help_by_group": [int((helpful & (grp == k)).sum()) for k in range(5)],
+        "silenced_help_by_group": [int((helpful & bk[ir] & (grp == k)).sum()) for k in range(5)],
+    }
     res: dict[str, Any] = {}
     curve: dict[str, dict[str, list[float]]] = {}
     best: dict[str, tuple[float, float, int]] = {}
@@ -127,7 +136,7 @@ def run_set(task: tuple[str, int, dict[str, float], int, int]) -> dict[str, Any]
         res[replace(g, name="binary_opt", k=None).key] = rec
     return {
         "block": block, "set_id": set_id, "params": prm, "n_seeds": n_seeds, "days": days,
-        "stream_key": key, "n": n, "realized": st.realized,
+        "stream_key": key, "n": n, **by_group, "realized": st.realized,
         "binary_rank": [int(x) for x in rank], "binary_curve": curve, "res": res,
         "meta": io.run_meta(),
     }
