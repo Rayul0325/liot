@@ -2747,6 +2747,9 @@ class DaySim:
                 "agree": {} if res is None else res.agree,
                 "reason_ko": (miss_ko if res is None else res.reason_ko),
             }
+            if self._research:  # 연구 기록: 판정에 보낸 Gate1 하한(증거 JSON 의 gate1_floor)
+                with contextlib.suppress(Exception):
+                    rec["floor"] = json.loads(evidence).get("gate1_floor")
             self.luna_results.append(rec)
             await self._attach_judge(step, entity_id, rec, out)
 

@@ -452,3 +452,24 @@ def test_stochastic_resident_does_not_delay_or_drop_safety_alerts() -> None:
     firsts = [s for s in sim.safety_events if s["kind"] == "first_alert"]
     assert len(firsts) == 3
     assert all(s["decision"] == "IMMEDIATE" and s["sent"] for s in firsts)
+
+
+# ── cloud 모드의 연구 기록(가짜 외부 서비스만 쓴다) ─────────────────────────────
+
+
+def test_cloud_luna_records_carry_the_gate1_floor_only_in_research_mode(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    from tests.test_day_sim_cloud import FakeBrain, FakeCheap, _kit
+
+    plain = DaySim(seed=7, days=1, models="cloud", house_id="rA",
+                   cloud=_kit(tmp_path_factory.mktemp("p"), cheap=FakeCheap(), brain=FakeBrain()))
+    research = DaySim(seed=7, days=1, models="cloud", house_id="rB", research=True,
+                      cloud=_kit(tmp_path_factory.mktemp("r"), cheap=FakeCheap(),
+                                 brain=FakeBrain()))
+    _run(plain)
+    _run(research)
+    assert plain.luna_results and all("floor" not in r for r in plain.luna_results)
+    assert research.luna_results
+    assert {r["floor"] for r in research.luna_results} <= {"ambient", "breath", "dusk", "ember"}
+    assert all(r["floor"] is not None for r in research.luna_results)
