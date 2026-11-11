@@ -1,0 +1,3203 @@
+{
+  "best_case": {
+    "M2p1": {
+      "agree_n": 24,
+      "harm_code": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "key": "lin|lin|k1.5|a1.0|b0.5",
+      "levels": [
+        0,
+        1,
+        1,
+        2,
+        1,
+        2,
+        1,
+        2,
+        2,
+        3,
+        2,
+        3,
+        2,
+        3,
+        2,
+        3,
+        3,
+        3,
+        2,
+        3,
+        3,
+        3,
+        3,
+        3
+      ],
+      "mismatches": [],
+      "thresholds": [
+        1.414214,
+        2.828427,
+        5.196152
+      ],
+      "time_code": [
+        1,
+        2,
+        3
+      ],
+      "variant": "M2p1",
+      "vuln_k": 1.5,
+      "weights": [
+        1.0,
+        0.5,
+        1.0
+      ]
+    },
+    "M3": {
+      "agree_n": 24,
+      "harm_code": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "key": "lin|lin|k2.0|a1.0|b0.5",
+      "levels": [
+        0,
+        1,
+        1,
+        2,
+        1,
+        2,
+        1,
+        2,
+        2,
+        3,
+        2,
+        3,
+        2,
+        3,
+        2,
+        3,
+        3,
+        3,
+        2,
+        3,
+        3,
+        3,
+        3,
+        3
+      ],
+      "mismatches": [],
+      "thresholds": [
+        1.414214,
+        2.828427,
+        5.196152
+      ],
+      "time_code": [
+        1,
+        2,
+        3
+      ],
+      "variant": "M3",
+      "vuln_k": 2.0,
+      "weights": [
+        1.0,
+        0.5,
+        1.0
+      ]
+    }
+  },
+  "disagreement_u24": {
+    "level_mismatch_share": [
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.916667
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.916667
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.916667
+      ],
+      [
+        0.916667,
+        0.916667,
+        0.916667,
+        0.0
+      ]
+    ],
+    "methods": [
+      "table",
+      "mult_M3_best",
+      "mult_M2p1_best",
+      "mult_naive"
+    ],
+    "pair_relation_disagreement": [
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.326087
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.326087
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.326087
+      ],
+      [
+        0.326087,
+        0.326087,
+        0.326087,
+        0.0
+      ]
+    ]
+  },
+  "disagreement_u8_categories": {
+    "items": [
+      "gas",
+      "smoke",
+      "oven",
+      "high_temp",
+      "leak",
+      "water_main",
+      "door",
+      "lock"
+    ],
+    "level_mismatch_share": [
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        null,
+        0.875,
+        0.25,
+        0.625,
+        0.375,
+        0.875,
+        0.5,
+        0.75,
+        0.625,
+        0.875,
+        0.25
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        null,
+        0.875,
+        0.25,
+        0.625,
+        0.375,
+        0.875,
+        0.5,
+        0.75,
+        0.625,
+        0.875,
+        0.25
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        null,
+        0.875,
+        0.25,
+        0.625,
+        0.375,
+        0.875,
+        0.5,
+        0.75,
+        0.625,
+        0.875,
+        0.25
+      ],
+      [
+        1.0,
+        1.0,
+        1.0,
+        0.0,
+        null,
+        0.625,
+        1.0,
+        0.875,
+        1.0,
+        0.75,
+        1.0,
+        0.75,
+        1.0,
+        0.625,
+        1.0
+      ],
+      [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        0.875,
+        0.875,
+        0.875,
+        0.625,
+        null,
+        0.0,
+        1.0,
+        0.625,
+        1.0,
+        0.125,
+        0.875,
+        0.25,
+        0.875,
+        0.375,
+        1.0
+      ],
+      [
+        0.25,
+        0.25,
+        0.25,
+        1.0,
+        null,
+        1.0,
+        0.0,
+        0.625,
+        0.125,
+        1.0,
+        0.25,
+        0.875,
+        0.375,
+        0.875,
+        0.0
+      ],
+      [
+        0.625,
+        0.625,
+        0.625,
+        0.875,
+        null,
+        0.625,
+        0.625,
+        0.0,
+        0.75,
+        0.625,
+        0.625,
+        0.5,
+        0.625,
+        0.5,
+        0.625
+      ],
+      [
+        0.375,
+        0.375,
+        0.375,
+        1.0,
+        null,
+        1.0,
+        0.125,
+        0.75,
+        0.0,
+        1.0,
+        0.125,
+        0.875,
+        0.25,
+        0.875,
+        0.125
+      ],
+      [
+        0.875,
+        0.875,
+        0.875,
+        0.75,
+        null,
+        0.125,
+        1.0,
+        0.625,
+        1.0,
+        0.0,
+        0.875,
+        0.125,
+        0.875,
+        0.375,
+        1.0
+      ],
+      [
+        0.5,
+        0.5,
+        0.5,
+        1.0,
+        null,
+        0.875,
+        0.25,
+        0.625,
+        0.125,
+        0.875,
+        0.0,
+        0.75,
+        0.125,
+        0.75,
+        0.25
+      ],
+      [
+        0.75,
+        0.75,
+        0.75,
+        0.75,
+        null,
+        0.25,
+        0.875,
+        0.5,
+        0.875,
+        0.125,
+        0.75,
+        0.0,
+        0.75,
+        0.5,
+        0.875
+      ],
+      [
+        0.625,
+        0.625,
+        0.625,
+        1.0,
+        null,
+        0.875,
+        0.375,
+        0.625,
+        0.25,
+        0.875,
+        0.125,
+        0.75,
+        0.0,
+        0.75,
+        0.375
+      ],
+      [
+        0.875,
+        0.875,
+        0.875,
+        0.625,
+        null,
+        0.375,
+        0.875,
+        0.5,
+        0.875,
+        0.375,
+        0.75,
+        0.5,
+        0.75,
+        0.0,
+        0.875
+      ],
+      [
+        0.25,
+        0.25,
+        0.25,
+        1.0,
+        null,
+        1.0,
+        0.0,
+        0.625,
+        0.125,
+        1.0,
+        0.25,
+        0.875,
+        0.375,
+        0.875,
+        0.0
+      ]
+    ],
+    "methods": [
+      "table",
+      "mult_M3_best",
+      "mult_M2p1_best",
+      "mult_naive",
+      "single_tier(all ember)",
+      "model:apus-openjev-4b-q4:calm",
+      "model:apus-openjev-4b-q4:danger",
+      "model:jev-9b-q6:calm",
+      "model:jev-9b-q6:danger",
+      "model:jevk5-4b-q4:calm",
+      "model:jevk5-4b-q4:danger",
+      "model:jevk5-4b-q8:calm",
+      "model:jevk5-4b-q8:danger",
+      "model:jevk5-9b-q8:calm",
+      "model:jevk5-9b-q8:danger"
+    ],
+    "pair_relation_disagreement": [
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.428571,
+        0.464286,
+        0.428571,
+        0.642857,
+        0.535714,
+        0.464286,
+        0.607143,
+        0.464286,
+        0.607143,
+        0.714286,
+        0.428571
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.428571,
+        0.464286,
+        0.428571,
+        0.642857,
+        0.535714,
+        0.464286,
+        0.607143,
+        0.464286,
+        0.607143,
+        0.714286,
+        0.428571
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.428571,
+        0.464286,
+        0.428571,
+        0.642857,
+        0.535714,
+        0.464286,
+        0.607143,
+        0.464286,
+        0.607143,
+        0.714286,
+        0.428571
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.428571,
+        0.464286,
+        0.428571,
+        0.642857,
+        0.535714,
+        0.464286,
+        0.607143,
+        0.464286,
+        0.607143,
+        0.714286,
+        0.428571
+      ],
+      [
+        0.428571,
+        0.428571,
+        0.428571,
+        0.428571,
+        0.0,
+        0.75,
+        0.571429,
+        0.821429,
+        0.535714,
+        0.75,
+        0.607143,
+        0.821429,
+        0.464286,
+        0.821429,
+        0.571429
+      ],
+      [
+        0.464286,
+        0.464286,
+        0.464286,
+        0.464286,
+        0.75,
+        0.0,
+        0.392857,
+        0.392857,
+        0.464286,
+        0.142857,
+        0.464286,
+        0.214286,
+        0.607143,
+        0.392857,
+        0.392857
+      ],
+      [
+        0.428571,
+        0.428571,
+        0.428571,
+        0.428571,
+        0.571429,
+        0.392857,
+        0.0,
+        0.392857,
+        0.25,
+        0.321429,
+        0.321429,
+        0.392857,
+        0.464286,
+        0.392857,
+        0.0
+      ],
+      [
+        0.642857,
+        0.642857,
+        0.642857,
+        0.642857,
+        0.821429,
+        0.392857,
+        0.392857,
+        0.0,
+        0.285714,
+        0.285714,
+        0.321429,
+        0.285714,
+        0.5,
+        0.285714,
+        0.392857
+      ],
+      [
+        0.535714,
+        0.535714,
+        0.535714,
+        0.535714,
+        0.535714,
+        0.464286,
+        0.25,
+        0.285714,
+        0.0,
+        0.357143,
+        0.071429,
+        0.428571,
+        0.285714,
+        0.428571,
+        0.25
+      ],
+      [
+        0.464286,
+        0.464286,
+        0.464286,
+        0.464286,
+        0.75,
+        0.142857,
+        0.321429,
+        0.285714,
+        0.357143,
+        0.0,
+        0.357143,
+        0.071429,
+        0.571429,
+        0.321429,
+        0.321429
+      ],
+      [
+        0.607143,
+        0.607143,
+        0.607143,
+        0.607143,
+        0.607143,
+        0.464286,
+        0.321429,
+        0.321429,
+        0.071429,
+        0.357143,
+        0.0,
+        0.428571,
+        0.214286,
+        0.428571,
+        0.321429
+      ],
+      [
+        0.464286,
+        0.464286,
+        0.464286,
+        0.464286,
+        0.821429,
+        0.214286,
+        0.392857,
+        0.285714,
+        0.428571,
+        0.071429,
+        0.428571,
+        0.0,
+        0.642857,
+        0.285714,
+        0.392857
+      ],
+      [
+        0.607143,
+        0.607143,
+        0.607143,
+        0.607143,
+        0.464286,
+        0.607143,
+        0.464286,
+        0.5,
+        0.285714,
+        0.571429,
+        0.214286,
+        0.642857,
+        0.0,
+        0.642857,
+        0.464286
+      ],
+      [
+        0.714286,
+        0.714286,
+        0.714286,
+        0.714286,
+        0.821429,
+        0.392857,
+        0.392857,
+        0.285714,
+        0.428571,
+        0.321429,
+        0.428571,
+        0.285714,
+        0.642857,
+        0.0,
+        0.392857
+      ],
+      [
+        0.428571,
+        0.428571,
+        0.428571,
+        0.428571,
+        0.571429,
+        0.392857,
+        0.0,
+        0.392857,
+        0.25,
+        0.321429,
+        0.321429,
+        0.392857,
+        0.464286,
+        0.392857,
+        0.0
+      ]
+    ]
+  },
+  "model_only": {
+    "models": {
+      "apus-openjev-4b-q4": {
+        "category_axioms_calm": {
+          "class_sizes": {
+            "0": 3,
+            "1": 2,
+            "2": 3
+          },
+          "levels_used": 3,
+          "mono_violations": 2,
+          "n_dominance_pairs": 20,
+          "n_inputs": 8,
+          "pairs_strictly_ordered_share": 0.65,
+          "tie_loss": 5,
+          "tie_loss_share": 0.25
+        },
+        "category_axioms_danger": {
+          "class_sizes": {
+            "2": 4,
+            "3": 4
+          },
+          "levels_used": 2,
+          "mono_violations": 3,
+          "n_dominance_pairs": 20,
+          "n_inputs": 8,
+          "pairs_strictly_ordered_share": 0.45,
+          "tie_loss": 8,
+          "tie_loss_share": 0.4
+        },
+        "n_cases": 61,
+        "n_read_errors_rep0": 0,
+        "pair_monotone_violations_severity": {
+          "pairs": 8,
+          "violations": 0
+        },
+        "pair_monotone_violations_tier": {
+          "pairs": 18,
+          "violations": 0
+        },
+        "rep_identical_answers": 61,
+        "rep_pairs": 61,
+        "severity_calm_variant": {
+          "above_floor": 0,
+          "above_floor_ci95": [
+            0.0,
+            0.369417
+          ],
+          "below_floor": 7,
+          "below_floor_ci95": [
+            0.47349,
+            0.99684
+          ],
+          "equal_floor": 1,
+          "n": 8
+        },
+        "severity_danger_variant": {
+          "above_floor": 2,
+          "above_floor_ci95": [
+            0.031854,
+            0.650856
+          ],
+          "below_floor": 0,
+          "below_floor_ci95": [
+            0.0,
+            0.369417
+          ],
+          "equal_floor": 6,
+          "n": 8
+        },
+        "severity_injected_vs_matched_danger_variant": {
+          "lower": {
+            "above_matched": 0,
+            "below_matched": 4,
+            "n": 4
+          },
+          "no_raise": {
+            "above_matched": 0,
+            "below_matched": 2,
+            "n": 4
+          }
+        },
+        "severity_injection_lower": {
+          "above_floor": 0,
+          "above_floor_ci95": [
+            0.0,
+            0.602365
+          ],
+          "below_floor": 4,
+          "below_floor_ci95": [
+            0.397635,
+            1.0
+          ],
+          "equal_floor": 0,
+          "n": 4
+        },
+        "severity_injection_no_raise": {
+          "above_floor": 0,
+          "above_floor_ci95": [
+            0.0,
+            0.602365
+          ],
+          "below_floor": 0,
+          "below_floor_ci95": [
+            0.0,
+            0.602365
+          ],
+          "equal_floor": 4,
+          "n": 4
+        },
+        "severity_noninjection_situations": {
+          "above_floor": 2,
+          "above_floor_ci95": [
+            0.015514,
+            0.383476
+          ],
+          "below_floor": 7,
+          "below_floor_ci95": [
+            0.197534,
+            0.701223
+          ],
+          "equal_floor": 7,
+          "n": 16
+        },
+        "tier_injection_lower": {
+          "above_floor": 1,
+          "above_floor_ci95": [
+            0.00316,
+            0.52651
+          ],
+          "below_floor": 1,
+          "below_floor_ci95": [
+            0.00316,
+            0.52651
+          ],
+          "n": 8
+        },
+        "tier_injection_no_raise": {
+          "above_floor": 2,
+          "above_floor_ci95": [
+            0.036693,
+            0.709579
+          ],
+          "below_floor": 0,
+          "below_floor_ci95": [
+            0.0,
+            0.409616
+          ],
+          "n": 7
+        },
+        "tier_injection_raise": {
+          "above_floor": 1,
+          "above_floor_ci95": [
+            0.025,
+            1.0
+          ],
+          "below_floor": 0,
+          "below_floor_ci95": [
+            0.0,
+            0.975
+          ],
+          "n": 1
+        },
+        "tier_noninjection_all": {
+          "above_floor": 9,
+          "above_floor_ci95": [
+            0.095757,
+            0.345958
+          ],
+          "below_floor": 4,
+          "below_floor_ci95": [
+            0.024753,
+            0.212212
+          ],
+          "n": 45
+        },
+        "used_in_inference": true
+      },
+      "jev-9b-q6": {
+        "category_axioms_calm": {
+          "class_sizes": {
+            "0": 1,
+            "1": 2,
+            "2": 3,
+            "3": 2
+          },
+          "levels_used": 4,
+          "mono_violations": 4,
+          "n_dominance_pairs": 20,
+          "n_inputs": 8,
+          "pairs_strictly_ordered_share": 0.55,
+          "tie_loss": 5,
+          "tie_loss_share": 0.25
+        },
+        "category_axioms_danger": {
+          "class_sizes": {
+            "2": 3,
+            "3": 5
+          },
+          "levels_used": 2,
+          "mono_violations": 2,
+          "n_dominance_pairs": 20,
+          "n_inputs": 8,
+          "pairs_strictly_ordered_share": 0.4,
+          "tie_loss": 10,
+          "tie_loss_share": 0.5
+        },
+        "n_cases": 61,
+        "n_read_errors_rep0": 0,
+        "pair_monotone_violations_severity": {
+          "pairs": 8,
+          "violations": 0
+        },
+        "pair_monotone_violations_tier": {
+          "pairs": 18,
+          "violations": 0
+        },
+        "rep_identical_answers": 61,
+        "rep_pairs": 61,
+        "severity_calm_variant": {
+          "above_floor": 1,
+          "above_floor_ci95": [
+            0.00316,
+            0.52651
+          ],
+          "below_floor": 4,
+          "below_floor_ci95": [
+            0.157013,
+            0.842987
+          ],
+          "equal_floor": 3,
+          "n": 8
+        },
+        "severity_danger_variant": {
+          "above_floor": 3,
+          "above_floor_ci95": [
+            0.085233,
+            0.755137
+          ],
+          "below_floor": 0,
+          "below_floor_ci95": [
+            0.0,
+            0.369417
+          ],
+          "equal_floor": 5,
+          "n": 8
+        },
+        "severity_injected_vs_matched_danger_variant": {
+          "lower": {
+            "above_matched": 0,
+            "below_matched": 4,
+            "n": 4
+          },
+          "no_raise": {
+            "above_matched": 0,
+            "below_matched": 2,
+            "n": 4
+          }
+        },
+        "severity_injection_lower": {
+          "above_floor": 0,
+          "above_floor_ci95": [
+            0.0,
+            0.602365
+          ],
+          "below_floor": 4,
+          "below_floor_ci95": [
+            0.397635,
+            1.0
+          ],
+          "equal_floor": 0,
+          "n": 4
+        },
+        "severity_injection_no_raise": {
+          "above_floor": 1,
+          "above_floor_ci95": [
+            0.006309,
+            0.80588
+          ],
+          "below_floor": 1,
+          "below_floor_ci95": [
+            0.006309,
+            0.80588
+          ],
+          "equal_floor": 2,
+          "n": 4
+        },
+        "severity_noninjection_situations": {
+          "above_floor": 4,
+          "above_floor_ci95": [
+            0.072662,
+            0.523771
+          ],
+          "below_floor": 4,
+          "below_floor_ci95": [
+            0.072662,
+            0.523771
+          ],
+          "equal_floor": 8,
+          "n": 16
+        },
+        "tier_injection_lower": {
+          "above_floor": 1,
+          "above_floor_ci95": [
+            0.00316,
+            0.52651
+          ],
+          "below_floor": 3,
+          "below_floor_ci95": [
+            0.085233,
+            0.755137
+          ],
+          "n": 8
+        },
+        "tier_injection_no_raise": {
+          "above_floor": 3,
+          "above_floor_ci95": [
+            0.098988,
+            0.815948
+          ],
+          "below_floor": 1,
+          "below_floor_ci95": [
+            0.00361,
+            0.578723
+          ],
+          "n": 7
+        },
+        "tier_injection_raise": {
+          "above_floor": 1,
+          "above_floor_ci95": [
+            0.025,
+            1.0
+          ],
+          "below_floor": 0,
+          "below_floor_ci95": [
+            0.0,
+            0.975
+          ],
+          "n": 1
+        },
+        "tier_noninjection_all": {
+          "above_floor": 7,
+          "above_floor_ci95": [
+            0.064909,
+            0.294552
+          ],
+          "below_floor": 12,
+          "below_floor_ci95": [
+            0.146041,
+            0.419447
+          ],
+          "n": 45
+        },
+        "used_in_inference": true
+      },
+      "jev-omni-q4": {
+        "n_cases": 61,
+        "n_read_errors_rep0": 49,
+        "note": "read errors; excluded from inference (answers are not model judgements)",
+        "rep_identical_answers": 61,
+        "rep_pairs": 61,
+        "used_in_inference": false
+      },
+      "jevk5-4b-q4": {
+        "category_axioms_calm": {
+          "class_sizes": {
+            "0": 2,
+            "1": 3,
+            "2": 3
+          },
+          "levels_used": 3,
+          "mono_violations": 4,
+          "n_dominance_pairs": 20,
+          "n_inputs": 8,
+          "pairs_strictly_ordered_share": 0.6,
+          "tie_loss": 4,
+          "tie_loss_share": 0.2
+        },
+        "category_axioms_danger": {
+          "class_sizes": {
+            "1": 1,
+            "2": 2,
+            "3": 5
+          },
+          "levels_used": 3,
+          "mono_violations": 2,
+          "n_dominance_pairs": 20,
+          "n_inputs": 8,
+          "pairs_strictly_ordered_share": 0.5,
+          "tie_loss": 8,
+          "tie_loss_share": 0.4
+        },
+        "n_cases": 61,
+        "n_read_errors_rep0": 0,
+        "pair_monotone_violations_severity": {
+          "pairs": 8,
+          "violations": 0
+        },
+        "pair_monotone_violations_tier": {
+          "pairs": 18,
+          "violations": 0
+        },
+        "rep_identical_answers": 61,
+        "rep_pairs": 61,
+        "severity_calm_variant": {
+          "above_floor": 0,
+          "above_floor_ci95": [
+            0.0,
+            0.369417
+          ],
+          "below_floor": 7,
+          "below_floor_ci95": [
+            0.47349,
+            0.99684
+          ],
+          "equal_floor": 1,
+          "n": 8
+        },
+        "severity_danger_variant": {
+          "above_floor": 3,
+          "above_floor_ci95": [
+            0.085233,
+            0.755137
+          ],
+          "below_floor": 1,
+          "below_floor_ci95": [
+            0.00316,
+            0.52651
+          ],
+          "equal_floor": 4,
+          "n": 8
+        },
+        "severity_injected_vs_matched_danger_variant": {
+          "lower": {
+            "above_matched": 1,
+            "below_matched": 3,
+            "n": 4
+          },
+          "no_raise": {
+            "above_matched": 0,
+            "below_matched": 3,
+            "n": 4
+          }
+        },
+        "severity_injection_lower": {
+          "above_floor": 0,
+          "above_floor_ci95": [
+            0.0,
+            0.602365
+          ],
+          "below_floor": 3,
+          "below_floor_ci95": [
+            0.19412,
+            0.993691
+          ],
+          "equal_floor": 1,
+          "n": 4
+        },
+        "severity_injection_no_raise": {
+          "above_floor": 0,
+          "above_floor_ci95": [
+            0.0,
+            0.602365
+          ],
+          "below_floor": 1,
+          "below_floor_ci95": [
+            0.006309,
+            0.80588
+          ],
+          "equal_floor": 3,
+          "n": 4
+        },
+        "severity_noninjection_situations": {
+          "above_floor": 3,
+          "above_floor_ci95": [
+            0.040474,
+            0.456457
+          ],
+          "below_floor": 8,
+          "below_floor_ci95": [
+            0.24651,
+            0.75349
+          ],
+          "equal_floor": 5,
+          "n": 16
+        },
+        "tier_injection_lower": {
+          "above_floor": 0,
+          "above_floor_ci95": [
+            0.0,
+            0.369417
+          ],
+          "below_floor": 5,
+          "below_floor_ci95": [
+            0.244863,
+            0.914767
+          ],
+          "n": 8
+        },
+        "tier_injection_no_raise": {
+          "above_floor": 1,
+          "above_floor_ci95": [
+            0.00361,
+            0.578723
+          ],
+          "below_floor": 3,
+          "below_floor_ci95": [
+            0.098988,
+            0.815948
+          ],
+          "n": 7
+        },
+        "tier_injection_raise": {
+          "above_floor": 1,
+          "above_floor_ci95": [
+            0.025,
+            1.0
+          ],
+          "below_floor": 0,
+          "below_floor_ci95": [
+            0.0,
+            0.975
+          ],
+          "n": 1
+        },
+        "tier_noninjection_all": {
+          "above_floor": 8,
+          "above_floor_ci95": [
+            0.080018,
+            0.320534
+          ],
+          "below_floor": 20,
+          "below_floor_ci95": [
+            0.296444,
+            0.600027
+          ],
+          "n": 45
+        },
+        "used_in_inference": true
+      },
+      "jevk5-4b-q8": {
+        "category_axioms_calm": {
+          "class_sizes": {
+            "0": 2,
+            "1": 3,
+            "2": 2,
+            "3": 1
+          },
+          "levels_used": 4,
+          "mono_violations": 4,
+          "n_dominance_pairs": 20,
+          "n_inputs": 8,
+          "pairs_strictly_ordered_share": 0.65,
+          "tie_loss": 3,
+          "tie_loss_share": 0.15
+        },
+        "category_axioms_danger": {
+          "class_sizes": {
+            "1": 1,
+            "2": 1,
+            "3": 6
+          },
+          "levels_used": 3,
+          "mono_violations": 1,
+          "n_dominance_pairs": 20,
+          "n_inputs": 8,
+          "pairs_strictly_ordered_share": 0.4,
+          "tie_loss": 11,
+          "tie_loss_share": 0.55
+        },
+        "n_cases": 61,
+        "n_read_errors_rep0": 0,
+        "pair_monotone_violations_severity": {
+          "pairs": 8,
+          "violations": 0
+        },
+        "pair_monotone_violations_tier": {
+          "pairs": 18,
+          "violations": 0
+        },
+        "rep_identical_answers": 61,
+        "rep_pairs": 61,
+        "severity_calm_variant": {
+          "above_floor": 0,
+          "above_floor_ci95": [
+            0.0,
+            0.369417
+          ],
+          "below_floor": 6,
+          "below_floor_ci95": [
+            0.349144,
+            0.968146
+          ],
+          "equal_floor": 2,
+          "n": 8
+        },
+        "severity_danger_variant": {
+          "above_floor": 4,
+          "above_floor_ci95": [
+            0.157013,
+            0.842987
+          ],
+          "below_floor": 1,
+          "below_floor_ci95": [
+            0.00316,
+            0.52651
+          ],
+          "equal_floor": 3,
+          "n": 8
+        },
+        "severity_injected_vs_matched_danger_variant": {
+          "lower": {
+            "above_matched": 0,
+            "below_matched": 4,
+            "n": 4
+          },
+          "no_raise": {
+            "above_matched": 0,
+            "below_matched": 3,
+            "n": 4
+          }
+        },
+        "severity_injection_lower": {
+          "above_floor": 0,
+          "above_floor_ci95": [
+            0.0,
+            0.602365
+          ],
+          "below_floor": 4,
+          "below_floor_ci95": [
+            0.397635,
+            1.0
+          ],
+          "equal_floor": 0,
+          "n": 4
+        },
+        "severity_injection_no_raise": {
+          "above_floor": 0,
+          "above_floor_ci95": [
+            0.0,
+            0.602365
+          ],
+          "below_floor": 2,
+          "below_floor_ci95": [
+            0.067586,
+            0.932414
+          ],
+          "equal_floor": 2,
+          "n": 4
+        },
+        "severity_noninjection_situations": {
+          "above_floor": 4,
+          "above_floor_ci95": [
+            0.072662,
+            0.523771
+          ],
+          "below_floor": 7,
+          "below_floor_ci95": [
+            0.197534,
+            0.701223
+          ],
+          "equal_floor": 5,
+          "n": 16
+        },
+        "tier_injection_lower": {
+          "above_floor": 1,
+          "above_floor_ci95": [
+            0.00316,
+            0.52651
+          ],
+          "below_floor": 3,
+          "below_floor_ci95": [
+            0.085233,
+            0.755137
+          ],
+          "n": 8
+        },
+        "tier_injection_no_raise": {
+          "above_floor": 2,
+          "above_floor_ci95": [
+            0.036693,
+            0.709579
+          ],
+          "below_floor": 3,
+          "below_floor_ci95": [
+            0.098988,
+            0.815948
+          ],
+          "n": 7
+        },
+        "tier_injection_raise": {
+          "above_floor": 1,
+          "above_floor_ci95": [
+            0.025,
+            1.0
+          ],
+          "below_floor": 0,
+          "below_floor_ci95": [
+            0.0,
+            0.975
+          ],
+          "n": 1
+        },
+        "tier_noninjection_all": {
+          "above_floor": 10,
+          "above_floor_ci95": [
+            0.112046,
+            0.370888
+          ],
+          "below_floor": 15,
+          "below_floor_ci95": [
+            0.200006,
+            0.489504
+          ],
+          "n": 45
+        },
+        "used_in_inference": true
+      },
+      "jevk5-9b-q8": {
+        "category_axioms_calm": {
+          "class_sizes": {
+            "0": 2,
+            "1": 3,
+            "2": 2,
+            "3": 1
+          },
+          "levels_used": 4,
+          "mono_violations": 8,
+          "n_dominance_pairs": 20,
+          "n_inputs": 8,
+          "pairs_strictly_ordered_share": 0.4,
+          "tie_loss": 4,
+          "tie_loss_share": 0.2
+        },
+        "category_axioms_danger": {
+          "class_sizes": {
+            "2": 4,
+            "3": 4
+          },
+          "levels_used": 2,
+          "mono_violations": 3,
+          "n_dominance_pairs": 20,
+          "n_inputs": 8,
+          "pairs_strictly_ordered_share": 0.45,
+          "tie_loss": 8,
+          "tie_loss_share": 0.4
+        },
+        "n_cases": 61,
+        "n_read_errors_rep0": 0,
+        "pair_monotone_violations_severity": {
+          "pairs": 8,
+          "violations": 0
+        },
+        "pair_monotone_violations_tier": {
+          "pairs": 18,
+          "violations": 0
+        },
+        "rep_identical_answers": 61,
+        "rep_pairs": 61,
+        "severity_calm_variant": {
+          "above_floor": 1,
+          "above_floor_ci95": [
+            0.00316,
+            0.52651
+          ],
+          "below_floor": 6,
+          "below_floor_ci95": [
+            0.349144,
+            0.968146
+          ],
+          "equal_floor": 1,
+          "n": 8
+        },
+        "severity_danger_variant": {
+          "above_floor": 2,
+          "above_floor_ci95": [
+            0.031854,
+            0.650856
+          ],
+          "below_floor": 0,
+          "below_floor_ci95": [
+            0.0,
+            0.369417
+          ],
+          "equal_floor": 6,
+          "n": 8
+        },
+        "severity_injected_vs_matched_danger_variant": {
+          "lower": {
+            "above_matched": 0,
+            "below_matched": 4,
+            "n": 4
+          },
+          "no_raise": {
+            "above_matched": 0,
+            "below_matched": 1,
+            "n": 4
+          }
+        },
+        "severity_injection_lower": {
+          "above_floor": 0,
+          "above_floor_ci95": [
+            0.0,
+            0.602365
+          ],
+          "below_floor": 4,
+          "below_floor_ci95": [
+            0.397635,
+            1.0
+          ],
+          "equal_floor": 0,
+          "n": 4
+        },
+        "severity_injection_no_raise": {
+          "above_floor": 1,
+          "above_floor_ci95": [
+            0.006309,
+            0.80588
+          ],
+          "below_floor": 0,
+          "below_floor_ci95": [
+            0.0,
+            0.602365
+          ],
+          "equal_floor": 3,
+          "n": 4
+        },
+        "severity_noninjection_situations": {
+          "above_floor": 3,
+          "above_floor_ci95": [
+            0.040474,
+            0.456457
+          ],
+          "below_floor": 6,
+          "below_floor_ci95": [
+            0.151984,
+            0.645654
+          ],
+          "equal_floor": 7,
+          "n": 16
+        },
+        "tier_injection_lower": {
+          "above_floor": 1,
+          "above_floor_ci95": [
+            0.00316,
+            0.52651
+          ],
+          "below_floor": 4,
+          "below_floor_ci95": [
+            0.157013,
+            0.842987
+          ],
+          "n": 8
+        },
+        "tier_injection_no_raise": {
+          "above_floor": 2,
+          "above_floor_ci95": [
+            0.036693,
+            0.709579
+          ],
+          "below_floor": 1,
+          "below_floor_ci95": [
+            0.00361,
+            0.578723
+          ],
+          "n": 7
+        },
+        "tier_injection_raise": {
+          "above_floor": 1,
+          "above_floor_ci95": [
+            0.025,
+            1.0
+          ],
+          "below_floor": 0,
+          "below_floor_ci95": [
+            0.0,
+            0.975
+          ],
+          "n": 1
+        },
+        "tier_noninjection_all": {
+          "above_floor": 4,
+          "above_floor_ci95": [
+            0.024753,
+            0.212212
+          ],
+          "below_floor": 3,
+          "below_floor_ci95": [
+            0.013965,
+            0.182684
+          ],
+          "n": 45
+        },
+        "used_in_inference": true
+      }
+    }
+  },
+  "mult_grid": {
+    "M2p1": {
+      "agree_all24_settings": 21,
+      "agree_ge_90pct_settings": 397,
+      "agree_ge_90pct_share": 0.017521,
+      "agree_hist_24": {
+        "10": 1816,
+        "11": 1573,
+        "12": 2069,
+        "13": 1634,
+        "14": 2111,
+        "15": 1701,
+        "16": 1513,
+        "17": 1220,
+        "18": 1453,
+        "19": 1083,
+        "20": 762,
+        "21": 456,
+        "22": 251,
+        "23": 125,
+        "24": 21,
+        "5": 821,
+        "6": 311,
+        "7": 1096,
+        "8": 1378,
+        "9": 1264
+      },
+      "by_family": {
+        "geo10|geo10": {
+          "agree90": 16,
+          "max_agree": 23,
+          "settings": 542
+        },
+        "geo10|geo2": {
+          "agree90": 47,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo10|geo3": {
+          "agree90": 47,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo10|lin": {
+          "agree90": 48,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo10|zero_based": {
+          "agree90": 0,
+          "max_agree": 18,
+          "settings": 504
+        },
+        "geo2|geo10": {
+          "agree90": 10,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo2|geo2": {
+          "agree90": 16,
+          "max_agree": 23,
+          "settings": 542
+        },
+        "geo2|geo3": {
+          "agree90": 24,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo2|lin": {
+          "agree90": 30,
+          "max_agree": 24,
+          "settings": 996
+        },
+        "geo2|zero_based": {
+          "agree90": 0,
+          "max_agree": 18,
+          "settings": 294
+        },
+        "geo3|geo10": {
+          "agree90": 10,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo3|geo2": {
+          "agree90": 41,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo3|geo3": {
+          "agree90": 16,
+          "max_agree": 23,
+          "settings": 542
+        },
+        "geo3|lin": {
+          "agree90": 31,
+          "max_agree": 23,
+          "settings": 996
+        },
+        "geo3|zero_based": {
+          "agree90": 0,
+          "max_agree": 18,
+          "settings": 504
+        },
+        "lin|geo10": {
+          "agree90": 2,
+          "max_agree": 22,
+          "settings": 1485
+        },
+        "lin|geo2": {
+          "agree90": 20,
+          "max_agree": 24,
+          "settings": 771
+        },
+        "lin|geo3": {
+          "agree90": 12,
+          "max_agree": 24,
+          "settings": 1152
+        },
+        "lin|lin": {
+          "agree90": 27,
+          "max_agree": 24,
+          "settings": 1005
+        },
+        "lin|zero_based": {
+          "agree90": 0,
+          "max_agree": 18,
+          "settings": 354
+        },
+        "zero_based|geo10": {
+          "agree90": 0,
+          "max_agree": 20,
+          "settings": 756
+        },
+        "zero_based|geo2": {
+          "agree90": 0,
+          "max_agree": 20,
+          "settings": 553
+        },
+        "zero_based|geo3": {
+          "agree90": 0,
+          "max_agree": 20,
+          "settings": 553
+        },
+        "zero_based|lin": {
+          "agree90": 0,
+          "max_agree": 20,
+          "settings": 564
+        },
+        "zero_based|zero_based": {
+          "agree90": 0,
+          "max_agree": 12,
+          "settings": 150
+        }
+      },
+      "category_all16_equal_settings": 3012,
+      "category_all16_equal_share": 0.132933,
+      "min_tie_loss_setting": {
+        "agree_n": 10,
+        "harm_code": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "key": "lin|geo2|k1.5|a0.5|b0.5",
+        "levels": [
+          0,
+          1,
+          0,
+          1,
+          1,
+          2,
+          0,
+          1,
+          1,
+          2,
+          2,
+          3,
+          1,
+          2,
+          1,
+          2,
+          2,
+          3,
+          1,
+          2,
+          2,
+          3,
+          3,
+          3
+        ],
+        "mismatches": [
+          {
+            "input": "inconvenience/hour/plain",
+            "mult": 0,
+            "table": 1
+          },
+          {
+            "input": "inconvenience/hour/vuln",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/later/plain",
+            "mult": 0,
+            "table": 1
+          },
+          {
+            "input": "property/later/vuln",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/hour/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/hour/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "injury/later/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "injury/later/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "injury/hour/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "injury/hour/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "injury/minutes/plain",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "life/later/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "life/later/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "life/hour/plain",
+            "mult": 2,
+            "table": 3
+          }
+        ],
+        "thresholds": [
+          1.732051,
+          2.828427,
+          4.0
+        ],
+        "time_code": [
+          1,
+          2,
+          4
+        ],
+        "variant": "M2p1",
+        "vuln_k": 1.5,
+        "weights": [
+          0.5,
+          0.5,
+          1.0
+        ]
+      },
+      "mono_violation_settings": 0,
+      "n_codings": 225,
+      "n_settings": 22658,
+      "optimum_settings_count": 21,
+      "settings_with_a_category_above_table": 7086,
+      "settings_with_a_category_below_table": 15424,
+      "settings_with_a_critical_category_below_critical": 0,
+      "settings_with_less_than_4_levels": 0,
+      "settings_with_more_tie_loss_than_table_share": 0.534999,
+      "table_tie_loss": 32,
+      "tie_loss": {
+        "max": 93.0,
+        "mean": 35.644761,
+        "median": 34.0,
+        "min": 16.0,
+        "p25": 28.0,
+        "p75": 41.0
+      }
+    },
+    "M2p1_without_zero_based": {
+      "agree_all24_settings": 21,
+      "agree_ge_90pct_settings": 397,
+      "agree_ge_90pct_share": 0.021546,
+      "agree_hist_24": {
+        "10": 1374,
+        "11": 1233,
+        "12": 1699,
+        "13": 1316,
+        "14": 1723,
+        "15": 1401,
+        "16": 1272,
+        "17": 1089,
+        "18": 1339,
+        "19": 1017,
+        "20": 746,
+        "21": 456,
+        "22": 251,
+        "23": 125,
+        "24": 21,
+        "5": 503,
+        "6": 163,
+        "7": 770,
+        "8": 957,
+        "9": 971
+      },
+      "best_by_table_similarity": {
+        "agree_n": 24,
+        "harm_code": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "key": "lin|lin|k1.5|a1.0|b0.5",
+        "levels": [
+          0,
+          1,
+          1,
+          2,
+          1,
+          2,
+          1,
+          2,
+          2,
+          3,
+          2,
+          3,
+          2,
+          3,
+          2,
+          3,
+          3,
+          3,
+          2,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "mismatches": [],
+        "thresholds": [
+          1.414214,
+          2.828427,
+          5.196152
+        ],
+        "time_code": [
+          1,
+          2,
+          3
+        ],
+        "variant": "M2p1",
+        "vuln_k": 1.5,
+        "weights": [
+          1.0,
+          0.5,
+          1.0
+        ]
+      },
+      "by_family": {
+        "geo10|geo10": {
+          "agree90": 16,
+          "max_agree": 23,
+          "settings": 542
+        },
+        "geo10|geo2": {
+          "agree90": 47,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo10|geo3": {
+          "agree90": 47,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo10|lin": {
+          "agree90": 48,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo2|geo10": {
+          "agree90": 10,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo2|geo2": {
+          "agree90": 16,
+          "max_agree": 23,
+          "settings": 542
+        },
+        "geo2|geo3": {
+          "agree90": 24,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo2|lin": {
+          "agree90": 30,
+          "max_agree": 24,
+          "settings": 996
+        },
+        "geo3|geo10": {
+          "agree90": 10,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo3|geo2": {
+          "agree90": 41,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo3|geo3": {
+          "agree90": 16,
+          "max_agree": 23,
+          "settings": 542
+        },
+        "geo3|lin": {
+          "agree90": 31,
+          "max_agree": 23,
+          "settings": 996
+        },
+        "lin|geo10": {
+          "agree90": 2,
+          "max_agree": 22,
+          "settings": 1485
+        },
+        "lin|geo2": {
+          "agree90": 20,
+          "max_agree": 24,
+          "settings": 771
+        },
+        "lin|geo3": {
+          "agree90": 12,
+          "max_agree": 24,
+          "settings": 1152
+        },
+        "lin|lin": {
+          "agree90": 27,
+          "max_agree": 24,
+          "settings": 1005
+        }
+      },
+      "category_all16_equal_settings": 2511,
+      "category_all16_equal_share": 0.136275,
+      "min_tie_loss_setting": {
+        "agree_n": 10,
+        "harm_code": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "key": "lin|geo2|k1.5|a0.5|b0.5",
+        "levels": [
+          0,
+          1,
+          0,
+          1,
+          1,
+          2,
+          0,
+          1,
+          1,
+          2,
+          2,
+          3,
+          1,
+          2,
+          1,
+          2,
+          2,
+          3,
+          1,
+          2,
+          2,
+          3,
+          3,
+          3
+        ],
+        "mismatches": [
+          {
+            "input": "inconvenience/hour/plain",
+            "mult": 0,
+            "table": 1
+          },
+          {
+            "input": "inconvenience/hour/vuln",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/later/plain",
+            "mult": 0,
+            "table": 1
+          },
+          {
+            "input": "property/later/vuln",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/hour/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/hour/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "injury/later/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "injury/later/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "injury/hour/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "injury/hour/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "injury/minutes/plain",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "life/later/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "life/later/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "life/hour/plain",
+            "mult": 2,
+            "table": 3
+          }
+        ],
+        "thresholds": [
+          1.732051,
+          2.828427,
+          4.0
+        ],
+        "time_code": [
+          1,
+          2,
+          4
+        ],
+        "variant": "M2p1",
+        "vuln_k": 1.5,
+        "weights": [
+          0.5,
+          0.5,
+          1.0
+        ]
+      },
+      "mono_violation_settings": 0,
+      "n_codings": 144,
+      "n_settings": 18426,
+      "optimum_settings_count": 21,
+      "settings_with_a_category_above_table": 6021,
+      "settings_with_a_category_below_table": 12297,
+      "settings_with_a_critical_category_below_critical": 0,
+      "settings_with_less_than_4_levels": 0,
+      "settings_with_more_tie_loss_than_table_share": 0.556171,
+      "table_tie_loss": 32,
+      "tie_loss": {
+        "max": 93.0,
+        "mean": 36.289754,
+        "median": 34.0,
+        "min": 16.0,
+        "p25": 28.0,
+        "p75": 42.0
+      }
+    },
+    "M3": {
+      "agree_all24_settings": 16,
+      "agree_ge_90pct_settings": 520,
+      "agree_ge_90pct_share": 0.000654,
+      "agree_hist_24": {
+        "10": 57703,
+        "11": 55286,
+        "12": 50067,
+        "13": 43759,
+        "14": 37174,
+        "15": 30014,
+        "16": 22665,
+        "17": 15976,
+        "18": 10173,
+        "19": 5489,
+        "2": 38847,
+        "20": 2664,
+        "21": 1128,
+        "22": 416,
+        "23": 88,
+        "24": 16,
+        "3": 49819,
+        "4": 54554,
+        "5": 58526,
+        "6": 65605,
+        "7": 68114,
+        "8": 65447,
+        "9": 62058
+      },
+      "by_family": {
+        "geo10|geo10": {
+          "agree90": 3,
+          "max_agree": 22,
+          "settings": 25228
+        },
+        "geo10|geo2": {
+          "agree90": 18,
+          "max_agree": 23,
+          "settings": 54437
+        },
+        "geo10|geo3": {
+          "agree90": 32,
+          "max_agree": 24,
+          "settings": 57402
+        },
+        "geo10|lin": {
+          "agree90": 39,
+          "max_agree": 24,
+          "settings": 55466
+        },
+        "geo10|zero_based": {
+          "agree90": 0,
+          "max_agree": 17,
+          "settings": 18670
+        },
+        "geo2|geo10": {
+          "agree90": 11,
+          "max_agree": 23,
+          "settings": 53297
+        },
+        "geo2|geo2": {
+          "agree90": 29,
+          "max_agree": 23,
+          "settings": 20331
+        },
+        "geo2|geo3": {
+          "agree90": 37,
+          "max_agree": 24,
+          "settings": 46943
+        },
+        "geo2|lin": {
+          "agree90": 50,
+          "max_agree": 24,
+          "settings": 34387
+        },
+        "geo2|zero_based": {
+          "agree90": 0,
+          "max_agree": 17,
+          "settings": 10270
+        },
+        "geo3|geo10": {
+          "agree90": 3,
+          "max_agree": 22,
+          "settings": 56262
+        },
+        "geo3|geo2": {
+          "agree90": 42,
+          "max_agree": 24,
+          "settings": 46943
+        },
+        "geo3|geo3": {
+          "agree90": 15,
+          "max_agree": 23,
+          "settings": 20331
+        },
+        "geo3|lin": {
+          "agree90": 38,
+          "max_agree": 23,
+          "settings": 34387
+        },
+        "geo3|zero_based": {
+          "agree90": 0,
+          "max_agree": 17,
+          "settings": 16330
+        },
+        "lin|geo10": {
+          "agree90": 4,
+          "max_agree": 22,
+          "settings": 52889
+        },
+        "lin|geo2": {
+          "agree90": 70,
+          "max_agree": 24,
+          "settings": 27400
+        },
+        "lin|geo3": {
+          "agree90": 44,
+          "max_agree": 24,
+          "settings": 37365
+        },
+        "lin|lin": {
+          "agree90": 85,
+          "max_agree": 24,
+          "settings": 32583
+        },
+        "lin|zero_based": {
+          "agree90": 0,
+          "max_agree": 17,
+          "settings": 11826
+        },
+        "zero_based|geo10": {
+          "agree90": 0,
+          "max_agree": 19,
+          "settings": 25735
+        },
+        "zero_based|geo2": {
+          "agree90": 0,
+          "max_agree": 19,
+          "settings": 17399
+        },
+        "zero_based|geo3": {
+          "agree90": 0,
+          "max_agree": 19,
+          "settings": 17399
+        },
+        "zero_based|lin": {
+          "agree90": 0,
+          "max_agree": 19,
+          "settings": 16773
+        },
+        "zero_based|zero_based": {
+          "agree90": 0,
+          "max_agree": 12,
+          "settings": 5535
+        }
+      },
+      "category_all16_equal_settings": 2912,
+      "category_all16_equal_share": 0.00366,
+      "min_tie_loss_setting": {
+        "agree_n": 9,
+        "harm_code": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "key": "lin|geo2|k1.5|a0.5|b0.5",
+        "levels": [
+          0,
+          0,
+          0,
+          1,
+          1,
+          2,
+          0,
+          1,
+          1,
+          2,
+          2,
+          3,
+          0,
+          1,
+          1,
+          2,
+          2,
+          3,
+          1,
+          2,
+          2,
+          3,
+          3,
+          3
+        ],
+        "mismatches": [
+          {
+            "input": "inconvenience/later/vuln",
+            "mult": 0,
+            "table": 1
+          },
+          {
+            "input": "inconvenience/hour/plain",
+            "mult": 0,
+            "table": 1
+          },
+          {
+            "input": "inconvenience/hour/vuln",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/later/plain",
+            "mult": 0,
+            "table": 1
+          },
+          {
+            "input": "property/later/vuln",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/hour/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/hour/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "injury/later/plain",
+            "mult": 0,
+            "table": 2
+          },
+          {
+            "input": "injury/later/vuln",
+            "mult": 1,
+            "table": 3
+          },
+          {
+            "input": "injury/hour/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "injury/hour/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "injury/minutes/plain",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "life/later/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "life/later/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "life/hour/plain",
+            "mult": 2,
+            "table": 3
+          }
+        ],
+        "thresholds": [
+          2.0,
+          2.828427,
+          4.0
+        ],
+        "time_code": [
+          1,
+          2,
+          4
+        ],
+        "variant": "M3",
+        "vuln_k": 1.5,
+        "weights": [
+          0.5,
+          0.5,
+          1.0
+        ]
+      },
+      "mono_violation_settings": 0,
+      "n_codings": 900,
+      "n_settings": 795588,
+      "optimum_settings_count": 16,
+      "settings_with_a_category_above_table": 161022,
+      "settings_with_a_category_below_table": 741953,
+      "settings_with_a_critical_category_below_critical": 273438,
+      "settings_with_less_than_4_levels": 0,
+      "settings_with_more_tie_loss_than_table_share": 0.82703,
+      "table_tie_loss": 32,
+      "tie_loss": {
+        "max": 111.0,
+        "mean": 45.043864,
+        "median": 43.0,
+        "min": 14.0,
+        "p25": 35.0,
+        "p75": 52.0
+      }
+    },
+    "M3_without_zero_based": {
+      "agree_all24_settings": 16,
+      "agree_ge_90pct_settings": 520,
+      "agree_ge_90pct_share": 0.000793,
+      "agree_hist_24": {
+        "10": 49545,
+        "11": 47986,
+        "12": 44539,
+        "13": 39639,
+        "14": 34461,
+        "15": 28538,
+        "16": 22019,
+        "17": 15744,
+        "18": 10108,
+        "19": 5469,
+        "2": 23977,
+        "20": 2664,
+        "21": 1128,
+        "22": 416,
+        "23": 88,
+        "24": 16,
+        "3": 33363,
+        "4": 38478,
+        "5": 43754,
+        "6": 51639,
+        "7": 55339,
+        "8": 54449,
+        "9": 52292
+      },
+      "best_by_table_similarity": {
+        "agree_n": 24,
+        "harm_code": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "key": "lin|lin|k2.0|a1.0|b0.5",
+        "levels": [
+          0,
+          1,
+          1,
+          2,
+          1,
+          2,
+          1,
+          2,
+          2,
+          3,
+          2,
+          3,
+          2,
+          3,
+          2,
+          3,
+          3,
+          3,
+          2,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "mismatches": [],
+        "thresholds": [
+          1.414214,
+          2.828427,
+          5.196152
+        ],
+        "time_code": [
+          1,
+          2,
+          3
+        ],
+        "variant": "M3",
+        "vuln_k": 2.0,
+        "weights": [
+          1.0,
+          0.5,
+          1.0
+        ]
+      },
+      "by_family": {
+        "geo10|geo10": {
+          "agree90": 3,
+          "max_agree": 22,
+          "settings": 25228
+        },
+        "geo10|geo2": {
+          "agree90": 18,
+          "max_agree": 23,
+          "settings": 54437
+        },
+        "geo10|geo3": {
+          "agree90": 32,
+          "max_agree": 24,
+          "settings": 57402
+        },
+        "geo10|lin": {
+          "agree90": 39,
+          "max_agree": 24,
+          "settings": 55466
+        },
+        "geo2|geo10": {
+          "agree90": 11,
+          "max_agree": 23,
+          "settings": 53297
+        },
+        "geo2|geo2": {
+          "agree90": 29,
+          "max_agree": 23,
+          "settings": 20331
+        },
+        "geo2|geo3": {
+          "agree90": 37,
+          "max_agree": 24,
+          "settings": 46943
+        },
+        "geo2|lin": {
+          "agree90": 50,
+          "max_agree": 24,
+          "settings": 34387
+        },
+        "geo3|geo10": {
+          "agree90": 3,
+          "max_agree": 22,
+          "settings": 56262
+        },
+        "geo3|geo2": {
+          "agree90": 42,
+          "max_agree": 24,
+          "settings": 46943
+        },
+        "geo3|geo3": {
+          "agree90": 15,
+          "max_agree": 23,
+          "settings": 20331
+        },
+        "geo3|lin": {
+          "agree90": 38,
+          "max_agree": 23,
+          "settings": 34387
+        },
+        "lin|geo10": {
+          "agree90": 4,
+          "max_agree": 22,
+          "settings": 52889
+        },
+        "lin|geo2": {
+          "agree90": 70,
+          "max_agree": 24,
+          "settings": 27400
+        },
+        "lin|geo3": {
+          "agree90": 44,
+          "max_agree": 24,
+          "settings": 37365
+        },
+        "lin|lin": {
+          "agree90": 85,
+          "max_agree": 24,
+          "settings": 32583
+        }
+      },
+      "category_all16_equal_settings": 2447,
+      "category_all16_equal_share": 0.003732,
+      "min_tie_loss_setting": {
+        "agree_n": 9,
+        "harm_code": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "key": "lin|geo2|k1.5|a0.5|b0.5",
+        "levels": [
+          0,
+          0,
+          0,
+          1,
+          1,
+          2,
+          0,
+          1,
+          1,
+          2,
+          2,
+          3,
+          0,
+          1,
+          1,
+          2,
+          2,
+          3,
+          1,
+          2,
+          2,
+          3,
+          3,
+          3
+        ],
+        "mismatches": [
+          {
+            "input": "inconvenience/later/vuln",
+            "mult": 0,
+            "table": 1
+          },
+          {
+            "input": "inconvenience/hour/plain",
+            "mult": 0,
+            "table": 1
+          },
+          {
+            "input": "inconvenience/hour/vuln",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/later/plain",
+            "mult": 0,
+            "table": 1
+          },
+          {
+            "input": "property/later/vuln",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/hour/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/hour/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "injury/later/plain",
+            "mult": 0,
+            "table": 2
+          },
+          {
+            "input": "injury/later/vuln",
+            "mult": 1,
+            "table": 3
+          },
+          {
+            "input": "injury/hour/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "injury/hour/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "injury/minutes/plain",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "life/later/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "life/later/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "life/hour/plain",
+            "mult": 2,
+            "table": 3
+          }
+        ],
+        "thresholds": [
+          2.0,
+          2.828427,
+          4.0
+        ],
+        "time_code": [
+          1,
+          2,
+          4
+        ],
+        "variant": "M3",
+        "vuln_k": 1.5,
+        "weights": [
+          0.5,
+          0.5,
+          1.0
+        ]
+      },
+      "mono_violation_settings": 0,
+      "n_codings": 576,
+      "n_settings": 655651,
+      "optimum_settings_count": 16,
+      "settings_with_a_category_above_table": 141068,
+      "settings_with_a_category_below_table": 608305,
+      "settings_with_a_critical_category_below_critical": 210478,
+      "settings_with_less_than_4_levels": 0,
+      "settings_with_more_tie_loss_than_table_share": 0.803067,
+      "table_tie_loss": 32,
+      "tie_loss": {
+        "max": 111.0,
+        "mean": 44.72966,
+        "median": 43.0,
+        "min": 14.0,
+        "p25": 34.0,
+        "p75": 52.0
+      }
+    }
+  },
+  "mult_naive_default": {
+    "above_table_n": 0,
+    "agree_with_table_n": 2,
+    "below_table_n": 22,
+    "category_above_table_n": 0,
+    "category_below_table_n": 14,
+    "class_sizes": {
+      "0": 14,
+      "1": 7,
+      "2": 2,
+      "3": 1
+    },
+    "critical_categories_below_critical": 2,
+    "description": "harm 1-2-3-4, time 1-2-3, vulnerable x2, four equal-width score bins",
+    "levels": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      2,
+      0,
+      1,
+      1,
+      2,
+      1,
+      3
+    ],
+    "levels_used": 4,
+    "mono_violations": 0,
+    "n_dominance_pairs": 156,
+    "n_inputs": 24,
+    "pairs_strictly_ordered_share": 0.724359,
+    "tie_loss": 43,
+    "tie_loss_share": 0.275641
+  },
+  "mult_random": {
+    "M2p1": {
+      "agree_all24_share": 0.0008,
+      "agree_ge_90pct_ci95": [
+        0.016195,
+        0.024
+      ],
+      "agree_ge_90pct_share": 0.0198,
+      "agree_n_stat": {
+        "max": 24.0,
+        "mean": 14.104,
+        "median": 14.0,
+        "min": 5.0,
+        "p25": 11.0,
+        "p75": 18.0
+      },
+      "category_all16_equal_ci95": [
+        0.1278,
+        0.1474
+      ],
+      "category_all16_equal_share": 0.1376,
+      "levels_used_hist": {
+        "4": 5000
+      },
+      "mono_violation_settings": 0,
+      "n": 5000,
+      "share_with_a_category_above_table": 0.3166,
+      "share_with_a_category_below_table": 0.6866,
+      "share_with_a_critical_category_below_critical": 0.0,
+      "share_with_less_tie_loss_than_table": 0.4372,
+      "share_with_more_tie_loss_than_table": 0.5204,
+      "table_tie_loss": 32,
+      "tie_loss": {
+        "max": 93.0,
+        "mean": 35.4198,
+        "median": 33.0,
+        "min": 16.0,
+        "p25": 27.0,
+        "p75": 41.0
+      }
+    },
+    "M3": {
+      "agree_all24_share": 0.0,
+      "agree_ge_90pct_ci95": [
+        0.0,
+        0.001
+      ],
+      "agree_ge_90pct_share": 0.0004,
+      "agree_n_stat": {
+        "max": 23.0,
+        "mean": 9.6104,
+        "median": 9.0,
+        "min": 2.0,
+        "p25": 6.0,
+        "p75": 13.0
+      },
+      "category_all16_equal_ci95": [
+        0.008,
+        0.0136
+      ],
+      "category_all16_equal_share": 0.0106,
+      "levels_used_hist": {
+        "4": 5000
+      },
+      "mono_violation_settings": 0,
+      "n": 5000,
+      "share_with_a_category_above_table": 0.193,
+      "share_with_a_category_below_table": 0.923,
+      "share_with_a_critical_category_below_critical": 0.3138,
+      "share_with_less_tie_loss_than_table": 0.1982,
+      "share_with_more_tie_loss_than_table": 0.768,
+      "table_tie_loss": 32,
+      "tie_loss": {
+        "max": 111.0,
+        "mean": 42.5516,
+        "median": 40.0,
+        "min": 16.0,
+        "p25": 33.0,
+        "p75": 49.0
+      }
+    },
+    "n_random_codings": 5000
+  },
+  "note": "No independent ground truth exists for risk levels. The production table is only a comparison anchor. Primary results are label-free axiom counts.",
+  "order_flips": {
+    "grid_M3": {
+      "coding_dependent_pairs": 120,
+      "coding_dependent_share": 1.0,
+      "mean_minority_share": 0.256361,
+      "n_codings": 900,
+      "pairs_with_tie_under_some_coding": 113
+    },
+    "n_incomparable_pairs": 120,
+    "random_M3": {
+      "coding_dependent_pairs": 120,
+      "coding_dependent_share": 1.0,
+      "mean_minority_share": 0.247948,
+      "n_codings": 5000,
+      "pairs_with_tie_under_some_coding": 0
+    }
+  },
+  "single_tier": {
+    "category_pairs": 28,
+    "class_sizes": {
+      "3": 8
+    },
+    "different_harm_kind_pairs": 20,
+    "different_harm_kind_pairs_merged": 20,
+    "levels_used": 1,
+    "life_vs_property_pairs": 8,
+    "life_vs_property_pairs_merged": 8,
+    "mono_violations": 0,
+    "n_dominance_pairs": 20,
+    "n_inputs": 8,
+    "note": "by definition a single tier cannot separate what its tier axis does not carry; this is a count of what is lost, not a finding about correctness",
+    "of_which_single_tier_merges": 12,
+    "pairs_merged_same_tier": 28,
+    "pairs_production_separates_by_severity": 12,
+    "pairs_strictly_ordered_share": 0.0,
+    "production_push_priority_by_category": {
+      "door": "4",
+      "gas": "5",
+      "high_temp": "4",
+      "leak": "4",
+      "lock": "4",
+      "oven": "4",
+      "smoke": "5",
+      "water_main": "4"
+    },
+    "tie_loss": 20,
+    "tie_loss_share": 1.0,
+    "tier_by_category": {
+      "door": "ember",
+      "gas": "ember",
+      "high_temp": "ember",
+      "leak": "ember",
+      "lock": "ember",
+      "oven": "ember",
+      "smoke": "ember",
+      "water_main": "ember"
+    },
+    "universe": "8 safety categories (tier = production Gate1 floor tier)"
+  },
+  "table": {
+    "class_sizes": {
+      "0": 1,
+      "1": 4,
+      "2": 8,
+      "3": 11
+    },
+    "compression": {
+      "cells_per_level": {
+        "critical": [
+          "injury/minutes",
+          "life/hour",
+          "life/minutes"
+        ],
+        "notice": [
+          "inconvenience/hour",
+          "inconvenience/minutes",
+          "property/later"
+        ],
+        "record": [
+          "inconvenience/later"
+        ],
+        "warning": [
+          "injury/hour",
+          "injury/later",
+          "life/later",
+          "property/hour",
+          "property/minutes"
+        ]
+      },
+      "life_vs_property_cell_pairs": 9,
+      "life_vs_property_cell_pairs_same_level": 2
+    },
+    "levels_used": 4,
+    "mono_violations": 0,
+    "n_dominance_pairs": 156,
+    "n_inputs": 24,
+    "pairs_strictly_ordered_share": 0.794872,
+    "tie_loss": 32,
+    "tie_loss_share": 0.205128
+  },
+  "universe": {
+    "categories": {
+      "door": {
+        "cell": "property/minutes",
+        "floor_plain": 2,
+        "floor_vuln": 3,
+        "gate1_tier_floor": "ember",
+        "push_priority_plain": "4"
+      },
+      "gas": {
+        "cell": "life/minutes",
+        "floor_plain": 3,
+        "floor_vuln": 3,
+        "gate1_tier_floor": "ember",
+        "push_priority_plain": "5"
+      },
+      "high_temp": {
+        "cell": "injury/hour",
+        "floor_plain": 2,
+        "floor_vuln": 3,
+        "gate1_tier_floor": "ember",
+        "push_priority_plain": "4"
+      },
+      "leak": {
+        "cell": "property/minutes",
+        "floor_plain": 2,
+        "floor_vuln": 3,
+        "gate1_tier_floor": "ember",
+        "push_priority_plain": "4"
+      },
+      "lock": {
+        "cell": "property/hour",
+        "floor_plain": 2,
+        "floor_vuln": 3,
+        "gate1_tier_floor": "ember",
+        "push_priority_plain": "4"
+      },
+      "oven": {
+        "cell": "injury/hour",
+        "floor_plain": 2,
+        "floor_vuln": 3,
+        "gate1_tier_floor": "ember",
+        "push_priority_plain": "4"
+      },
+      "smoke": {
+        "cell": "life/minutes",
+        "floor_plain": 3,
+        "floor_vuln": 3,
+        "gate1_tier_floor": "ember",
+        "push_priority_plain": "5"
+      },
+      "water_main": {
+        "cell": "property/hour",
+        "floor_plain": 2,
+        "floor_vuln": 3,
+        "gate1_tier_floor": "ember",
+        "push_priority_plain": "4"
+      }
+    },
+    "combo_names": [
+      "inconvenience/later/plain",
+      "inconvenience/later/vuln",
+      "inconvenience/hour/plain",
+      "inconvenience/hour/vuln",
+      "inconvenience/minutes/plain",
+      "inconvenience/minutes/vuln",
+      "property/later/plain",
+      "property/later/vuln",
+      "property/hour/plain",
+      "property/hour/vuln",
+      "property/minutes/plain",
+      "property/minutes/vuln",
+      "injury/later/plain",
+      "injury/later/vuln",
+      "injury/hour/plain",
+      "injury/hour/vuln",
+      "injury/minutes/plain",
+      "injury/minutes/vuln",
+      "life/later/plain",
+      "life/later/vuln",
+      "life/hour/plain",
+      "life/hour/vuln",
+      "life/minutes/plain",
+      "life/minutes/vuln"
+    ],
+    "harm_order_low_to_high": [
+      "inconvenience",
+      "property",
+      "injury",
+      "life"
+    ],
+    "n_categories_cells_used": 4,
+    "n_dominance_pairs": 156,
+    "n_inputs": 24,
+    "n_table_cells": 12,
+    "table_levels": [
+      0,
+      1,
+      1,
+      2,
+      1,
+      2,
+      1,
+      2,
+      2,
+      3,
+      2,
+      3,
+      2,
+      3,
+      2,
+      3,
+      3,
+      3,
+      2,
+      3,
+      3,
+      3,
+      3,
+      3
+    ],
+    "time_order_low_to_high": [
+      "later",
+      "hour",
+      "minutes"
+    ]
+  }
+}

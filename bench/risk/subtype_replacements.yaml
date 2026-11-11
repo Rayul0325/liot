@@ -1,0 +1,12 @@
+# C3.1 주 실험 팔의 하위 종류 코드 치환표 (Gate 3: 거주자 특성은 모델에 보내지 않는다).
+#
+# 맹검 코더(`observations_blind.yaml`)의 코드 중 '영아·아이·성인·나이'를 이름에 담은 코드를 특성 없는
+# 동등 코드로 바꾼다. 치환한 코드가 가리키는 관측 사실(문이 열린 채 누가 자고 있음 / 복도 움직임과 거주자
+# 귀가)은 그대로이고 연령 정보만 뺀다. 코더의 occupied·abnormal_for 값은 바꾸지 않는다.
+# 영아 코드를 그대로 쓴 실행은 부차 팔(`--context subtype_trait`, 로컬 모델만, 탐색·표시)로만 보고한다.
+version: 1
+replace:
+  infant_asleep_adjacent_door_open: door_open_occupied_asleep
+  hallway_motion_adult_home: hallway_motion_resident_home
+# 러너가 구조화 요약에서 영문 특성 낱말을 검사한다(주 팔에 하나라도 있으면 중단).
+forbidden_substrings: [infant, child, baby, toddler, kid, adult, elder, senior, age_, aged, disab]

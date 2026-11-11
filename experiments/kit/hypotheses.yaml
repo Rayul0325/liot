@@ -1,0 +1,65 @@
+# Final verdict of every hypothesis / research cycle, in the latest post-review wording.
+#
+# verdict categories (the figure and the kit use exactly these words):
+#   지지 · 반증 · 판정 불가 · 구조상 결과 · 기술 결과 · 읽기에 따라 갈림 · 대기
+# `raw` is the wording of the experiment's RESULTS.md verdict table (or of the HYPOTHESES.md
+# post-hoc log where that is the later word). `exp` is the experiment folder; when its
+# summary.json is missing the row is shown as 대기 no matter what is written here, and when the
+# file appears while the row still says 대기, build.py prints a visible NEW-RESULT warning.
+
+questions:
+  Q1: {title: 안전 — 첫 경보와 보호자 호출, short: "Q1 안전 (E1·E2)"}
+  Q2: {title: 부담 대 피해 — 확인을 얼마나 세게, short: "Q2 부담 대 피해 (E3)"}
+  Q3: {title: 위험 판정 방식, short: "Q3 위험 판정 방식 (E4)"}
+  Q4: {title: 적응 — 학습과 선호 변화, short: "Q4 적응 (E6)"}
+  Q5: {title: 결정 모델, short: "Q5 결정 모델 (E5·E9)"}
+  Q6: {title: 사다리·호출·테스트, short: "Q6 사다리·호출 (E7·E8)"}
+
+hypotheses:
+  # ---- Q1
+  - {id: H1.1, q: Q1, cycle: 1, exp: e1_latency, name: 표 우선 대 모델 뒤 발송, verdict: 구조상 결과, raw: "구조상 결과('지지' 아님)", claims: [E1-01]}
+  - {id: H1.1c, q: Q1, cycle: 1, exp: e1_latency, name: 2단계 불일치율, verdict: 기술 결과, raw: 기술 통계(판정 없음), claims: [E1-03]}
+  - {id: H1.2 전, q: Q1, cycle: 1, exp: e1_latency, name: 편의 판정이 가스 경보를 막음(U1 전), verdict: 기술 결과, raw: "재현(판정 아님) — 이미 알려진 결함의 재현이라 반증 조건이 걸릴 수 없었다", claims: [E1-02]}
+  - {id: H1.2 후, q: Q1, cycle: 1, exp: e1_latency, name: 편의 판정이 가스 경보를 막음(U1 후), verdict: 지지, raw: 지지(세 T 모두 충족), claims: [E1-02]}
+  - {id: H1.3, q: Q1, cycle: 1, exp: e1_latency, name: 느린 송신이 다음 경보를 늦춤, verdict: 기술 결과, raw: 특성 기록, claims: [E1-04]}
+  - {id: H1.4, q: Q1, cycle: 1, exp: e2_invariants, name: 하드 게이트 불변식, verdict: 구조상 결과, raw: "무작위 퍼징 범위 안에서 0 — 알려진 게이트 1 충돌 1종 별도 (구조상 결과, 비교 결론 아님)", claims: [E2-01, E2-02]}
+  - {id: H1.5 (P1), q: Q1, cycle: 1, exp: e2_invariants, name: 보호자 호출 기준의 맞교환, verdict: 기술 결과, raw: "단정 없음 — c* 지도, 모드별", claims: [E2-04, E2-06]}
+  - {id: C2.7, q: Q1, cycle: 2, exp: e1_latency, name: 하한을 아는 모델 뒤 발송, verdict: 구조상 결과, raw: "구조상 결과(공정화 확인) — '지지'가 아니다", claims: [E1-05]}
+  - {id: C2.8, q: Q1, cycle: 2, exp: e2_invariants, name: 관찰 필드가 드러내는 위험, verdict: 읽기에 따라 갈림, raw: "읽기 (i) 반증 · 읽기 (ii) 반증 아님 — 결론은 읽기에 달렸다", claims: [E2-05]}
+  - {id: C2.9, q: Q1, cycle: 2, exp: e2_invariants, name: 경로 할당량 퍼징, verdict: 지지, raw: "지지 — 게이트 1 충돌 두 종류(알려진 억제 + 새 첫 송신 실패 지연)", claims: [E2-03]}
+  # ---- Q2
+  - {id: H2.1 (P2), q: Q2, cycle: 1, exp: e3_policy, name: 피로가 있을 때 4단계 대 모두 확인, verdict: 판정 불가, raw: "판정 불가 · 구조상 결과 (liot_real 이 H2.2 점검을 통과하지 못함)", claims: [E3-01, E3-02, E3-03]}
+  - {id: H2.2, q: Q2, cycle: 1, exp: e3_policy, name: 시뮬레이터 점검(피로 0), verdict: 판정 불가, raw: "liot_full 약한 통과 / liot_real 불통과 → liot_real 관련 E3 결론 판정 불가", claims: [E3-04]}
+  - {id: H2.3, q: Q2, cycle: 1, exp: e3_policy, name: 확인 비율의 U자, verdict: 기술 결과, raw: 기술 결과(판정 없음), claims: [E3-14]}
+  - {id: H2.4 (P3), q: Q2, cycle: 1, exp: e3_policy, name: 오분류 늘면 이점이 사라지는 경계, verdict: 판정 불가, raw: "판정 불가 · 구조상 결과(liot_real 포함)", claims: [E3-05]}
+  - {id: H2.5, q: Q2, cycle: 1, exp: e3_policy, name: 이진 승인 대 4단계, verdict: 기술 결과, raw: 기술 결과, claims: [E3-01]}
+  - {id: H2.6 막은 피해, q: Q2, cycle: 1, exp: e3_policy, name: 능동 상한이 막은 피해(P4), verdict: 판정 불가, raw: "'막은 피해' = 판정 불가 · 구조상 결과", claims: [E3-06, E3-13]}
+  - {id: H2.6 잃은 도움, q: Q2, cycle: 1, exp: e3_policy, name: 능동 상한이 잃은 도움(P4), verdict: 기술 결과, raw: "'잃은 도움' = 기술 값(구성 의존)", claims: [E3-06]}
+  - {id: H2.7, q: Q2, cycle: 1, exp: e3_policy, name: 자동 실행 + 되돌리기, verdict: 기술 결과, raw: 기술 결과, claims: [E3-14]}
+  - {id: C2.1, q: Q2, cycle: 2, exp: e3_policy, name: 피해 이점은 견본 몰림 탓, verdict: 반증, raw: 반증(해로움을 낮은 단계로 옮겨도 이점이 남음 — 단 잔잔 쪽 해로움이 약 20% 되면 사라짐), claims: [E3-07]}
+  - {id: C2.2, q: Q2, cycle: 2, exp: e3_policy, name: 같은 침묵 비율이면 같은 맞교환, verdict: 반증, raw: "반증(이진·모두 자동 기준) — 모두 명시 확인+상한 기준은 대체로 성립; 우위는 구조상 결과", claims: [E3-08, E3-02]}
+  - {id: C2.3, q: Q2, cycle: 2, exp: e3_policy, name: 잔잔 자동 실행이 열세의 원인, verdict: 지지, raw: 지지(알림만으로 바꾸면 피해 열세 사라지고 도움 감소), claims: [E3-09]}
+  - {id: C2.4, q: Q2, cycle: 2, exp: e3_policy, name: 점수가 얼마나 정확해야 θ 정책이 이기나, verdict: 기술 결과, raw: 기술 결과(기준값 없음), claims: [E3-12]}
+  - {id: C2.11a, q: Q2, cycle: 2, exp: e3_policy, name: 해로움이 잔잔에 놓이면, verdict: 지지, raw: "지지(예측대로) — 단 잔잔 50% 이상 구간의 손실은 정의에 가까운 구조상 결과이고 정보는 교차점(잔잔 약 16~20%)", claims: [E3-10]}
+  - {id: C2.11b m=10%, q: Q2, cycle: 2, exp: e3_policy, name: 탭 한 번이 더 쉽게 승인(m=10%), verdict: 지지, raw: "지지(m=10%) — 단 조건이 기준선에서 이미 충족, 발견은 2.0배의 한계 효과 +1.5%p", claims: [E3-11]}
+  - {id: C2.11b m=0, q: Q2, cycle: 2, exp: e3_policy, name: 탭 한 번이 더 쉽게 승인(m=0), verdict: 판정 불가, raw: "m=0 은 판정 불가(점추정은 과반, 유의 기준은 아님)", claims: [E3-11]}
+  # ---- Q3
+  - {id: H3.1, q: Q3, cycle: 1, exp: e4_scoring, name: 방식별 성질(표·곱셈·단일·모델), verdict: 기술 결과, raw: 판정 대상 아님 — 관찰만, claims: [E4-01, E4-02, E4-03]}
+  - {id: H3.3, q: Q3, cycle: 1, exp: e4_scoring, name: 모델 단독의 방향성, verdict: 기술 결과, raw: "관찰: 방향이 낮추는 쪽", claims: [E4-04]}
+  # ---- Q4 (E6 pending)
+  - {id: H4.1, q: Q4, cycle: 1, exp: e6_personalization, name: 학습의 효과, verdict: 기술 결과, raw: "기술 결과 — †(팔의 정의에서 나오는 구조상 결과) 표시: none 의 잘못 꺼진 도움 0, permanent 의 31일 이후 증가", claims: [E6-01, E6-04]}
+  - {id: H4.2 (P5), q: Q4, cycle: 1, exp: e6_personalization, name: 선호가 바뀌면 따라가나, verdict: 등록 결론 불충족, raw: "등록된 결론 조건 불충족 — 그 결론은 내리지 않는다 (재수락 형태는 사후 기준, 게이트가 10~12일 늦춘다는 서술은 기술 결과)", claims: [E6-02]}
+  - {id: H4.3, q: Q4, cycle: 1, exp: e6_personalization, name: 확인 방식과 수락, verdict: 기술 결과, raw: "기술 결과 (피로·수고 0 대조는 구조상 결과†)", claims: [E6-03]}
+  # ---- Q5
+  - {id: H5.1, q: Q5, cycle: 1, exp: e5_models, name: 운영 맥락에서 올림이 줄어드나, verdict: 구조상 결과, raw: "구조상 결과 (지지/반증 아님)", claims: [E5-01]}
+  - {id: H5.2, q: Q5, cycle: 1, exp: e5_models, name: 클라우드가 주입에 강한가, verdict: 판정 불가, raw: 판정 불가(구간 겹침, luna 미접근), claims: [E5-02]}
+  - {id: H5.3, q: Q5, cycle: 1, exp: e5_models, name: 판정자끼리 갈리나, verdict: 기술 결과, raw: 기술 결과(탐색, 기준 없음), claims: [E5-03]}
+  - {id: ADD-5, q: Q5, cycle: 1, exp: e5_models, name: 문장을 보는 모델이 표보다 덜 놓치나, verdict: 기술 결과, raw: 관찰 — 문장 맥락에서만 표보다 덜 놓침, claims: [E5-04]}
+  - {id: C2.5, q: Q5, cycle: 2, exp: e5_models, name: 관측값 두 개로 올림이 돌아오나, verdict: 반증, raw: "반증 (돌아온 몫 0.014 < 0.5)", claims: [E5-05]}
+  - {id: C3.1, q: Q5, cycle: 3, exp: e5_models, name: 상황 종류 코드로 올림이 돌아오나, verdict: 반증, raw: "반증 (돌아온 몫 0.113 < 0.5; 규칙 조회가 모델과 같거나 나음)", claims: [E5-06]}
+  - {id: H5.4, q: Q5, cycle: 1, exp: e9_cloud, name: 실제 종단 실행에서 Jev 와 luna, verdict: 판정 불가, raw: "판정 불가 — luna 요청 109건 전부 실패(크레딧 소진, HTTP 429). Jev 하한 일치 109/109 는 일부가 구조상 결과", claims: [E9-01, E9-02, E9-03]}
+  # ---- Q6
+  - {id: H6.1, q: Q6, cycle: 1, exp: e7_ladder, name: 사다리 명세 적합, verdict: 반증, raw: "반증(등록 문구대로 — 5초 틱 해상도)", claims: [E7-01]}
+  - {id: H6.2, q: Q6, cycle: 1, exp: e7_ladder, name: 동시 대 순차 호출, verdict: 기술 결과, raw: 기술 결과(판정 없음), claims: [E7-02]}
+  - {id: C2.10, q: Q6, cycle: 2, exp: e7_ladder, name: 방관 효과를 동시 호출 수로 계산, verdict: 읽기에 따라 갈림, raw: 해석 N 은 반증 조건에 걸리고 해석 동시 호출 수는 지지 — 결론은 해석에 달렸다, claims: [E7-03]}
+  - {id: H6.3, q: Q6, cycle: 2, exp: e8_mutation, name: 안전 모듈의 뮤테이션 점수, verdict: 지지, raw: "지지(반증 실패) — 커버리지 95% 이상인데 10개 모듈 중 7개가 90% 미만(개수는 가정에 따라 7→4→2); 안전 관련 빈틈 15곳. 등록 때는 품질 확인이라 연구 결론에서 제외", claims: [E8-01, E8-02, E8-03]}

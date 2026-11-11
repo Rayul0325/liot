@@ -1,4 +1,4 @@
-.PHONY: install test demo smoke lint typecheck cov secrets check hooks clean
+.PHONY: install test demo smoke lint typecheck cov secrets check hooks clean exp-verify exp-lint
 
 VENV ?= .venv
 PY := $(VENV)/bin/python
@@ -45,6 +45,13 @@ smoke:
 # LIOT_LLM_BACKEND=ollama 로 전체 앱을 실제 모델에 붙여 데모.
 demo-live:
 	LIOT_LLM_BACKEND=ollama $(PY) -m liot.demo
+
+# 연구 실험(experiments/) — make check 밖. 원자료에서 요약을 다시 계산해 커밋된 값과 비교한다.
+exp-verify:
+	$(PY) -m experiments verify
+
+exp-lint:
+	$(PY) -m ruff check experiments
 
 clean:
 	rm -rf .pytest_cache **/__pycache__ *.egg-info build dist

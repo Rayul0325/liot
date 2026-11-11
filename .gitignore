@@ -40,3 +40,7 @@ htmlcov/
 
 # dryforge 작업 문서·임시 작업공간
 .dryforge
+
+# 연구 실험: 클라우드 원자료는 커밋하지 않는다
+experiments/**/raw/cloud*
+experiments/**/__pycache__/

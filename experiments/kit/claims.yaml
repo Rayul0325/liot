@@ -1,0 +1,912 @@
+# Machine-readable claim list behind experiments/REPORT_KIT.md.
+#
+# One claim = one report sentence. One item = one number inside it.
+#   path      key path into <exp>/results/summary.json. Elements: a dict key, a list index, a
+#             selector {field: value} that picks a list row, or "*" (fan out over a dict's values,
+#             needs `agg`).
+#   expected  the value the report quotes, in DISPLAY units (after `scale`), rounded to `round`
+#             decimals. `TBD` is a placeholder that `check_numbers --propose` fills.
+#   md        the text as printed in the experiment's RESULTS.md. The checker reports a
+#             RESULTS-DIFF when RESULTS.md and summary.json disagree (it never edits either file).
+# Pending claims (kind: pending) wait for an experiment whose summary.json has not landed yet.
+
+limits:
+  L-SIM: >-
+    거주자가 알림을 읽고 판단하는 모델(피로·무심코 승인·정확도·응답 지연)은 전부 가정이고 사람 데이터로 맞춘 값이 아니다. 결론은 '가정한 범위 안에서'만 읽는다.
+  L-GEN: >-
+    시뮬레이터가 만든 해로운 제안의 약 96%가 LIOT 자신의 단계(땅거미·불씨)에 놓이는 것은 생성기를 우리가 쓴 결과이지 세상에서 잰 값이 아니다. 이 정렬에 기대는 수치는 구조상 결과다.
+  L-GEN-LIGHT: >-
+    생성기의 해로움 규칙과 견본, 그리고 해로운 제안이 어느 단계에 놓이는지를 정하는 노브는 우리가 정했다. 잔잔 쪽 해로움은 한 견본(조명 끄기)에 몰려 있어 다른 잔잔 견본은 시험하지 않았다.
+  L-SEEDNOISE: >-
+    구간은 같은 매개변수 점 안에서 씨앗만 다시 뽑은 '씨앗 잡음'이다. 가정(매개변수)의 불확실성은 어느 구간에도 들어 있지 않고, 세트 사이의 변동은 사분위로만 보였다.
+  L-LAT: >-
+    모델 지연(0.2·1.5·4초)·올림 확률 30%·마감 2초는 가정이고, 송신기는 가짜이며, 시간은 부하가 높은 한 대의 기계에서 번갈아 잰 상대 비교다. 폰까지 닿는 실제 시간은 재지 않았다.
+  L-LAT-ALT: >-
+    비교 대안은 운영 서비스를 상속한 얇은 래퍼이고, 지연의 차이는 '대안이 모델을 기다리도록 정의됐다'는 데서 나온다. 모델 응답의 내용은 재생하지 않았고 올림 여부는 가정이다.
+  L-REPLAY: >-
+    벤치 재생은 상황 사례 32건뿐이고 맥락 문장이 운영과 다르다. 모델은 정답이 아니므로 '불일치'는 '오류'가 아니다.
+  L-FUZZ: >-
+    '위반 0'은 무작위 퍼징이 만든 경로 안에서의 0이다. 경로를 강제로 채운 퍼징에서는 게이트 1(안전 알림이 늦거나 침묵하지 않는다)과 부딪히는 알려진 문제 두 종류가 잡혔다. 재시작·동시성의 모든 조합은 덮지 않았다.
+  L-STRUCT-RULE: >-
+    정답이 우리 표나 규칙에서 나오는 결과는 '우리 규칙을 우리 코드가 지킨다'는 뜻일 뿐 다른 구조와의 우열을 말하지 않는다. 비교 결론에 쓰지 않는다.
+  L-CSTAR: >-
+    모델 정직도·공격 비율·센서 오경보율·미등록 취약 가구 비율은 모두 가정이고 범위를 쓸어 보았을 뿐이다. 최종값 방식과 추론 변형은 서비스에 구현하지 않고 결정 수준에서 시뮬레이션했다.
+  L-C28: >-
+    탐지기 문턱(오탐 상향률 5%)과 '관찰 필드로 드러나는 위험' 비율은 가정이고, AUC 는 정규분포 가정의 요약이다. 반증 조건에 '몇 칸에서'가 없어 두 읽기를 모두 적었으므로, 결론은 읽기에 달렸다.
+  L-FAKECLOCK: >-
+    가짜 시계에서의 계수이고 시간 값은 이상적인 데몬(저장된 다음 발화 시각으로 점프)을 가정한다. 실제 데몬은 사다리 틱 때문에 0~5초 더 늦다.
+  L-LADDER: >-
+    가짜 시계와 가짜 송신기이고 시나리오 16개는 명세의 대표 경로일 뿐 모든 조합이 아니다. 송신 지연이 사다리 틱을 밀어내는 효과는 E1 에서 따로 잰다.
+  L-BYSTANDER: >-
+    보호자 응답은 지수분포 가정의 시뮬레이션이고 실제 가족의 응답 분포는 측정하지 않았다. 방관 효과 지수와 무응답 확률도 가정이며, 순차 호출은 구현하지 않고 시뮬레이션만 했다.
+  L-E4-NOGT: >-
+    위험 등급에는 독립된 정답이 없다. 우리 조회표를 기준점으로 쓴 값('표 기준')은 순환적이고, 곱셈 점수의 '몇 %'는 우리가 고른 척도·절단점 범위에 따라 달라진다.
+  L-E4-MODEL: >-
+    모델 단독 표본은 작다(상황 8종·주입 8건). 모델 5개는 같은 입력 61건을 공유해 서로 독립이 아니다. 평온/위험 문장 짝은 사람이 아닌 에이전트가 설계했다.
+  L-E5-SMALL: >-
+    문항이 작다(주입 제외 61문항·주입 16건·쌍 15개). 판정자들은 같은 문항을 공유해 서로 독립이 아니고, luna 는 크레딧 소진으로 빠졌으며, 로컬 모델은 글자 확률·클라우드는 서로 다른 인터페이스라 같은 측정이 아니다.
+  L-E5-STRUCT: >-
+    운영 집계 요약에는 상황 내용이 없어 평온 문장과 위험 문장이 같은 입력이 된다. 그래서 올림이 0 에 가까운 것은 실험이 발견한 것이 아니라 입력에서 정해진 구조상 결과다.
+  L-E5-DRAFT: >-
+    초안 라벨(에이전트가 표 규칙으로 만든 것)도 모델 답도 정답이 아니다. 라벨에 기대는 값은 '초안 라벨 의존'으로만 읽는다.
+  L-E5-CODER: >-
+    맹검 코더가 만든 41종 코드는 사례의 위험 구분을 사실상 다시 적은 것일 수 있고, 규칙 매핑은 맹검이 아니다. 이 코드를 운영에서 자동으로 얻을 수 있는지는 시험하지 않았다.
+  L-E5-JEV: >-
+    Jev API 한 판정자의 0.54 는 결과를 본 뒤 눈에 띈 사후 관찰이고 표본이 13건이라 단독으로 결론을 세우지 않는다.
+  L-E8: >-
+    측정 대상은 U1/U3 변경 전 코드다(변경 뒤에는 다시 돌려야 한다). 변이기는 AST 로 직접 만든 것이고 한 번에 한 곳만 바꾸며 상용 도구와 점수를 비교할 수 없다. 동치·안전 관련 분류는 한 사람이 코드를 읽고 한 판단이고, 변이가 같은 줄에 뭉쳐 있어 구간은 실제보다 좁다. 줄 커버리지만 쟀다(분기 아님).
+  L-E6: >-
+    거주자는 확률 모델이고 알아챔·지연·피로·수고·잘못 누름의 값은 모두 정한 값이며 사람 자료가 아니다. 성향은 3종뿐이고 선호 변화는 15일째 한 번뿐이다. 모아보기 열람 80%도 가정이며, 실제 데몬은 모아보기를 전달하지 못한다(tray0). 잘못 꺼진 도움을 세는 집계는 모아보기 항목도 '내놓음'으로 세므로 tray0 의 '모든 장면' 값은 실제보다 적게 센 값이다.
+  L-E6-POST: >-
+    회복 지표의 '바뀐 장면의 재수락'과 '정적 시스템 대비 회복'은 결과를 본 뒤 추가한 사후 기준이다. 등록된 형태(문자 그대로)는 변하지 않는 장면의 수락에 가려 새 장면을 보지 못한다. 사후 기준에서 게이트가 약 10~12일 늦춘다는 서술은 기술 결과이며 등록된 판정 근거가 아니다.
+  L-E9: >-
+    luna 호출 109건이 전부 실패해 H5.4 의 핵심 질문(두 모델이 갈리는가)에는 답이 없다. 장면이 편의 제안 4종과 안전 1건으로 좁아 Jev 가 하한을 벗어나는 어려운 장면이 없었고, 하한은 Jev 입력의 일부다. 씨앗은 대본의 시각·값만 바꿔 실행 사이 호출 수가 거의 같고, 비용은 표 가격 기준 추정이며, 실제 모델 응답은 시점에 따라 달라 재현이 보장되지 않는다.
+  L-PENDING: >-
+    이 실험은 아직 끝나지 않아 숫자가 없다. 보고서에는 '진행 중'이라고만 쓰고 추정 숫자를 넣지 않는다.
+
+inconsistencies:
+  - id: INC-1
+    where: e2_invariants
+    text: >-
+      RESULTS.md 의 C2.8 표는 '취약성 못 보는 모드'에서 AUC 0.8 이상 비구조 칸 192칸 중 c*>2 가 41/96 = 42.7%(공격 0%에서 6/32)라고 적는다. 그러나 summary.json 의 h15b.by_mode.blind.auc_ge_0.8_nonstructural 은 비어 있다(cells 0, 값 null). 숫자는 h15b.cells 에서 다시 계산하면 RESULTS.md 와 같다(kit 의 파생값 E2-05). RESULTS.md 가 틀린 것이 아니라 summary.json 의 요약이 빠진 것이다.
+  - id: INC-2
+    where: e2_invariants
+    text: >-
+      RESULTS.md 는 H1.5 의 c* 를 모드별로 적고 '두 모드를 합친 중앙값은 쓰지 않는다'고 한다(진실 모드 중앙 1.02, 못 보는 모드 5.02). summary.json 의 h15.cstar_range_tradeoff_cells 는 바로 그 합친 값(최소 0.076·중앙 2.016·최대 8.27)만 저장하고 모드별 중앙값은 저장하지 않는다. kit 은 h15.cells 에서 모드별로 다시 계산했다(파생값 E2-04, 기본 알람 구성 칸만).
+  - id: INC-3
+    where: e3_policy
+    text: >-
+      RESULTS.md 가 정확히 .x5 인 백분율을 일관되게 반올림하지 않는다: 88.25%를 '88.2', 79.75%를 '79.7', 30.25%를 '30.2'(E3), 56.25%를 '56.2'(E8) 로 쓰지만 71.25%는 '71.3', 13.25%는 '13.3' 으로 쓴다. 의미는 같고 마지막 자리 반올림만 다르다. kit 은 이 네 값을 소수 둘째 자리까지 적었다.
+  - id: INC-4
+    where: RESEARCH_LOG.md ↔ HYPOTHESES.md
+    text: >-
+      연구 일지 02:05 행은 이제 'E5 의 luna 판정자 실행 불가(E9 의 H5.4 도 같은 이유로 판정 불가가 됨)'라고 적는다(이전 판은 H5.4 판정 불가를 E5 결과처럼 적었다). 다만 E9 결과 자체는 아직 검토 중이라 kit 은 H5.4 를 '대기'로 둔다. E5 쪽 luna 불가는 H5.2 의 한계이며 H5.2 는 '판정 불가'다.
+  - id: INC-5
+    where: HYPOTHESES.md
+    text: >-
+      H6.1·H6.2·H6.3(사다리·호출·테스트)이 'Q1' 제목 아래에 적혀 있지만 번호는 H6.x 이고 실험은 E7·E8 이다. kit 은 이를 Q6 으로 묶었다.
+  - id: INC-6
+    where: e3_policy
+    text: >-
+      '해로운 제안의 95.8%가 땅거미·불씨' 는 풀링 값(summary.json harm_alignment.harmful_share_dusk_or_ember_pooled 0.9575)이다. 같은 파일의 '세트 평균' 값은 95.9%, 검토의 재계산은 96.4% 였다. 정의·표본 차이이고 오류는 아니다(RESULTS.md 와 HYPOTHESES.md 사후 기록이 모두 이를 밝힌다).
+
+claims:
+  # ------------------------------------------------------------------ III. 방법 (규모)
+  - id: M-01
+    group: III
+    exp: e1_latency
+    text: E1 은 진짜 서비스로 사건 300건 × 칸 20개(구조 5종 × 모델 조건 4종)를 쟀다.
+    limit: L-LAT
+    items:
+      - {label: 사건 수, path: [main, n_incidents], expected: 300, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 칸 수, path: [main, cells], agg: len, expected: 20, round: 0, fmt: "{:,.0f}", unit: " 칸"}
+  - id: M-02
+    group: III
+    exp: e2_invariants
+    text: E2 는 모델 행동 6종 × 600회의 무작위 퍼징과, 칸마다 사건 20,000개 × 씨앗 10개의 보호자 호출 시뮬레이션을 했다.
+    limit: L-FUZZ
+    items:
+      - {label: 퍼징 에피소드, path: [fuzz, total_episodes], expected: 3600, round: 0, fmt: "{:,.0f}", unit: " 회"}
+      - {label: 사건 수(씨앗 하나), path: [h15, assumptions, events_per_seed], expected: 20000, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 씨앗 수, path: [h15, assumptions, seeds], expected: 10, round: 0, fmt: "{:,.0f}", unit: " 개"}
+  - id: M-03
+    group: III
+    exp: e3_policy
+    text: E3 는 매개변수 400세트(라틴 초입방) × 씨앗 20개 × 30일을 같은 사건열로 모든 정책에 돌렸다.
+    limit: L-SIM
+    items:
+      - {label: 세트 수, path: [blocks, main, sets], expected: 400, round: 0, fmt: "{:,.0f}", unit: " 세트"}
+      - {label: 씨앗 수, path: [blocks, main, seeds], expected: 20, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 기간, path: [blocks, main, days], expected: 30, round: 0, fmt: "{:,.0f}", unit: " 일"}
+  - id: M-04
+    group: III
+    exp: e4_scoring
+    text: E4 는 24가지 입력에 조회표·곱셈 점수·단일 등급·모델 단독을 대고, 곱셈 점수는 척도·절단점 조합을 전수로 훑었다.
+    limit: L-E4-NOGT
+    items:
+      - {label: 입력 가짓수, path: [table, n_inputs], expected: 24, round: 0, fmt: "{:,.0f}", unit: " 가지"}
+      - {label: 우세 쌍, path: [table, n_dominance_pairs], expected: 156, round: 0, fmt: "{:,.0f}", unit: " 쌍"}
+      - {label: 곱셈 척도 수(격자 M3), path: [mult_grid, M3, n_codings], expected: 900, round: 0, fmt: "{:,.0f}", unit: " 종"}
+      - {label: 곱셈 설정 수(격자 M3), path: [mult_grid, M3, n_settings], expected: 795588, round: 0, fmt: "{:,.0f}", unit: " 개"}
+  - id: M-05
+    group: III
+    exp: e5_models
+    text: E5 는 벤치 61문항(주입 제외) × 반복 2회를 판정자 7명(로컬 5·클라우드 2)에게 물었다.
+    limit: L-E5-SMALL
+    items:
+      - {label: 주입 제외 문항 수, path: [h51_sentence_vs_operational, jevk5-9b-q8, rep0, n_items], expected: 61, round: 0, fmt: "{:,.0f}", unit: " 문항"}
+      - {label: 판정자 수(luna·jev-omni 제외), path: [c31_subtype, rep0, judges], agg: len, expected: 7, round: 0, fmt: "{:,.0f}", unit: " 명"}
+  - id: M-06
+    group: III
+    exp: e7_ladder
+    text: E7 은 알림 사다리를 가짜 시계 위에서 16개 시나리오로 확인하고, 보호자 호출 방식을 108개 설정 × 10,000회로 시뮬레이션했다.
+    limit: L-LADDER
+    items:
+      - {label: 사다리 시나리오, path: [conformance, by_driver, event, scenarios], expected: 16, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 대조한 사건, path: [conformance, by_driver, event, events_matched], expected: 162, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 시뮬레이션 설정 수, path: [mc, cells], agg: len, expected: 108, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 설정마다 시행, path: [mc, trials_per_setting], expected: 10000, round: 0, fmt: "{:,.0f}", unit: " 회"}
+
+  - id: M-07
+    group: III
+    exp: e8_mutation
+    text: E8 은 안전 핵심 모듈 10개의 코드를 AST 로 일부러 틀리게 바꾼 변이 742개(핵심 연산자 450개)를 만들어 테스트가 알아채는지 보았다.
+    limit: L-E8
+    items:
+      - {label: 변이 수(전수), path: [overall, all, n], expected: 742, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 핵심 연산자 변이, path: [overall, core, n], expected: 450, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 대상 모듈, path: [modules], agg: len, expected: 10, round: 0, fmt: "{:,.0f}", unit: " 개"}
+
+  - id: M-08
+    group: III
+    exp: e6_personalization
+    text: E6 은 진짜 서비스로 하루 시뮬레이션을 60일씩 1,080회 돌렸다(거주자 성향 3종 × 학습 방식 8종 × 확인 방식 2 × 씨앗 10 등의 변형).
+    limit: L-E6
+    items:
+      - {label: 실행 수, path: [runs], expected: 1080, round: 0, fmt: "{:,.0f}", unit: " 회"}
+      - {label: 기간, path: [design, days], expected: 60, round: 0, fmt: "{:,.0f}", unit: " 일"}
+      - {label: 선호가 바뀌는 날, path: [design, flip_day], expected: 15, round: 0, fmt: "{:,.0f}", unit: " 일째"}
+      - {label: 씨앗 수, path: [design, seeds], agg: len, expected: 10, round: 0, fmt: "{:,.0f}", unit: " 개"}
+  - id: M-09
+    group: III
+    exp: e9_cloud
+    text: E9 는 실제 모델(Jev·Haiku·memgineering)로 씨앗마다 3일씩 총 30 시뮬레이션일을 돌렸다.
+    limit: L-E9
+    items:
+      - {label: 씨앗 수, path: [runs], expected: 10, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 씨앗마다 일수, path: [days_per_run], expected: 3, round: 0, fmt: "{:,.0f}", unit: " 일"}
+      - {label: 총 시뮬레이션 일, path: [safety, days_total], expected: 30, round: 0, fmt: "{:,.0f}", unit: " 일"}
+
+  # ------------------------------------------------------------------ IV. Q1 안전 · E1
+  - id: E1-01
+    group: IV.Q1
+    exp: e1_latency
+    hyp: H1.1
+    verdict: 구조상 결과
+    text: LIOT(표 우선 발송)의 첫 경보는 모델 조건과 무관하게 수 밀리초다. 모델을 기다리는 대안은 기다린 시간만큼 늦다. 이 차이는 '대안이 기다리도록 정의됐다'는 데서 나오므로 비교 결론에 쓰지 않는다.
+    fig: e1_latency/figures/latency_by_arm_cond.png
+    limit: L-LAT-ALT
+    items:
+      - {label: LIOT 첫 경보 지연 중앙값(모델 정상), path: [main, cells, liot/normal, median], expected: 2.7, round: 1, scale: 1000, fmt: "{:.1f}", unit: " ms", md: "2.7"}
+      - {label: LIOT 첫 경보 지연 p95(모델 정상), path: [main, cells, liot/normal, p95], expected: 4.7, round: 1, scale: 1000, fmt: "{:.1f}", unit: " ms", md: "4.7"}
+      - {label: 모델 뒤 발송 − LIOT 중앙값(모델 정상 0.2초), path: [main, delta_vs_liot, wait_for_model/normal, median, diff], expected: 205.4, round: 1, scale: 1000, fmt: "{:+.1f}", unit: " ms", md: "+205.4"}
+      - {label: 모델 뒤 발송 − LIOT 중앙값(모델 느림 1.5초), path: [main, delta_vs_liot, wait_for_model/slow, median, diff], expected: 1506.6, round: 1, scale: 1000, fmt: "{:+.1f}", unit: " ms", md: "+1506.6"}
+      - {label: 모델 뒤 발송 − LIOT 중앙값(마감 초과 4초), path: [main, delta_vs_liot, wait_for_model/timeout, median, diff], expected: 2002.0, round: 1, scale: 1000, fmt: "{:+.1f}", unit: " ms", md: "+2002.0"}
+      - {label: 모델 뒤 발송 − LIOT 중앙값(모델 예외), path: [main, delta_vs_liot, wait_for_model/raising, median, diff], expected: 0.5, round: 1, scale: 1000, fmt: "{:+.1f}", unit: " ms", md: "+0.5"}
+  - id: E1-02
+    group: IV.Q1
+    exp: e1_latency
+    hyp: H1.2
+    verdict: 기술 결과(U1 전 재현) → 지지(U1 후)
+    text: 편의 판정이 이벤트 루프를 막던 때(U1 전)는 가스 첫 경보가 대조군보다 편의 판정 시간만큼 늦었다(이미 알려진 결함의 재현). 편의 판정을 워커 스레드로 보낸 뒤(U1 후)에는 같은 시간대 대조군과의 p95 차이가 사전 기준 0.1초 안에 들어온다.
+    fig: e1_latency/figures/h12_comfort_blocks_gas.png
+    limit: L-LAT
+    items:
+      - {label: U1 전 p95 차이(편의 판정 0.5초), path: [h12, before, "0.5", pooled, p95_minus_control_p95], expected: 0.480, round: 3, fmt: "{:.3f}", unit: " 초", md: "0.480"}
+      - {label: U1 전 p95 차이(1.5초), path: [h12, before, "1.5", pooled, p95_minus_control_p95], expected: 1.429, round: 3, fmt: "{:.3f}", unit: " 초", md: "1.429"}
+      - {label: U1 전 p95 차이(3.0초), path: [h12, before, "3.0", pooled, p95_minus_control_p95], expected: 2.853, round: 3, fmt: "{:.3f}", unit: " 초", md: "2.853"}
+      - {label: U1 후 p95 차이(0.5초), path: [h12, after, "0.5", pooled, p95_minus_control_p95], expected: 6.2, round: 1, scale: 1000, fmt: "{:+.1f}", unit: " ms", md: "+6.2"}
+      - {label: U1 후 p95 차이(1.5초), path: [h12, after, "1.5", pooled, p95_minus_control_p95], expected: 6.5, round: 1, scale: 1000, fmt: "{:+.1f}", unit: " ms", md: "+6.5"}
+      - {label: U1 후 p95 차이(3.0초), path: [h12, after, "3.0", pooled, p95_minus_control_p95], expected: 5.1, round: 1, scale: 1000, fmt: "{:+.1f}", unit: " ms", md: "+5.1"}
+      - {label: U1 후 사전 기준(≤ 0.1초) 충족(1.5초), path: [h12, after, "1.5", pooled, "after_criterion_met_p95_diff_le_0.1s"], expected: true}
+  - id: E1-03
+    group: IV.Q1
+    exp: e1_latency
+    hyp: H1.1c
+    verdict: 기술 결과
+    text: 경고 하한 사건에서 LIOT 는 첫 알림을 '경고'로 보냈다가 모델이 올리면 두 번째 푸시를 보낸다. 위험 하한 사건에서는 이 일이 없다. 합성 17.3%는 올림 30% 가정이 만든 숫자이고, 벤치 원시 답 재생은 16.7%다.
+    fig: e1_latency/figures/h11c_replay_mismatch.png
+    limit: L-REPLAY
+    items:
+      - {label: 합성 2단계 불일치율(LIOT), path: [main, stage2_change, liot/normal, all, rate], expected: 17.3, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "17.3"}
+      - {label: 그중 경고 하한 사건, path: [main, stage2_change, liot/normal, floor_warning, rate], expected: 25.9, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "25.9"}
+      - {label: 그중 위험 하한 사건, path: [main, stage2_change, liot/normal, floor_critical, rate], expected: 0.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%"}
+      - {label: 벤치 재생 불일치율(모델 6종 합), path: [replay, pooled, mismatch, rate], expected: 16.7, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "16.7"}
+      - {label: 벤치 재생 95% 구간 하한, path: [replay, pooled, mismatch, lo], expected: 11.5, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "11.5"}
+      - {label: 벤치 재생 95% 구간 상한, path: [replay, pooled, mismatch, hi], expected: 21.9, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "21.9"}
+  - id: E1-04
+    group: IV.Q1
+    exp: e1_latency
+    hyp: H1.3
+    verdict: 기술 결과(특성 기록)
+    text: 알림 송신(ntfy)이 느리면 그 사이에 들어온 다음 안전 경보가 송신 횟수 × 송신 지연만큼 늦는다. 보호자 3명·송신 10초이면 두 번째 안전 신호의 첫 알림이 약 30초 늦는다. 판정은 없는 특성 기록이다.
+    fig: e1_latency/figures/h13_send_delay.png
+    limit: L-LAT
+    items:
+      - {label: 첫 송신 중 도착(지연 10초) 중앙값, path: [h13, first_send/10.0/0, median], expected: 9.907, round: 3, fmt: "{:.3f}", unit: " 초", md: "9.907"}
+      - {label: 사다리 중, 보호자 1명(지연 10초), path: [h13, ladder/10.0/1, median], expected: 19.918, round: 3, fmt: "{:.3f}", unit: " 초", md: "19.918"}
+      - {label: 사다리 중, 보호자 3명(지연 10초), path: [h13, ladder/10.0/3, median], expected: 29.925, round: 3, fmt: "{:.3f}", unit: " 초", md: "29.925"}
+      - {label: 송신 지연 0초일 때(보호자 3명), path: [h13, ladder/0.0/3, median], expected: 3.0, round: 1, scale: 1000, fmt: "{:.1f}", unit: " ms"}
+  - id: E1-05
+    group: IV.Q1
+    exp: e1_latency
+    hyp: C2.7
+    verdict: 구조상 결과(공정화 확인) + 기술 결과(경고 하한)
+    text: 하한을 아는 대안(하한이 위험이면 기다리지 않음)은 위험 하한 사건에서 LIOT 와 지연·푸시가 같다 — 코드 구성상 반드시 같아지는 공정화 확인이지 시험이 아니다. 경고 하한 사건에서만 대안이 약 1초 늦게 보내는 대신 푸시를 한 번으로 줄인다.
+    fig: e1_latency/figures/latency_by_arm_cond.png
+    limit: L-LAT-ALT
+    items:
+      - {label: 위험 하한 — 하한을 아는 대안 − LIOT 중앙값, path: [c27, by_floor, CRITICAL, delta_vs_liot, floor_aware, median, diff], expected: -0.1, round: 1, scale: 1000, fmt: "{:+.1f}", unit: " ms", md: "-0.1"}
+      - {label: 위험 하한 — 항상 기다리는 대안 − LIOT 중앙값, path: [c27, by_floor, CRITICAL, delta_vs_liot, wait_for_model, median, diff], expected: 1011.9, round: 1, scale: 1000, fmt: "{:+.1f}", unit: " ms", md: "+1011.9"}
+      - {label: 경고 하한 — 하한을 아는 대안 − LIOT 중앙값, path: [c27, by_floor, WARNING, delta_vs_liot, floor_aware, median, diff], expected: 955.0, round: 1, scale: 1000, fmt: "{:+.1f}", unit: " ms", md: "+955.0"}
+      - {label: 경고 하한 — 대안의 사건당 푸시 차이, path: [c27, by_floor, WARNING, delta_vs_liot, floor_aware, pushes_mean_diff], expected: -0.267, round: 3, fmt: "{:+.3f}", unit: " 회", md: "-0.267"}
+      - {label: 경고 하한 — LIOT 의 두 번째 푸시 비율, path: [c27, by_floor, WARNING, cells, liot, mismatch_share, rate], expected: 26.7, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "26.7"}
+      - {label: 벤치 모델 판정 시간 중앙값, path: [c27, model_seconds, median], expected: 0.957, round: 3, fmt: "{:.3f}", unit: " 초", md: "0.957"}
+
+  # ------------------------------------------------------------------ IV. Q1 안전 · E2
+  - id: E2-01
+    group: IV.Q1
+    exp: e2_invariants
+    hyp: H1.4
+    verdict: 구조상 결과
+    text: 무작위 퍼징 3,600회(모델 행동 6종) 안에서 하드 게이트 위반은 0건이다. 이것은 '우리 규칙을 우리 코드가 지킨다'는 점검이고 다른 구조와의 비교가 아니다. 알려진 게이트 1 충돌 두 종류는 아래 E2-03 과 지는 곳 절에 따로 적는다.
+    fig: e2_invariants/figures/h15_false_and_miss_curves.png
+    limit: L-FUZZ
+    items:
+      - {label: 퍼징 에피소드, path: [fuzz, total_episodes], expected: 3600, round: 0, fmt: "{:,.0f}", unit: " 회"}
+      - {label: 하드 게이트 위반(퍼징 안), path: [fuzz, violations_total], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 판단 행(모두 최종 ≥ 하한), path: [fuzz, by_behavior, "*", stress, judgment_rows], agg: sum, expected: 25634, round: 0, fmt: "{:,.0f}", unit: " 행"}
+      - {label: 새 상황, path: [fuzz, by_behavior, "*", stress, new_situations], agg: sum, expected: 11628, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 푸시, path: [fuzz, by_behavior, "*", stress, pushes], agg: sum, expected: 39959, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 여는 방향 승인·실행 시도(전부 거부), path: [fuzz, by_behavior, "*", stress, exec_opening_attempts], agg: sum, expected: 1473, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 하한 아래라 버려진 모델 답(구조상), path: [fuzz, by_behavior, "*", stress, answers_below_floor_discarded], agg: sum, expected: 3716, round: 0, fmt: "{:,.0f}", unit: " 건"}
+  - id: E2-02
+    group: IV.Q1
+    exp: e2_invariants
+    hyp: H1.4(별도 기록)
+    verdict: 기술 결과
+    text: 위험 라벨이 문 열림에 붙으면 '이 집에 취약 거주자가 있다'는 사실 1비트가 폰 알림에 드러난다(추론 누출). 송신 낱말 검사로는 잡히지 않는다. 하드 게이트 위반으로 세지는 않았지만 설계가 알고 있어야 하는 누출이다.
+    limit: L-FUZZ
+    items:
+      - {label: 취약 거주자 미등록 집, 거주자 폰 라벨, path: [inference_leak_door_label, plain, resident_labels, 0], expected: 경고}
+      - {label: 취약 거주자 등록 집, 거주자 폰 라벨, path: [inference_leak_door_label, registered_vulnerable, resident_labels, 0], expected: 위험}
+      - {label: 취약 거주자 등록 집, 보호자 폰 라벨, path: [inference_leak_door_label, registered_vulnerable, guardian_labels, 0], expected: 위험}
+  - id: E2-03
+    group: IV.Q1
+    exp: e2_invariants
+    hyp: C2.9
+    verdict: 지지(+ 새 결함 발견)
+    text: 경로를 강제로 채운 퍼징에서 게이트 1 충돌 두 종류가 잡혔다. (1) 알려진 억제 — 경고 하한 카테고리를 거절한 뒤 다시 열리면 첫 알림이 없이 600초 뒤 재알림으로 나간다. (2) 새 결함 — 첫 송신이 실패하면 복구가 즉시여도 첫 푸시가 사다리 시각(60초·600초)까지 기다린다. 이 둘은 LIOT 의 안전 알림이 '늦거나 침묵하지 않는다'는 게이트 1 문구와 부딪히며 소유자 판단이 필요하다.
+    limit: L-FUZZ
+    items:
+      - {label: 거절 후 재발생 경로에서 알려진 억제, path: [quota, by_path, reject_reopen, miss_classes, known_suppression], expected: 38, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 억제된 건의 첫 푸시 시각(중앙), path: [quota, by_path, reject_reopen, delayed_first_push_s, median], expected: 600, round: 0, fmt: "{:,.0f}", unit: " 초"}
+      - {label: 첫 송신 실패 경로 100회 중 지연, path: [quota, by_path, first_send_fail, miss_classes, send_failure_delay], expected: 100, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 첫 송신 실패 후 첫 푸시 지연(최소), path: [quota, by_path, first_send_fail, delayed_first_push_s, min], expected: 60, round: 0, fmt: "{:,.0f}", unit: " 초"}
+      - {label: 첫 송신 실패 후 첫 푸시 지연(중앙), path: [quota, by_path, first_send_fail, delayed_first_push_s, median], expected: 600, round: 0, fmt: "{:,.0f}", unit: " 초"}
+      - {label: 알려진 억제 밖의 '미상' 위반, path: [quota, unknown_misses], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 탐침 14칸 중 두 번째 첫 알림이 나간 칸, path: [probe_dismissal, "*", second_first_alert_pushed], agg: count_true, expected: 9, round: 0, fmt: "{:,.0f}", unit: " 칸"}
+      - {label: 탐침 14칸 중 나가지 않은 칸, path: [probe_dismissal, "*", second_first_alert_pushed], agg: count_false, expected: 5, round: 0, fmt: "{:,.0f}", unit: " 칸"}
+  - id: E2-04
+    group: IV.Q1
+    exp: e2_invariants
+    hyp: H1.5 (= P1)
+    verdict: 기술 결과(단정 없음)
+    text: 보호자 호출을 표 하한(LIOT)으로 정하느냐 모델 상향을 포함한 최종값으로 정하느냐는 어느 쪽이 늘 낫다고 쓸 수 없다. 손익분기 비용비 c* 지도에서 맞교환 칸이 대부분이고, 정직한 모델·공격 없음·미등록 취약 가구 10%에서는 최종값 방식이 오호출은 같고 놓침만 6.93%에서 0%로 줄이는 순이득이다 — 이것은 LIOT 가 지는 곳이다.
+    fig: e2_invariants/figures/h15_cstar_maps.png
+    limit: L-CSTAR
+    items:
+      - {label: 모델이 진실을 보는 모드 — LIOT 우세 칸(구조상), path: [h15, class_counts_model_sees_truth, liot_dominates], expected: 92, round: 0, fmt: "{:,.0f}", unit: " 칸"}
+      - {label: 같은 모드 — 최종값 우세 칸, path: [h15, class_counts_model_sees_truth, final_dominates], expected: 8, round: 0, fmt: "{:,.0f}", unit: " 칸"}
+      - {label: 같은 모드 — 맞교환 칸, path: [h15, class_counts_model_sees_truth, tradeoff], expected: 184, round: 0, fmt: "{:,.0f}", unit: " 칸"}
+      - {label: 취약성을 못 보는 모드(blind) — LIOT 우세 칸(구조상), path: [h15, class_counts_model_blind, liot_dominates], expected: 92, round: 0, fmt: "{:,.0f}", unit: " 칸"}
+      - {label: 같은 모드 — 동률 칸(최종값 우세 칸은 없음), path: [h15, class_counts_model_blind, tie], expected: 12, round: 0, fmt: "{:,.0f}", unit: " 칸"}
+      - {label: 같은 모드 — 맞교환 칸, path: [h15, class_counts_model_blind, tradeoff], expected: 184, round: 0, fmt: "{:,.0f}", unit: " 칸"}
+      - {label: 핵심 칸(오경보 2%·미등록 10%·정직도 0.9·공격 0) LIOT 오호출, path: [h15, cells, "fa0.02|u0.1|h0.9|a0.0|b0|base", liot, false_rate], expected: 0.61, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "0.61"}
+      - {label: 같은 칸 LIOT 놓침, path: [h15, cells, "fa0.02|u0.1|h0.9|a0.0|b0|base", liot, miss_rate], expected: 6.93, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "6.93"}
+      - {label: 같은 칸 최종값 오호출, path: [h15, cells, "fa0.02|u0.1|h0.9|a0.0|b0|base", final, false_rate], expected: 2.49, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "2.49"}
+      - {label: 같은 칸 최종값 놓침, path: [h15, cells, "fa0.02|u0.1|h0.9|a0.0|b0|base", final, miss_rate], expected: 0.69, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "0.69"}
+      - {label: 같은 칸 c*, path: [h15, cells, "fa0.02|u0.1|h0.9|a0.0|b0|base", c_star, point], expected: 0.30, round: 2, fmt: "{:.2f}", md: "0.30"}
+      - {label: 정직도 1.0·공격 0 — 최종값 놓침, path: [h15, cells, "fa0.02|u0.1|h1.0|a0.0|b0|base", final, miss_rate], expected: 0.00, round: 2, scale: 100, fmt: "{:.2f}", unit: "%"}
+      - {label: 정직도 1.0·공격 30% — c*, path: [h15, cells, "fa0.02|u0.1|h1.0|a0.3|b0|base", c_star, point], expected: 2.41, round: 2, fmt: "{:.2f}", md: "2.41"}
+      - {label: 미등록 30%·정직도 0.9 — c*, path: [h15, cells, "fa0.02|u0.3|h0.9|a0.0|b0|base", c_star, point], expected: 0.08, round: 2, fmt: "{:.2f}", md: "0.08"}
+      - {label: 모델이 진실을 보는 모드 c* 중앙값(맞교환 칸), fn: h15_cstar, args: {blind: 0, stat: median}, path: [h15, cells], expected: 1.02, round: 2, fmt: "{:.2f}", md: "1.02", note: "파생값: summary.json 칸들에서 계산"}
+      - {label: 취약성 못 보는 모드 c* 중앙값(구조상), fn: h15_cstar, args: {blind: 1, stat: median}, path: [h15, cells], expected: 5.02, round: 2, fmt: "{:.2f}", md: "5.02", note: "파생값: summary.json 칸들에서 계산"}
+  - id: E2-05
+    group: IV.Q1
+    exp: e2_invariants
+    hyp: C2.8
+    verdict: 읽기에 따라 갈림(읽기 i 반증 · 읽기 ii 반증 아님)
+    text: 상황 심각도가 특성 없는 관찰 필드로 드러날 때 '모델 상향을 보호자 호출에 쓰는 이득은 작다'는 결론은 AUC 만으로 나오지 않는다. 등록 문구에 '몇 칸에서'가 없어 두 읽기를 모두 보고한다 — 한 칸이라도 c* 가 2 를 넘으면 반증(읽기 i)이고 과반 칸에서 넘어야 반증(읽기 ii)이면 반증이 아니다. 현재 운영(AUC 0.5)에서는 최종값 방식이 오호출을 1~2%p 늘리고 놓침은 0.75%p 이하만 줄인다.
+    fig: e2_invariants/figures/c28_cstar_vs_auc.png
+    limit: L-C28
+    items:
+      - {label: AUC 0.8 이상 비구조 칸 중 c*>2 비율 — 진실 모드, path: [h15b, by_mode, honest, "auc_ge_0.8_nonstructural", cstar_over_2_share], expected: 26.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "26.0"}
+      - {label: 같은 비율 — 취약성 못 보는 모드(게이트 3 을 지키는 모드), fn: h15b_auc08_over2_share, args: {mode: blind}, path: [h15b, cells], expected: 42.7, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "42.7", note: "파생값 — summary.json 의 blind 요약 칸이 비어 있어 칸들에서 다시 계산(RESULTS.md 와 일치)"}
+      - {label: AUC 0.8 이상 비구조 칸 수(모드마다), path: [h15b, by_mode, honest, "auc_ge_0.8_nonstructural", cells], expected: 96, round: 0, fmt: "{:,.0f}", unit: " 칸"}
+      - {label: 현재 운영 지점 — 최종값 − LIOT 오호출 최대, path: [h15b, e5_operational, final_minus_liot_false_rate_max], expected: 1.9, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "1.9"}
+      - {label: 현재 운영 지점 — 최종값 − LIOT 놓침 최소(가장 많이 줄인 값), path: [h15b, e5_operational, final_minus_liot_miss_rate_min], expected: -0.75, round: 2, scale: 100, fmt: "{:+.2f}", unit: "%p", md: "-0.75"}
+      - {label: 현재 운영 지점 18칸 중 맞교환 칸, path: [h15b, e5_operational, class_counts_attack0, tradeoff], expected: 16, round: 0, fmt: "{:,.0f}", unit: " 칸"}
+      - {label: 현재 운영 지점 18칸 중 LIOT 우세 칸, path: [h15b, e5_operational, class_counts_attack0, liot_dominates], expected: 2, round: 0, fmt: "{:,.0f}", unit: " 칸"}
+
+  - id: E2-06
+    group: IV.Q1
+    exp: e2_invariants
+    hyp: H1.5 (탐색 — 거주자 특성 추론 허용 변형)
+    verdict: 기술 결과(탐색 — 설계로 채택할 근거가 아님)
+    text: 거주자 특성을 추론해도 되는 변형은 놓침을 줄이는 것처럼 보이는 구간이 있다(미등록 취약 10%, 오경보 2%에서 참양성 95%·거짓양성 0%이면 놓침 6.93%→0.34%). 그러나 추론이 부정확해지면(참양성 80%·거짓양성 5%) 오호출이 0.61%에서 3.35%로 오른다. 이 변형은 하드 게이트 3('특성은 추론하지 않는다')을 깨는 것이므로 개선처럼 보여도 설계 채택의 근거가 아니다.
+    fig: e2_invariants/figures/h15_trait_inference_exploratory.png
+    limit: L-CSTAR
+    items:
+      - {label: LIOT 놓침(미등록 10%·오경보 2%), path: [h15, cells, "fa0.02|u0.1|h0.9|a0.0|b0|base", liot, miss_rate], expected: 6.93, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "6.93"}
+      - {label: 추론(참양성 0.95·거짓양성 0%) 놓침, path: [h15, infer, "fa0.02|u0.1", "infer_0.95_0.0", miss_rate], expected: 0.34, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "0.34"}
+      - {label: 추론(0.8·5%) 오호출, path: [h15, infer, "fa0.02|u0.1", "infer_0.8_0.05", false_rate], expected: 3.35, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "3.35"}
+      - {label: 추론(0.8·5%) 놓침, path: [h15, infer, "fa0.02|u0.1", "infer_0.8_0.05", miss_rate], expected: 1.41, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "1.41"}
+      - {label: 추론(0.5·20%) 오호출, path: [h15, infer, "fa0.02|u0.1", "infer_0.5_0.2", false_rate], expected: 11.76, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "11.76"}
+
+  # ------------------------------------------------------------------ IV. Q6 사다리 · 호출 · E7
+  - id: E7-01
+    group: IV.Q6
+    exp: e7_ladder
+    hyp: H6.1
+    verdict: 반증(등록 문구대로)
+    text: 사다리가 계산한 시각은 명세와 정확히 같다(오차 0초). 그러나 실제 데몬은 사다리 틱이 5초 간격이고 상황이 열린 순간과 정렬되지 않아 모든 사다리 발화가 0~5초 늦는다. 등록 문구('오차 1초 이상이 1건이라도')대로 반증이며, '결함 아님'이라고 다시 읽는 것은 사후 해석이다.
+    fig: e7_ladder/figures/h61_conformance.png
+    limit: L-LADDER
+    items:
+      - {label: 이상적 시계(event)에서 오차 1초 이상, path: [conformance, by_driver, event, events_over_1s], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 5초 틱 위상 0 에서 오차 1초 이상, path: [conformance, by_driver, tick5, events_over_1s], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 틱 위상 1.7초 — 오차 1초 이상 사건, path: [conformance, by_driver, "tick5_p1.7", events_over_1s], expected: 146, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 틱 위상 1.7초 — 최대 오차, path: [conformance, by_driver, "tick5_p1.7", max_abs_error_s], expected: 1.7, round: 1, fmt: "{:.1f}", unit: " 초", md: "1.7"}
+      - {label: 틱 위상 3.3초 — 최대 오차, path: [conformance, by_driver, "tick5_p3.3", max_abs_error_s], expected: 3.3, round: 1, fmt: "{:.1f}", unit: " 초", md: "3.3"}
+  - id: E7-02
+    group: IV.Q6
+    exp: e7_ladder
+    hyp: H6.2
+    verdict: 기술 결과
+    text: 보호자를 한꺼번에 부르는 현재 방식(동시)과 한 명씩 90초 간격으로 부르는 대안(순차) 중, 응답 모델이 같은 해석(두 방식 모두 보호자 수 N 으로 방관 효과)에서는 N≥2 모든 설정에서 순차가 첫 확인이 늦다. 순차가 늦은 것은 보호자마다 90초 대기를 정의상 더하기 때문이라 구조상 결과에 가깝다. 대신 사건당 호출받는 사람은 순차가 적다.
+    fig: e7_ladder/figures/h62_sim_vs_seq.png
+    limit: L-BYSTANDER
+    items:
+      - {label: 순차 − 동시, 첫 확인까지(평균 응답 1분·N=3), path: [mc, cells, "mu1.0|q0.0|b0.0|N3", delta_seq_minus_sim_s, point], expected: 33, round: 0, fmt: "{:+.0f}", unit: " 초", md: "+33"}
+      - {label: 같은 값(평균 응답 3분·N=3), path: [mc, cells, "mu3.0|q0.0|b0.0|N3", delta_seq_minus_sim_s, point], expected: 59, round: 0, fmt: "{:+.0f}", unit: " 초", md: "+59"}
+      - {label: 같은 값(평균 응답 10분·N=3), path: [mc, cells, "mu10.0|q0.0|b0.0|N3", delta_seq_minus_sim_s, point], expected: 78, round: 0, fmt: "{:+.0f}", unit: " 초", md: "+78"}
+      - {label: 같은 값(평균 응답 10분·N=5), path: [mc, cells, "mu10.0|q0.0|b0.0|N5", delta_seq_minus_sim_s, point], expected: 131, round: 0, fmt: "{:+.0f}", unit: " 초", md: "+131"}
+      - {label: 사건당 호출 인원(N=3, 평균 응답 3분) 동시, path: [mc, cells, "mu3.0|q0.0|b0.0|N3", sim, pages], expected: 3.0, round: 1, fmt: "{:.1f}", unit: " 명", md: "3.0"}
+      - {label: 같은 조건 순차, path: [mc, cells, "mu3.0|q0.0|b0.0|N3", seq, pages], expected: 1.83, round: 2, fmt: "{:.2f}", unit: " 명", md: "1.83"}
+  - id: E7-03
+    group: IV.Q6
+    exp: e7_ladder
+    hyp: C2.10
+    verdict: 읽기에 따라 갈림
+    text: 방관 효과(보호자가 많을수록 한 사람이 나서지 않음)를 '보호자 수 N'으로 계산하면 b=0.6 에서도 300초 안 확인 확률은 동시 호출이 높다(순차가 빠른 설정 0개, 동시가 높은 설정 24/27). '동시에 호출된 사람 수'로 계산하면 b=0.6 에서 순차가 27/27 설정에서 높다. 결론은 어느 해석을 쓰느냐에 달렸고 실제 가족의 반응은 재지 않았다.
+    fig: e7_ladder/figures/h62_sim_vs_seq.png
+    limit: L-BYSTANDER
+    items:
+      - {label: 해석 N, b=0.6 — 동시가 높은 설정, path: [mc, c2_10, N_scaled_both, "b0.6", sim_higher_ci_separated], expected: 24, round: 0, fmt: "{:,.0f}", unit: "/27 설정"}
+      - {label: 해석 N, b=0.6 — 순차가 높은 설정, path: [mc, c2_10, N_scaled_both, "b0.6", seq_higher_ci_separated], expected: 0, round: 0, fmt: "{:,.0f}", unit: "/27 설정"}
+      - {label: 해석 N, b=0.6 — 300초 안 확인 확률 차이(순차−동시) 중앙값, path: [mc, c2_10, N_scaled_both, "b0.6", median_diff_p300_seq_minus_sim], expected: -8.0, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "-8.0"}
+      - {label: 해석 동시 호출 수, b=0.6 — 순차가 높은 설정, path: [mc, c2_10, concurrent_scaled_seq, "b0.6", seq_higher_ci_separated], expected: 27, round: 0, fmt: "{:,.0f}", unit: "/27 설정"}
+      - {label: 해석 동시 호출 수, b=0.6 — 같은 차이 중앙값, path: [mc, c2_10, concurrent_scaled_seq, "b0.6", median_diff_p300_seq_minus_sim], expected: 15.6, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "+15.6"}
+      - {label: 해석 동시 호출 수, b=0.3 — 순차가 높은 설정, path: [mc, c2_10, concurrent_scaled_seq, "b0.3", seq_higher_ci_separated], expected: 18, round: 0, fmt: "{:,.0f}", unit: "/27 설정"}
+      - {label: 해석 동시 호출 수, b=0.3 — 동시가 높은 설정, path: [mc, c2_10, concurrent_scaled_seq, "b0.3", sim_higher_ci_separated], expected: 4, round: 0, fmt: "{:,.0f}", unit: "/27 설정"}
+
+  # ------------------------------------------------------------------ IV. Q2 부담 대 피해 · E3
+  - id: E3-01
+    group: IV.Q2
+    exp: e3_policy
+    hyp: H2.1 (= P2) 참고 수치
+    verdict: 판정 불가(구조상 결과, liot_real 부분)
+    text: 정책 평균(세트 400개, 오분류 m=10%, 지수 피로). LIOT 실제(능동 상한)는 하루 확인 3.4건으로 가장 적고 해로운 실행률도 가장 낮지만, 그 낮음은 땅거미 이상을 통째로 침묵시키는 데서 오며(구조상 결과) 도움 완료율도 모두 명시 확인과 같은 수준에 그친다. LIOT 가상(4단계 전부)은 해로운 실행률이 모두 명시 확인보다 높다.
+    fig: e3_policy/figures/pareto_burden_vs_harm.png
+    limit: L-SIM
+    items:
+      - {label: 하루 확인 수 — LIOT 실제, path: [policy_table, exp, m0.1, liot_real, burden_per_day, mean], expected: 3.4, round: 1, fmt: "{:.1f}", unit: " 건", md: "3.4"}
+      - {label: 하루 확인 수 — LIOT 가상, path: [policy_table, exp, m0.1, liot_full, burden_per_day, mean], expected: 9.6, round: 1, fmt: "{:.1f}", unit: " 건", md: "9.6"}
+      - {label: 하루 확인 수 — 모두 명시 확인, path: [policy_table, exp, m0.1, flat_explicit, burden_per_day, mean], expected: 12.0, round: 1, fmt: "{:.1f}", unit: " 건", md: "12.0"}
+      - {label: 해로운 실행률 — LIOT 실제, path: [policy_table, exp, m0.1, liot_real, harm_rate, mean], expected: 7.1, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "0.071"}
+      - {label: 해로운 실행률 — LIOT 가상, path: [policy_table, exp, m0.1, liot_full, harm_rate, mean], expected: 29.2, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "0.292"}
+      - {label: 해로운 실행률 — 모두 명시 확인, path: [policy_table, exp, m0.1, flat_explicit, harm_rate, mean], expected: 26.2, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "0.262"}
+      - {label: 해로운 실행률 — 이진(외부 목록), path: [policy_table, exp, m0.1, binary_ext, harm_rate, mean], expected: 90.3, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "0.903"}
+      - {label: 도움 완료율 — LIOT 실제, path: [policy_table, exp, m0.1, liot_real, helpful_completion, mean], expected: 44.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "0.448"}
+      - {label: 도움 완료율 — LIOT 가상, path: [policy_table, exp, m0.1, liot_full, helpful_completion, mean], expected: 59.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "0.598"}
+      - {label: 도움 완료율 — 모두 명시 확인, path: [policy_table, exp, m0.1, flat_explicit, helpful_completion, mean], expected: 45.4, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "0.454"}
+  - id: E3-02
+    group: IV.Q2
+    exp: e3_policy
+    hyp: H2.1 (= P2), N1
+    verdict: 판정 불가(구조상 결과)
+    text: 같은 능동 상한(땅거미 이상 침묵)을 모두 명시 확인에도 똑같이 씌우면 상한의 몫이 빠지고 '단계별 확인만의 값'이 남는다. 이때 LIOT 실제는 오분류 10%에서 해로운 실행률이 +3.2%p 높고(95.8% 세트에서 더 나쁨), 도움 완료는 +12.5%p 높고, 확인은 하루 2.4건 적다. 즉 LIOT 실제의 낮은 피해는 단계 매김의 이점이 아니라 상한(침묵)에서 온다. LIOT 의 낮은 피해를 '단계 매김의 정보'로 읽을 근거는 없다. (최종 재검증에서 정확한 동률을 별도 범주로 세도록 고쳤다 — m=0 에서는 LIOT 실제가 더 나쁜 세트 16.3%, 동률 35.8%, 더 좋은 세트 48.0% 로 갈라 적는다. 이전 판의 21%는 쓰지 않는다.)
+    fig: e3_policy/figures/c22_ceiling_matched_silence.png
+    limit: L-GEN
+    items:
+      - {label: 해로운 실행률 차이(LIOT 실제 − 모두 명시 확인+같은 상한), path: [c2_2, exp, m0.1, liot_real_vs_flat_same_liot_ceiling, harm_diff, mean], expected: 3.2, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "+0.032"}
+      - {label: 그 차이의 세트 간 사분위 하한(Q25), path: [c2_2, exp, m0.1, liot_real_vs_flat_same_liot_ceiling, harm_diff, p25], expected: 2.1, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p"}
+      - {label: 그 차이의 세트 간 사분위 상한(Q75), path: [c2_2, exp, m0.1, liot_real_vs_flat_same_liot_ceiling, harm_diff, p75], expected: 4.4, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p"}
+      - {label: LIOT 실제가 더 나쁜 세트 비율(점추정), path: [c2_2, exp, m0.1, liot_real_vs_flat_same_liot_ceiling, share_sets_liot_real_harm_higher_point], expected: 95.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "95.8%"}
+      - {label: 도움 완료율 차이(LIOT 실제 − 대조), path: [c2_2, exp, m0.1, liot_real_vs_flat_same_liot_ceiling, help_diff, mean], expected: 12.5, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "+0.125"}
+      - {label: 하루 확인 수 차이, path: [c2_2, exp, m0.1, liot_real_vs_flat_same_liot_ceiling, burden_diff, mean], expected: -2.40, round: 2, fmt: "{:+.2f}", unit: " 건", md: "-2.40"}
+      - {label: 같은 비교, 오분류 m=0 일 때 해로운 실행률 차이, path: [c2_2, exp, m0.0, liot_real_vs_flat_same_liot_ceiling, harm_diff, mean], expected: -0.2, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "-0.002"}
+      - {label: 같은 비교, m=0 에서 LIOT 실제가 더 나쁜 세트(동률 따로 셈), path: [c2_2, exp, m0.0, liot_real_vs_flat_same_liot_ceiling, share_sets_liot_real_harm_higher_point], expected: 16.3, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "16.3%"}
+      - {label: 같은 비교, m=0 에서 동률인 세트, path: [c2_2, exp, m0.0, liot_real_vs_flat_same_liot_ceiling, share_sets_liot_real_harm_tie], expected: 35.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "35.8%"}
+      - {label: 같은 비교, m=0 에서 LIOT 실제가 더 좋은 세트, path: [c2_2, exp, m0.0, liot_real_vs_flat_same_liot_ceiling, share_sets_liot_real_harm_lower_point], expected: 48.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "48.0%"}
+  - id: E3-03
+    group: IV.Q2
+    exp: e3_policy
+    hyp: H2.1 (= P2) 참고(liot_full)
+    verdict: 판정 불가(liot_real 부분) · liot_full 은 참고
+    text: 상한 없이 4단계 전부를 쓰는 LIOT 가상은 오분류 10%에서 세트의 약 69%에서 해로운 실행률이 모두 명시 확인보다 유의하게 높고(씨앗 잡음 기준), 낮은 세트는 약 5%뿐이다. 도움 완료율은 +14%p 높다. 오분류가 늘수록 열세가 깊어진다(m=40%에서 +13.2%p).
+    fig: e3_policy/figures/winfraction_vs_m.png
+    limit: L-SEEDNOISE
+    items:
+      - {label: LIOT 가상이 유의하게 더 해로운 세트(m=10%), path: [h2_1, exp, m0.1, liot_full, harm, areas, higher, share], expected: 68.5, round: 1, scale: 100, fmt: "{:.1f}", unit: "%"}
+      - {label: 유의하게 덜 해로운 세트(m=10%), path: [h2_1, exp, m0.1, liot_full, harm, areas, lower, share], expected: 4.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%"}
+      - {label: 이진(사후 최적 목록)의 해로운 실행률(m=10%), path: [policy_table, exp, m0.1, binary_opt, harm_rate, mean], expected: 34.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "0.348"}
+  - id: E3-04
+    group: IV.Q2
+    exp: e3_policy
+    hyp: H2.2
+    verdict: 판정 불가(liot_full 약한 통과 · liot_real 불통과 → liot_real 관련 E3 결론 판정 불가)
+    text: 시뮬레이터 점검(피로 0·무심코 승인 0). LIOT 실제는 등록된 점검을 통과하지 못한다 — 모두 명시 확인보다 낮은 세트가 97.8%인데, 침묵은 오류가 없고 확인은 확률 1−a 로 틀리기 때문이며 해석식 대조는 통과해 시뮬레이터 결함은 아니다. 등록 규칙대로 liot_real 이 관련된 E3 결론은 '판정 불가·구조상 결과'로 내린다. LIOT 가상의 통과는 약하다(세트의 67%에서 차이가 정확히 0).
+    limit: L-GEN
+    items:
+      - {label: LIOT 실제 — 모두 명시 확인이 더 높은 세트, path: [h2_2, verdict_inputs, liot_real, share_sets_flat_strictly_higher], expected: 97.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "97.8%"}
+      - {label: LIOT 가상 — 차이가 정확히 0 인 세트(m=0), path: [h2_2, m0.0, liot_full, share_sets_difference_exactly_zero], expected: 67, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "67%"}
+      - {label: LIOT 가상 — 모두 명시 확인이 유의하게 낮은 세트, path: [h2_2, verdict_inputs, liot_full, share_sets_flat_strictly_lower], expected: 14, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "14%"}
+  - id: E3-05
+    group: IV.Q2
+    exp: e3_policy
+    hyp: H2.4 (= P3)
+    verdict: 판정 불가(구조상 결과, liot_real 포함)
+    text: 오분류가 늘면 4단계의 이점이 사라지는 경계. liot_real 이 포함된 등록 지표는 판정 불가·구조상 결과다. 참고로 liot_full 만 본 이점 영역은 m=0 에서도 9%로 작고 m=40%에서 0.3%까지 줄어, 경계 m* 는 격자의 첫 칸(10%) 이하다(경계 정의는 우리가 사후에 정함).
+    fig: e3_policy/figures/winfraction_vs_m.png
+    limit: L-GEN
+    items:
+      - {label: liot_full 만의 이점 영역 면적(m=0), path: [h2_4, exp, area_m0], expected: 9.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "9.0%"}
+      - {label: 같은 면적(m=40%), path: [h2_4, exp, area_m40], expected: 0.3, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "0.3%"}
+  - id: E3-06
+    group: IV.Q2
+    exp: e3_policy
+    hyp: H2.6 (= P4)
+    verdict: "'막은 피해' 판정 불가(구조상 결과) · '잃은 도움' 기술 결과"
+    text: 실제 능동 상한이 치르는 비용. 상한 때문에 사라지는 도움 제안은 전체의 약 45.8%이고, 그 대가로 막은 해로운 제안은 86.2%지만 후자는 생성기 정렬에서 오는 구조상 결과라 결론에 쓰지 않는다. 사라지는 도움의 약 88%가 가전·출입이며, 이것이 LIOT 설계의 실제 비용이다. LIOT 가상과 비교하면 도움 완료율이 약 15%p 낮다.
+    fig: e3_policy/figures/silenced_helpful_by_device.png
+    limit: L-GEN
+    items:
+      - {label: 상한에 걸려 사라지는 도움 제안(풀링), path: [h2_6, exp, pooled_silenced_helpful_share], expected: 45.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "45.8%"}
+      - {label: 같은 상한이 막은 해로운 제안(구조상), path: [h2_6, exp, pooled_silenced_harm_share], expected: 86.2, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "86.2%"}
+      - {label: 막힌 도움 중 가전 몫, path: [h2_6_device_sweep, contribution_to_total_silenced, 3], expected: 48.3, round: 1, scale: 100, fmt: "{:.1f}", unit: "%"}
+      - {label: 막힌 도움 중 출입 몫, path: [h2_6_device_sweep, contribution_to_total_silenced, 4], expected: 39.4, round: 1, scale: 100, fmt: "{:.1f}", unit: "%"}
+      - {label: 도움 완료율 차이(LIOT 실제 − LIOT 가상), path: [h2_6, exp, real_minus_full_help_completion, mean], expected: -15.0, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "-0.150"}
+  - id: E3-07
+    group: IV.Q2
+    exp: e3_policy
+    hyp: C2.1
+    verdict: 반증
+    text: 예측은 '해로운 제안이 숨결 이하로 몰릴수록 liot_real 의 피해 이점이 줄어 50% 에서 과반 아래로 떨어진다'였다. 해로운 제안의 50%를 숨결 이하 견본으로 옮겨도 모두 명시 확인보다 피해가 유의하게 낮은 세트가 과반(예측은 50% 아래로 떨어진다)이어서 예측이 틀렸다. 단, 이 다이얼은 해로움을 잔잔(자동 실행)에 놓지 않은 LIOT 에 유리한 설정이다 — 아래 E3-10 이 그 한계를 푼다.
+    fig: e3_policy/figures/c21_harm_template_shift.png
+    limit: L-GEN-LIGHT
+    items:
+      - {label: 숨결 이하 50% — 이점 면적(m=0), path: [c2_1, rows, {block: c21_p050}, m0.0, liot_real, area_harm_lower_seed_noise_sig, share], expected: 88.25, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "88.2"}
+      - {label: 숨결 이하 50% — 이점 면적(m=10%), path: [c2_1, rows, {block: c21_p050}, m0.1, liot_real, area_harm_lower_seed_noise_sig, share], expected: 71.3, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "71.3"}
+      - {label: 숨결 이하 100% — 이점 면적(m=10%), path: [c2_1, rows, {block: c21_p100}, m0.1, liot_real, area_harm_lower_seed_noise_sig, share], expected: 39.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "39.8"}
+  - id: E3-08
+    group: IV.Q2
+    exp: e3_policy
+    hyp: C2.2
+    verdict: 반증(이진·모두 자동 기준) — 모두 명시 확인+상한 기준에서는 예측이 대체로 성립(구조상 해석)
+    text: 같은 침묵 비율이면 상한 종류와 무관하게 같은 맞교환이라는 예측은 모두 명시 확인+상한에서만 대체로 맞고(±2%p 안 73%), 이진(외부)·모두 자동에 상한을 씌운 비교에서는 LIOT 단계 상한이 같은 침묵 비율의 생성기 상한보다 피해가 약 3%p 낮아 반증 조건이 88% 세트에서 충족된다. 단 이 우위는 생성기와 LIOT 단계의 정렬에서 나오는 구조상 결과라 'LIOT 단계가 외부 기준에서도 정보가 있다'로 쓰지 않는다.
+    fig: e3_policy/figures/c22_ceiling_matched_silence.png
+    limit: L-GEN
+    items:
+      - {label: 모두 명시 확인+상한 — ±2%p 안(둘 다) 세트, path: [c2_2, exp, m0.1, flat_explicit, liot_minus_generator_ceiling_at_matched_silence, share_within_2pp_both, share], expected: 73, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "73%"}
+      - {label: 이진(외부)+상한 — 반증 조건 해당 세트(m=10%), path: [c2_2, exp, m0.1, binary_ext, liot_minus_generator_ceiling_at_matched_silence, share_falsifier_harm_lower_2pp_and_help_not_lower, share], expected: 88, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "88%"}
+      - {label: 이진(외부)+상한 — 피해 차이 중앙값, path: [c2_2, exp, m0.1, binary_ext, liot_minus_generator_ceiling_at_matched_silence, harm_diff, median], expected: -3.3, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "-0.033"}
+  - id: E3-09
+    group: IV.Q2
+    exp: e3_policy
+    hyp: C2.3
+    verdict: 지지
+    text: LIOT 가상이 오분류 10% 이상에서 이점을 잃는 원인은 '잔잔으로 잘못 내려간 해로운 제안이 자동 실행되기 때문'이다. 잔잔을 알림만(자동 실행 안 함)으로 바꾸면 모두 명시 확인보다 피해가 높은 세트가 과반에서 1%로 줄어 피해 열세가 사라진다. 대가로 도움 완료율이 자동 실행일 때의 +13%p 에서 −11%p 로 내려간다.
+    fig: e3_policy/figures/c23_ambient_notify_only.png
+    limit: L-SIM
+    items:
+      - {label: 잔잔 자동 실행 — 유의하게 더 해로운 세트(m=10%), path: [c2_3, exp, 1, liot_full, area_harm_higher_seed_noise_sig, share], expected: 62.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "63%"}
+      - {label: 잔잔 알림만 — 유의하게 더 해로운 세트(m=10%), path: [c2_3, exp, 1, liot_full_notify_only, area_harm_higher_seed_noise_sig, share], expected: 1.3, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "1%"}
+      - {label: 도움 완료 차이 — 알림만(m=10%), path: [c2_3, exp, 1, liot_full_notify_only, help_diff_pooled, mean], expected: -10.8, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "-0.108"}
+      - {label: 도움 완료 차이 — 자동 실행(m=10%), path: [c2_3, exp, 1, liot_full, help_diff_pooled, mean], expected: 13.1, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "+0.131"}
+  - id: E3-10
+    group: IV.Q2
+    exp: e3_policy
+    hyp: C2.11 (a)
+    verdict: 지지
+    text: 해로운 제안이 잔잔(자동 실행)에 놓이는 비율을 높이면 liot_real 의 피해 이점이 사라진다. 잔잔 50%에서 이점 면적이 5~9%로 떨어진다(예측대로). 다만 50% 이상 구간의 큰 손실은 정의에 가까운 구조상 결과다(잔잔은 확인 없이 자동 실행되므로 거기 놓인 해로운 제안은 정의상 실행되고, 모두 명시 확인은 그것을 확인한다) — 그 격차를 발견으로 쓰지 않는다. 정보가 되는 출력은 교차점이다 — 이점 면적이 50% 아래로 내려가는 잔잔 비율은 약 16%(m=10%)~20%(m=0)다. 따라서 E3-07 의 '이점이 남는다'는 잔잔 쪽 해로움이 그 교차점 아래일 때만 성립하며, 현실의 잔잔 비율은 모른다. 또한 잔잔 해로움(저녁 조명 끄기)은 구성상 낮은 심각도인데 건수로는 '오븐 켜고 외출'과 똑같이 1건으로 센다(심각도 가중 없음).
+    fig: e3_policy/figures/c211_ambient_harm_and_light_stamp.png
+    limit: L-GEN-LIGHT
+    items:
+      - {label: 잔잔 50% — 이점 면적(m=0), path: [c2_11a, rows, {block: c211a_p050}, m0.0, liot_real, area_harm_lower_seed_noise_sig, share], expected: 8.5, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "8.5%"}
+      - {label: 잔잔 50% — 이점 면적(m=10%), path: [c2_11a, rows, {block: c211a_p050}, m0.1, liot_real, area_harm_lower_seed_noise_sig, share], expected: 5.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "5.0%"}
+      - {label: 잔잔 50% — 모두 명시 확인보다 유의하게 더 해로운 세트(m=10%), path: [c2_11a, rows, {block: c211a_p050}, m0.1, liot_real, area_harm_higher_seed_noise_sig, share], expected: 85.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "85.0%"}
+      - {label: 잔잔 50% — 피해 차이 평균(m=0), path: [c2_11a, rows, {block: c211a_p050}, m0.0, liot_real, harm_diff_pooled, mean], expected: 21.6, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "+0.216"}
+  - id: E3-11
+    group: IV.Q2
+    exp: e3_policy
+    hyp: C2.11 (b)
+    verdict: 지지(m=10%) · 판정 불가(m=0)
+    text: 탭 한 번 확인이 명시 확인보다 무심코 승인되기 쉬우면(2.0배) liot_full 의 피해가 모두 명시 확인보다 높은 세트가 m=10%에서 과반이지만, 이 조건은 기준선(1.0배)에서 이미 충족돼 있었다 — 예측이 맞았다기보다 배수와 무관하게 성립하는 값이다. 발견은 2.0배의 한계 효과(피해 차이 평균 +3.1%p → +4.6%p, 약 +1.5%p, 유의하게 높은 세트 68.5% → 79.7%)다. m=0 에서는 점추정으로 과반이지만 유의 기준으로는 과반이 아니어서 판정 불가로 둔다. LIOT 실제는 이 설정에서도 피해가 낮은 세트가 85%지만 그것은 침묵 때문이다.
+    fig: e3_policy/figures/c211_ambient_harm_and_light_stamp.png
+    limit: L-GEN-LIGHT
+    items:
+      - {label: 2.0배 — liot_full 이 유의하게 더 해로운 세트(m=10%), path: [c2_11b, rows, {block: c211b_x200}, m0.1, liot_full, area_harm_higher_seed_noise_sig, share], expected: 79.75, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "79.7%"}
+      - {label: 2.0배 — 같은 값(m=0), path: [c2_11b, rows, {block: c211b_x200}, m0.0, liot_full, area_harm_higher_seed_noise_sig, share], expected: 30.25, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "30.2%"}
+      - {label: 1.0배(기준선) — liot_full 피해 차이 평균(m=10%), path: [c2_11b, rows, {block: c211b_x100}, m0.1, liot_full, harm_diff_pooled, mean], expected: 3.1, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "+0.031"}
+      - {label: 2.0배 — liot_full 피해 차이 평균(m=10%), path: [c2_11b, rows, {block: c211b_x200}, m0.1, liot_full, harm_diff_pooled, mean], expected: 4.6, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "+0.046"}
+      - {label: 2.0배 — liot_real 이 유의하게 덜 해로운 세트(m=10%), path: [c2_11b, rows, {block: c211b_x200}, m0.1, liot_real, area_harm_lower_seed_noise_sig, share], expected: 85.3, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "85.3%"}
+  - id: E3-12
+    group: IV.Q2
+    exp: e3_policy
+    hyp: C2.4
+    verdict: 기술 결과
+    text: 위험 점수가 얼마나 정확해야 θ 정책(점수 상위 일부에만 확인)이 4단계를 이기는가. 오분류 10%에서 θ 정책이 liot_full 을 과반 세트에서 지배하려면 점수 AUC 가 약 0.81 이상이어야 한다. LIOT 단계 자체의 AUC 는 0.68(오분류 0)·0.63(10%)로 이 임계보다 훨씬 낮다 — 오분류 10%의 LIOT 단계는 AUC 0.8 정도의 점수에게 진다. 단 AUC 가 같아도 확인 강도 배치가 달라 우열이 갈릴 수 있다.
+    fig: e3_policy/figures/c24_theta_auc.png
+    limit: L-GEN
+    items:
+      - {label: LIOT 단계의 AUC(오분류 0), path: [c2_4, liot_tier_auc, "tier_m0.0_median"], expected: 0.68, round: 2, fmt: "{:.2f}", md: "0.68"}
+      - {label: LIOT 단계의 AUC(오분류 10%), path: [c2_4, liot_tier_auc, "tier_m0.1_median"], expected: 0.63, round: 2, fmt: "{:.2f}", md: "0.63"}
+      - {label: 생성기 기본 심각도의 AUC(참고), path: [c2_4, liot_tier_auc, base_sev_median], expected: 0.79, round: 2, fmt: "{:.2f}", md: "0.79"}
+      - {label: 잡음 없는 점수(AUC 0.82)가 liot_full 을 지배하는 세트(m=10%), path: [c2_4, rows, {kappa: 0.0, m: 0.1}, share_sets_dominating_liot_full, share], expected: 57.5, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "57.5%"}
+      - {label: 같은 값(m=0), path: [c2_4, rows, {kappa: 0.0, m: 0.0}, share_sets_dominating_liot_full, share], expected: 14.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "14.8%"}
+
+  - id: E3-13
+    group: IV.Q2
+    exp: e3_policy
+    hyp: H2.2 · C2.1 (생성기 정렬)
+    verdict: 구조상 결과(측정이 아니라 설계)
+    text: 시뮬레이터가 만든 해로운 제안의 약 95.8%가 LIOT 자신의 단계로 땅거미·불씨에 놓이고 잔잔은 0%다. 이 정렬은 `generator.py` 의 해로움 규칙과 견본을 우리가 쓴 결과이지 세상에서 측정한 것이 아니다. E3 의 'LIOT 실제'가 막은 피해를 크게 만드는 원인의 일부이므로, 이 정렬에 기댄 수치는 결론에 쓰지 않는다.
+    limit: L-GEN
+    items:
+      - {label: 해로운 제안 중 땅거미·불씨에 놓이는 몫(풀링), path: [harm_alignment, harmful_share_dusk_or_ember_pooled], expected: 95.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "95.8%"}
+      - {label: 잔잔에 놓이는 몫, path: [harm_alignment, harmful_share_by_tier_pooled, AMBIENT], expected: 0.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%"}
+      - {label: 숨결에 놓이는 몫, path: [harm_alignment, harmful_share_by_tier_pooled, BREATH], expected: 4.2, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "4.2%"}
+
+  - id: E3-14
+    group: IV.Q2
+    exp: e3_policy
+    hyp: H2.3 · H2.5 · H2.7 (탐색)
+    verdict: 기술 결과
+    text: 탐색 가설 세 가지는 기준이 없어 기술 결과로만 쓴다. (H2.3) 확인 비율 θ 에 대한 피해의 U자는 점수가 거의 완벽할 때(AUC 0.82)만 나온다. (H2.5) 외부 기준 목록(문 잠금 해제·차고 열기만 확인)의 이진 승인은 해로운 제안을 약 90% 통과시킨다. (H2.7) 자동 실행 + 15분 되돌리기 창은 해로운 실행률이 모두 명시 확인보다 훨씬 높다.
+    fig: e3_policy/figures/harm_vs_theta.png
+    limit: L-SIM
+    items:
+      - {label: U자가 나오는 세트(f>0, 점수 잡음 0, 지수 피로), path: [h2_3, exp, "s0.0", u_shape_sig, share], expected: 41, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "41%"}
+      - {label: 이진(외부 목록) 해로운 실행률, path: [policy_table, exp, m0.1, binary_ext, harm_rate, mean], expected: 90.3, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "0.903"}
+      - {label: 자동+되돌리기 15분 해로운 실행률, path: [policy_table, exp, m0.1, auto_undo_w15, harm_rate, mean], expected: 69.7, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "0.697"}
+
+  # ------------------------------------------------------------------ IV. Q3 위험 판정 방식 · E4
+  - id: E4-01
+    group: IV.Q3
+    exp: e4_scoring
+    hyp: H3.1
+    verdict: 기술 결과(판정 대상 아님)
+    text: 단조(한 축이 나빠지면 등급이 내려가지 않음) 공리는 조회표와 곱셈 점수 사이를 가르지 못한다 — 둘 다 구조상 위반 0 이다. 동점 손실(분명히 더 나쁜 입력이 같은 등급이 된 쌍)은 우리 조회표가 32쌍(20.5%)으로, 곱셈 점수의 최선 설정(14쌍)보다 더 뭉갠다 — 이것은 LIOT 가 지는 곳이다. 곱셈 점수 중앙값(43)과 표(32)의 비교는 '손으로 맞춘 것 대 임의 절단점'이라 같은 조건이 아니다.
+    limit: L-E4-NOGT
+    items:
+      - {label: 조회표 동점 손실, path: [table, tie_loss], expected: 32, round: 0, fmt: "{:,.0f}", unit: " 쌍", md: "32"}
+      - {label: 조회표 동점 손실 비율, path: [table, tie_loss_share], expected: 20.5, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "20.5%"}
+      - {label: 곱셈(격자 M3) 동점 손실 최소, path: [mult_grid, M3, tie_loss, min], expected: 14, round: 0, fmt: "{:,.0f}", unit: " 쌍"}
+      - {label: 곱셈(격자 M3) 동점 손실 중앙값, path: [mult_grid, M3, tie_loss, median], expected: 43, round: 0, fmt: "{:,.0f}", unit: " 쌍"}
+      - {label: 곱셈(격자 M3) 동점 손실 최대, path: [mult_grid, M3, tie_loss, max], expected: 111, round: 0, fmt: "{:,.0f}", unit: " 쌍"}
+      - {label: 곱셈(M2p1) 동점 손실 최소, path: [mult_grid, M2p1, tie_loss, min], expected: 16, round: 0, fmt: "{:,.0f}", unit: " 쌍"}
+      - {label: 단일 등급 동점 손실(우세 쌍 20개 중), path: [single_tier, tie_loss], expected: 20, round: 0, fmt: "{:,.0f}", unit: " 쌍"}
+      - {label: 곱셈(M3) 단조 위반 설정, path: [mult_grid, M3, mono_violation_settings], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 조회표 단조 위반, path: [table, mono_violations], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 표보다 동점이 많은 곱셈 설정 비율(M3 격자), path: [mult_grid, M3, settings_with_more_tie_loss_than_table_share], expected: 82.7, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "82.7%"}
+  - id: E4-02
+    group: IV.Q3
+    exp: e4_scoring
+    hyp: H3.1
+    verdict: 기술 결과(판정 대상 아님)
+    text: 곱셈 점수에는 바닥이 없다. '취약 거주자 없음'의 생명·몇 분(가스·연기)이 위험 아래로 내려가는 곱셈 설정이 상당수이고(표 기준 표시), 서로 우열이 없는 120쌍은 척도에 따라 순서가 늘 뒤집힌다(정의상 결과). 조회표는 이 순서를 칸마다 명시해 두므로 척도 선택에 흔들리지 않는다 — 단 이것은 표가 '옳다'는 뜻이 아니라 '결정이 어디에 적혀 있는지'의 차이다.
+    limit: L-E4-NOGT
+    items:
+      - {label: 가스·연기가 위험 아래로 내려가는 곱셈(M3 격자) 설정, path: [mult_grid, M3, settings_with_a_critical_category_below_critical], expected: 273438, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 전체 곱셈(M3 격자) 설정, path: [mult_grid, M3, n_settings], expected: 795588, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 두 요인만 곱하는 M2p1 에서 같은 설정, path: [mult_grid, M2p1, settings_with_a_critical_category_below_critical], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 개", note: 최고점 칸이 늘 최상위라 구조상 0}
+      - {label: 우열이 없는 쌍 중 척도에 따라 뒤집히는 쌍(M3 격자), path: [order_flips, grid_M3, coding_dependent_pairs], expected: 120, round: 0, fmt: "{:,.0f}", unit: " 쌍"}
+      - {label: 우열이 없는 쌍 전체, path: [order_flips, n_incomparable_pairs], expected: 120, round: 0, fmt: "{:,.0f}", unit: " 쌍"}
+      - {label: 한 쌍에서 소수 쪽 순서를 내는 척도의 평균 비율, path: [order_flips, grid_M3, mean_minority_share], expected: 25.6, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "25.6%"}
+  - id: E4-03
+    group: IV.Q3
+    exp: e4_scoring
+    hyp: H3.1
+    verdict: 기술 결과(판정 대상 아님)
+    text: 곱셈 점수가 조회표의 24칸을 모두 똑같이 재현하는 설정은 극히 좁은 범위에서만 있다(0.002%). 이 값은 표를 기준점으로 쓴 순환적 값이라 '곱셈이 나쁘다'는 증거가 아니다. 모든 24칸이 아닌 단순 기본값 곱셈은 표와 24칸 중 2칸만 같다.
+    limit: L-E4-NOGT
+    items:
+      - {label: 표를 24칸 전부 재현하는 곱셈(M3 격자) 설정, path: [mult_grid, M3, agree_all24_settings], expected: 16, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 같은 설정(M2p1 격자), path: [mult_grid, M2p1, agree_all24_settings], expected: 21, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 단순 기본값 곱셈이 표와 같은 칸, path: [mult_naive_default, agree_with_table_n], expected: 2, round: 0, fmt: "{:,.0f}", unit: "/24 칸"}
+  - id: E4-04
+    group: IV.Q3
+    exp: e4_scoring
+    hyp: H3.3
+    verdict: 기술 결과(관찰 — 방향이 낮추는 쪽)
+    text: 모델 단독 판정은 평온 문장에서는 하한 아래로, 위험 문장에서는 하한 위로 답하고 우세한 카테고리를 열세한 카테고리보다 낮게 매기는 단조 위반이 표 기준 쌍에서 20쌍 중 1~8쌍 나온다(표·곱셈은 0). 주입된 '낮춰라' 사례(파급도 질문 4건)에서는 하한 아래로 내려가는 답이 3~4건이다. 최종 파급도는 하한과 모델 답 중 큰 값이라 이 하강이 최종 알림 세기를 낮추지는 못한다.
+    fig: e4_scoring/figures/model_only_lowering.png
+    limit: L-E4-MODEL
+    items:
+      - {label: 단조 위반(평온 문장) — apus, path: [model_only, models, apus-openjev-4b-q4, category_axioms_calm, mono_violations], expected: 2, round: 0, fmt: "{:,.0f}", unit: "/20 쌍"}
+      - {label: 단조 위반(평온 문장) — jevk5-9b-q8, path: [model_only, models, jevk5-9b-q8, category_axioms_calm, mono_violations], expected: 8, round: 0, fmt: "{:,.0f}", unit: "/20 쌍"}
+      - {label: 단조 위반(위험 문장) — jevk5-4b-q8, path: [model_only, models, jevk5-4b-q8, category_axioms_danger, mono_violations], expected: 1, round: 0, fmt: "{:,.0f}", unit: "/20 쌍"}
+      - {label: 주입 낮춰라 파급도 질문에서 하한 아래 — apus, path: [model_only, models, apus-openjev-4b-q4, severity_injection_lower, below_floor], expected: 4, round: 0, fmt: "{:,.0f}", unit: "/4 건"}
+      - {label: 같은 값 — jevk5-4b-q4, path: [model_only, models, jevk5-4b-q4, severity_injection_lower, below_floor], expected: 3, round: 0, fmt: "{:,.0f}", unit: "/4 건"}
+
+  # ------------------------------------------------------------------ IV. Q5 결정 모델 · E5
+  - id: E5-01
+    group: IV.Q5
+    exp: e5_models
+    hyp: H5.1
+    verdict: 구조상 결과
+    text: 운영처럼 집계 요약만 보면 하한 위로 올리는 답이 판정자 7명 합 75건에서 4건으로 거의 사라진다. 이것은 실험이 발견한 것이 아니라 운영 집계 요약에 상황 내용이 없어 평온 문장과 위험 문장이 같은 입력이 되는 데서 정해진 구조상 결과다 — '지지'가 아니다. 같은 맥락에서 하한 '아래'로 답한 수는 판정자에 따라 늘기도 줄기도 했다(합 105 → 140).
+    fig: e5_models/figures/h51_raise_sentence_vs_operational.png
+    limit: L-E5-STRUCT
+    items:
+      - {label: 올림 합(상황 문장 맥락), path: [c25_structured, rep0, pooled, raised_sentence], expected: 75, round: 0, fmt: "{:,.0f}", unit: " 건", md: "75"}
+      - {label: 올림 합(운영 집계 요약), path: [c25_structured, rep0, pooled, raised_operational], expected: 4, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 하한 아래 합(상황 문장), path: [c25_structured, rep0, pooled, below_floor_sentence], expected: 105, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 하한 아래 합(운영 집계 요약), path: [c25_structured, rep0, pooled, below_floor_operational], expected: 140, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 올림 비율 차이 — 가장 작은 판정자(jevk5-9b-q8), path: [h51_sentence_vs_operational, jevk5-9b-q8, rep0, diff_sentence_minus_operational], expected: 0.115, round: 3, fmt: "{:+.3f}", md: "+0.115"}
+      - {label: 올림 비율 차이 — 가장 큰 판정자(Jev API), path: [h51_sentence_vs_operational, jev-api, rep0, diff_sentence_minus_operational], expected: 0.213, round: 3, fmt: "{:+.3f}", md: "+0.213"}
+      - {label: 하한 아래 늘어난 예 — jevk5-9b-q8 문장, path: [h51_sentence_vs_operational, jevk5-9b-q8, rep0, below_floor_sentence], expected: 9, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 같은 판정자, 집계 요약, path: [h51_sentence_vs_operational, jevk5-9b-q8, rep0, below_floor_operational], expected: 27, round: 0, fmt: "{:,.0f}", unit: " 건"}
+  - id: E5-02
+    group: IV.Q5
+    exp: e5_models
+    hyp: H5.2
+    verdict: 판정 불가
+    text: 클라우드 판정자가 주입 '낮춰라' 사례에 더 강하다고 말할 수 없다. 클라우드 최선(Haiku 2/8)과 로컬 최선(5/8)의 점추정 차이는 3사례지만 95% 구간이 크게 겹친다. '최선'을 결과를 보고 고른 것이라 이 비교 자체가 사후 선택이고, luna 는 크레딧 소진으로 호출할 수 없었다.
+    fig: e5_models/figures/h52_lowered_by_injection.png
+    limit: L-E5-SMALL
+    items:
+      - {label: Haiku 가 '낮춰라' 8건 중 하한 아래로 내려간 사례, path: [h52_lower_injection, haiku, sentence, {rep: 0}, cases_lowered_any_question], expected: 2, round: 0, fmt: "{:,.0f}", unit: "/8 건"}
+      - {label: Haiku 95% 구간 하한, path: [h52_lower_injection, haiku, sentence, {rep: 0}, cases_lowered_ci95, 0], expected: 0.03, round: 2, fmt: "{:.2f}", md: "0.03"}
+      - {label: Haiku 95% 구간 상한, path: [h52_lower_injection, haiku, sentence, {rep: 0}, cases_lowered_ci95, 1], expected: 0.65, round: 2, fmt: "{:.2f}", md: "0.65"}
+      - {label: Jev API, path: [h52_lower_injection, jev-api, sentence, {rep: 0}, cases_lowered_any_question], expected: 3, round: 0, fmt: "{:,.0f}", unit: "/8 건"}
+      - {label: 로컬 jevk5-4b-q8, path: [h52_lower_injection, jevk5-4b-q8, sentence, {rep: 0}, cases_lowered_any_question], expected: 5, round: 0, fmt: "{:,.0f}", unit: "/8 건"}
+      - {label: 로컬 jev-9b-q6(가장 많음), path: [h52_lower_injection, jev-9b-q6, sentence, {rep: 0}, cases_lowered_any_question], expected: 7, round: 0, fmt: "{:,.0f}", unit: "/8 건"}
+      - {label: luna 호출 실패 횟수, path: [unavailable_judges, luna, rows], expected: 6, round: 0, fmt: "{:,.0f}", unit: " 회"}
+  - id: E5-03
+    group: IV.Q5
+    exp: e5_models
+    hyp: H5.3
+    verdict: 기술 결과(탐색, 기준 없음)
+    text: 판정자끼리 크게 갈린다. 상황 문장 맥락에서 5명의 Gwet AC1 은 확인 강도 0.53·파급도 0.42이고, 적어도 한 명이 하한을 벗어난 문항만 보면 일치가 더 낮다(AC1 0.34). 'κ ≥ 0.6' 같은 선은 결과를 본 뒤의 사후 기준이라 판정에 쓰지 않는다.
+    fig: e5_models/figures/h53_agreement_ac1.png
+    limit: L-E5-SMALL
+    items:
+      - {label: 5명 AC1 — 확인 강도, path: [h53_agreement, sentence_rep0, all, tier, gwet_ac1], expected: 0.532, round: 3, fmt: "{:.3f}", md: "0.532"}
+      - {label: 5명 AC1 — 파급도, path: [h53_agreement, sentence_rep0, all, severity, gwet_ac1], expected: 0.423, round: 3, fmt: "{:.3f}", md: "0.423"}
+      - {label: 5명 Fleiss κ — 확인 강도, path: [h53_agreement, sentence_rep0, all, tier, fleiss_kappa], expected: 0.366, round: 3, fmt: "{:.3f}", md: "0.366"}
+      - {label: 하한을 벗어난 판정자가 있는 문항에서의 AC1(확인 강도), path: [h53_agreement, sentence_rep0, all, tier, leave_floor_gwet_ac1], expected: 0.344, round: 3, fmt: "{:.3f}", md: "0.344"}
+      - {label: 그런 문항 수, path: [h53_agreement, sentence_rep0, all, tier, items_where_any_rater_leaves_floor], expected: 45, round: 0, fmt: "{:,.0f}", unit: " 문항", md: "45"}
+      - {label: 클라우드 2명이 하한을 벗어난 문항에서의 AC1(확인 강도), path: [h53_agreement, sentence_rep0, cloud_only, tier, leave_floor_gwet_ac1], expected: 0.036, round: 3, fmt: "{:.3f}", md: "0.036"}
+  - id: E5-04
+    group: IV.Q5
+    exp: e5_models
+    hyp: ADD-5
+    verdict: 기술 결과(관찰)
+    text: 상황 문장을 보는 모델 단독은 표(위험 문장 15쌍 모두 놓침, 놓침 1.00)보다 덜 놓친다. 그러나 그것은 자유 문장을 볼 때뿐이다 — 자유 문장은 지금 운영에 보내지 않고, 같은 통로가 주입에도 열려 있다(이득과 위험이 한 통로에 있다). 운영 집계 요약 맥락에서는 놓침이 표와 구별되지 않는다.
+    limit: L-E5-DRAFT
+    items:
+      - {label: 놓침 — Jev API(문장 맥락, 가장 낮음), path: [add5_miss_vs_table, jev-api, sentence, answer_level, miss_rate], expected: 0.20, round: 2, fmt: "{:.2f}", md: "0.20"}
+      - {label: 놓침 — jevk5-9b-q8(문장 맥락, 가장 높음), path: [add5_miss_vs_table, jevk5-9b-q8, sentence, answer_level, miss_rate], expected: 0.60, round: 2, fmt: "{:.2f}", md: "0.60"}
+      - {label: 놓침 — Jev API(운영 맥락), path: [add5_miss_vs_table, jev-api, operational, answer_level, miss_rate], expected: 1.00, round: 2, fmt: "{:.2f}"}
+      - {label: 놓침 — apus(운영 맥락), path: [add5_miss_vs_table, apus-openjev-4b-q4, operational, answer_level, miss_rate], expected: 1.00, round: 2, fmt: "{:.2f}"}
+      - {label: 쌍 수, path: [add5_miss_vs_table, jev-api, sentence, pairs], expected: 15, round: 0, fmt: "{:,.0f}", unit: " 쌍"}
+  - id: E5-05
+    group: IV.Q5
+    exp: e5_models
+    hyp: C2.5
+    verdict: 반증
+    text: 운영 요약에 거주자 특성이 아닌 관측값 두 개(재실·이상 경과 시간)를 더해도 올림 차이의 1.4%만 돌아온다(예측은 절반 이상). 하한 아래 답은 오히려 줄었다. 그래서 '관찰 필드를 더하면 모델 상향이 살아난다'는 기대는 틀렸다.
+    fig: e5_models/figures/c25_structured_observations.png
+    limit: L-E5-SMALL
+    items:
+      - {label: 올림 합(운영 요약 + 관측값 2개), path: [c25_structured, rep0, pooled, raised_target], expected: 5, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 올림 차이 중 돌아온 몫, path: [c25_structured, rep0, pooled, returned_fraction], expected: 1.4, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "0.014"}
+      - {label: 돌아온 몫 95% 구간 하한(사례 단위 부트스트랩), path: [c25_structured, rep0, pooled, returned_fraction_ci95_case_bootstrap, 0], expected: -6.2, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%", md: "-0.062"}
+      - {label: 돌아온 몫 95% 구간 상한, path: [c25_structured, rep0, pooled, returned_fraction_ci95_case_bootstrap, 1], expected: 9.5, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%", md: "0.095"}
+      - {label: 하한 아래 합(요약 → 요약+관측값), path: [c25_structured, rep0, pooled, below_floor_target], expected: 102, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 예측 지지 여부, path: [c25_structured, rep0, prediction_supported], expected: false}
+  - id: E5-06
+    group: IV.Q5
+    exp: e5_models
+    hyp: C3.1
+    verdict: 반증
+    text: 라벨을 보지 않은 코더가 정한 '상황 하위 종류' 코드를 운영 요약에 더해도 올림 차이의 11.3%만 돌아온다(예측은 절반 이상). 같은 코드를 조회표에 그대로 넣은 규칙 기반 판정이 모델과 같거나 낫다 — 정보는 모델이 아니라 분류 코드에 있다. 따라서 '운영 경로의 모델 상향은 사실상 쓸 수 없다'로 결론짓는다(Jev API 한 판정자는 예외지만 사후 관찰이다).
+    fig: e5_models/figures/h51_raise_sentence_vs_operational.png
+    limit: L-E5-CODER
+    items:
+      - {label: 올림 합(운영 요약 + 하위 종류 코드), path: [c31_subtype, rep0, pooled, raised_target], expected: 12, round: 0, fmt: "{:,.0f}", unit: " 건", md: "12"}
+      - {label: 올림 차이 중 돌아온 몫, path: [c31_subtype, rep0, pooled, returned_fraction], expected: 11.3, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "0.113"}
+      - {label: 돌아온 몫 95% 구간 하한, path: [c31_subtype, rep0, pooled, returned_fraction_ci95_case_bootstrap, 0], expected: 1.9, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "0.019"}
+      - {label: 돌아온 몫 95% 구간 상한, path: [c31_subtype, rep0, pooled, returned_fraction_ci95_case_bootstrap, 1], expected: 20.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "0.200"}
+      - {label: 하한 아래 합(요약 → 요약+코드), path: [c31_subtype, rep0, pooled, below_floor_target], expected: 117, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: 규칙 조회의 올림 문항, path: [rule_lookup_vs_models, rule, above_floor], expected: 9, round: 0, fmt: "{:,.0f}", unit: " 문항", md: "9"}
+      - {label: 규칙 조회의 놓침(쌍 15개), path: [rule_lookup_vs_models, rule, add5_answer_level, miss_rate], expected: 0.40, round: 2, fmt: "{:.2f}", md: "0.40"}
+      - {label: 같은 코드를 받은 모델들의 놓침 중앙값, path: [rule_lookup_vs_models, models_median_miss], expected: 0.93, round: 2, fmt: "{:.2f}", md: "0.93"}
+      - {label: 규칙이 모델과 같거나 나은가, path: [rule_lookup_vs_models, rule_matches_or_beats_models], expected: true}
+      - {label: Jev API 올림(코드 맥락, 사후 관찰), path: [c31_subtype, rep0, per_judge, jev-api, raised_target], expected: 7, round: 0, fmt: "{:,.0f}", unit: "/13 건"}
+      - {label: 코더 간 일치 κ(occupied), path: [coder_agreement, occupied, cohen_kappa], expected: 0.95, round: 2, fmt: "{:.2f}", md: "0.95"}
+      - {label: 코더 간 일치 κ(abnormal_for), path: [coder_agreement, abnormal_for, cohen_kappa], expected: 0.61, round: 2, fmt: "{:.2f}", md: "0.61"}
+
+  # ------------------------------------------------------------------ 진행 중 실험(자리표시)
+  - id: E6-01
+    group: IV.Q4
+    exp: e6_personalization
+    hyp: H4.1
+    verdict: 기술 결과(†는 팔의 정의에서 나오는 구조상 결과)
+    text: 학습의 효과(조건 B, 성향 3종 합침, 60일 하루 평균). 쓸데없는 알림을 줄이는 것은 학습이 아니라 [그만해] 버튼과 30일 쉬기다 — 운영 학습(lr30)과 버튼만 있는 대안(explicit_only)의 쓸데없는 알림 차이는 0 이다. 학습이 버튼에 더하는 것은 폰 장면에는 없고 모아보기 장면에 있다. 폰 장면에서 잘못 꺼진 도움의 차이는 사실상 0 이고 폰으로 수락된 도움도 같다. 비용은 모아보기에서 나온다 — 수락된 도움이 0.550 에서 0.422 로 준다. 학습률 60%는 도움 제안까지 거의 다 꺼 버린다. 학습 없음(none)의 잘못 꺼진 도움 0 은 정의상 값(†)이다.
+    fig: e6_personalization/figures/accepted_helpful_timeline.png
+    limit: L-E6
+    items:
+      - {label: lr30 빼기 explicit_only — 수락된 도움(하루), path: [contrasts, "main|pooled|B|lr30-explicit_only", d1_60, acc_help, mean], expected: -0.13, round: 2, fmt: "{:+.2f}", unit: " 건", md: "-0.13"}
+      - {label: 같은 차이 — 잘못 꺼진 도움(폰 장면), path: [contrasts, "main|pooled|B|lr30-explicit_only", d1_60, ws_help_phone, mean], expected: 0.00, round: 2, fmt: "{:+.2f}", unit: " 건", md: "+0.00"}
+      - {label: 같은 차이 — 잘못 꺼진 도움(모든 장면), path: [contrasts, "main|pooled|B|lr30-explicit_only", d1_60, ws_help, mean], expected: 0.38, round: 2, fmt: "{:+.2f}", unit: " 건", md: "+0.38"}
+      - {label: 같은 차이 — 쓸데없는 알림, path: [contrasts, "main|pooled|B|lr30-explicit_only", d1_60, offered_unhelp_imm, mean], expected: 0.00, round: 2, fmt: "{:+.2f}", unit: " 건", md: "0.00"}
+      - {label: 폰으로 수락된 도움 — explicit_only, path: [pooled, "main|explicit_only|B", d1_60, acc_help_imm, mean], expected: 0.292, round: 3, fmt: "{:.3f}", unit: " 건", md: "0.292"}
+      - {label: 폰으로 수락된 도움 — lr30, path: [pooled, "main|lr30|B", d1_60, acc_help_imm, mean], expected: 0.291, round: 3, fmt: "{:.3f}", unit: " 건", md: "0.291"}
+      - {label: 모아보기로 수락된 도움 — explicit_only, path: [pooled, "main|explicit_only|B", d1_60, acc_help_tray, mean], expected: 0.550, round: 3, fmt: "{:.3f}", unit: " 건", md: "0.550"}
+      - {label: 모아보기로 수락된 도움 — lr30, path: [pooled, "main|lr30|B", d1_60, acc_help_tray, mean], expected: 0.422, round: 3, fmt: "{:.3f}", unit: " 건", md: "0.422"}
+      - {label: lr30 빼기 none — 쓸데없는 알림, path: [contrasts, "main|pooled|B|lr30-none", d1_60, offered_unhelp_imm, mean], expected: -0.13, round: 2, fmt: "{:+.2f}", unit: " 건", md: "-0.13"}
+      - {label: lr30 빼기 none — 수락된 도움, path: [contrasts, "main|pooled|B|lr30-none", d1_60, acc_help, mean], expected: -0.42, round: 2, fmt: "{:+.2f}", unit: " 건", md: "-0.42"}
+      - {label: lr60 — 15~30일 수락된 도움(하루), path: [pooled, "main|lr60|B", d15_30, acc_help, mean], expected: 0.14, round: 2, fmt: "{:.2f}", unit: " 건", md: "0.14"}
+      - {label: 모아보기를 아무도 안 열 때(tray0) lr30 31~60일 수락된 도움, path: [pooled, "tray0|lr30|B", d31_60, acc_help, mean], expected: 0.37, round: 2, fmt: "{:.2f}", unit: " 건", md: "0.37"}
+      - {label: 모아보기를 80% 여는 경우(main) lr30 31~60일, path: [pooled, "main|lr30|B", d31_60, acc_help, mean], expected: 0.72, round: 2, fmt: "{:.2f}", unit: " 건", md: "0.72"}
+  - id: E6-02
+    group: IV.Q4
+    exp: e6_personalization
+    hyp: H4.2 (= P5)
+    verdict: 등록 결론 불충족(그 결론은 내리지 않음) — 재수락 형태는 사후 기준
+    text: 등록한 결론은 '30일 게이트가 있는 모든 변형이 회복에 실패하고 게이트 없는 변형만 회복하면 회복을 막는 것은 학습률이 아니라 30일 게이트'였다. 이 강한 형태는 충족되지 않았다. 등록된 형태(문자 그대로)에서는 게이트가 있는 변형 대부분이 하한 6일에 회복한다(lr60 만 12일, 53%가 회복) — 단 이 형태는 변하지 않는 장면의 수락에 가려 새 장면을 보지 못한다. 결과를 본 뒤 추가한 사후 기준(바뀐 장면의 재수락)에서도 게이트가 있는 팔은 45일 안에 대부분 다시 수락한다(97%). 게이트가 중앙값을 약 10~12일 늦춘다는 서술은 사후 기준의 기술 결과이며 등록 근거가 없다. 영구 차단(permanent)의 재수락 0.30 은 정의상 값(†)이다. '약한 형태는 지지'라는 판정은 쓰지 않는다.
+    fig: e6_personalization/figures/reaccept_fraction.png
+    limit: L-E6-POST
+    items:
+      - {label: 등록 형태 회복 중앙값 — lr30(운영), path: [pooled, "main|lr30|B", recovery, median_days], expected: 6, round: 0, fmt: "{:,.0f}", unit: " 일", md: "6"}
+      - {label: 등록 형태 회복 중앙값 — lr60, path: [pooled, "main|lr60|B", recovery, median_days], expected: 12, round: 0, fmt: "{:,.0f}", unit: " 일", md: "12"}
+      - {label: 등록 형태 회복 중앙값 — permanent †, path: [pooled, "main|permanent|B", recovery, median_days], expected: 6, round: 0, fmt: "{:,.0f}", unit: " 일", md: "6"}
+      - {label: 등록 형태 회복 중앙값 — no_gate(게이트 없음), path: [pooled, "main|no_gate|B", recovery, median_days], expected: 6, round: 0, fmt: "{:,.0f}", unit: " 일", md: "6"}
+      - {label: 등록 형태에서 회복한 씨앗 비율 — lr30, path: [pooled, "main|lr30|B", recovery, fraction], expected: 93, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "0.93"}
+      - {label: 같은 비율 — lr60, path: [pooled, "main|lr60|B", recovery, fraction], expected: 53, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "0.53"}
+      - {label: 사후 기준 다시 수락 비율 — lr30, path: [pooled, "main|lr30|B", re_accept, fraction], expected: 97, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "0.97"}
+      - {label: 사후 기준 다시 수락 중앙 일수 — lr30, path: [pooled, "main|lr30|B", re_accept, median_days], expected: 17, round: 0, fmt: "{:,.0f}", unit: " 일", md: "17"}
+      - {label: 사후 기준 다시 수락 중앙 일수 — no_gate, path: [pooled, "main|no_gate|B", re_accept, median_days], expected: 6, round: 0, fmt: "{:,.0f}", unit: " 일", md: "6"}
+      - {label: 사후 기준 다시 수락 비율 — lr60, path: [pooled, "main|lr60|B", re_accept, fraction], expected: 67, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "0.67"}
+      - {label: 사후 기준 다시 수락 비율 — permanent †, path: [pooled, "main|permanent|B", re_accept, fraction], expected: 30, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "0.30"}
+      - {label: 사후 기준 도달 가능한 (변형·성향) 칸, path: [reachability, "*", reference_reachable], agg: count_true, expected: 12, round: 0, fmt: "{:,.0f}", unit: "/12 칸"}
+  - id: E6-03
+    group: IV.Q4
+    exp: e6_personalization
+    hyp: H4.3
+    verdict: 기술 결과(피로·수고 0 대조는 구조상 결과†)
+    text: 확인 방식 A(모든 제안에 명시 확인)가 B(위험도별 확인)보다 수락이 5~11%p 낮게 나왔다. 이 차이는 거주자 모델이 확인이 셀수록 덜 누른다(수고 계수)고 정해 놓은 데서 나온 값이라 A·B 의 우열이 아니라 차이의 크기가 거주자 가정의 크기에 비례한다는 것만 알려 준다. 피로·수고를 모두 0 으로 둔 대조의 차이 0.000 은 코드 경로상 반드시 나오는 구조상 결과(†)다. 등록된 H4.3 에는 판정 기준이 없다(분모 규칙뿐).
+    fig: e6_personalization/figures/ab_acceptance_diff.png
+    limit: L-E6
+    items:
+      - {label: 수락률 A 빼기 B — 거부형, path: [h43, "main|hater|lr30", diff_A_minus_B_per_seed, mean], expected: -0.099, round: 3, fmt: "{:+.3f}", md: "-0.099"}
+      - {label: 같은 값 — 무시형, path: [h43, "main|ignorer|lr30", diff_A_minus_B_per_seed, mean], expected: -0.107, round: 3, fmt: "{:+.3f}", md: "-0.107"}
+      - {label: 같은 값 — 뒤바뀜형, path: [h43, "main|swap|lr30", diff_A_minus_B_per_seed, mean], expected: -0.052, round: 3, fmt: "{:+.3f}", md: "-0.052"}
+      - {label: 수고만 켠 경우 — 거부형, path: [h43, "effonly|hater|lr30", diff_A_minus_B_per_seed, mean], expected: -0.095, round: 3, fmt: "{:+.3f}", md: "-0.095"}
+      - {label: 피로·수고 모두 0 대조 † — 거부형, path: [h43, "zerofat|hater|lr30", diff_A_minus_B_per_seed, mean], expected: 0.000, round: 3, fmt: "{:+.3f}", md: "0.000"}
+  - id: E6-04
+    group: IV.Q4
+    exp: e6_personalization
+    hyp: 안전 경로 점검(E6)
+    verdict: 기술 결과
+    text: 1,080회 × 60일 동안 안전 첫 알림이 모두 즉시 전송됐다. 센서 값 입력부터 전송까지의 최댓값은 기계 부하가 높을 때(25~121)를 포함한 값이라 기준 값이 아니다.
+    limit: L-E6
+    items:
+      - {label: 안전 첫 알림 건수, path: [design, first_alerts_total], expected: 64800, round: 0, fmt: "{:,.0f}", unit: " 건", md: "64,800"}
+      - {label: 모두 즉시 전송, path: [design, safety_ok_all], expected: true}
+      - {label: 입력부터 전송까지 최댓값, path: [design, max_first_alert_ms], expected: 286.8, round: 1, fmt: "{:.1f}", unit: " ms", md: "286.8"}
+      - {label: 실행 수, path: [runs], expected: 1080, round: 0, fmt: "{:,.0f}", unit: " 회", md: "1,080"}
+  - id: E8-01
+    group: IV.Q6
+    exp: e8_mutation
+    hyp: H6.3
+    verdict: 지지(반증 실패)
+    text: 줄 커버리지가 모두 95% 이상인 안전 핵심 모듈 10개 중 7개가 뮤테이션 점수 90% 미만이다. 사전 등록 반증 조건('대상 모듈 모두 90% 이상')에 걸리지 않았으므로 H6.3 은 지지다. 핵심 연산자 450개의 점수는 80.0%이다. 커버리지(테스트가 그 줄을 지나갔는가)가 높아도 뮤테이션 점수(그 줄이 틀리면 테스트가 알아채는가)는 모듈마다 크게 다르다. 가장 낮은 것은 notifier·llm_judge·intervention 이고, Gate1 결정론 게이트(guardrail)와 executor 는 거의 다 잡는다 — 커버리지가 높으면 안심도 아니고 낮다도 아니며 모듈마다 다르다. 이 가설은 등록 때 품질 확인이라 연구 결론에서 제외로 적혀 있었다.
+    fig: e8_mutation/figures/coverage_vs_mutation.png
+    limit: L-E8
+    items:
+      - {label: 핵심 연산자 뮤테이션 점수(대상 10개 합), path: [overall, core, score_targeted], expected: 80.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "80.0"}
+      - {label: 95% 구간 하한, path: [overall, core, score_targeted_ci95, 0], expected: 76.2, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "76.2"}
+      - {label: 95% 구간 상한, path: [overall, core, score_targeted_ci95, 1], expected: 83.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "83.8"}
+      - {label: 가장 낮은 모듈의 줄 커버리지, path: [modules, "*", coverage_pct], agg: min, expected: 95.9, round: 1, fmt: "{:.1f}", unit: "%", md: "95.9"}
+      - {label: 점수가 90% 미만인 모듈(커버리지 95% 이상 중), path: [h63_modules_low_score_despite_coverage], agg: len, expected: 7, round: 0, fmt: "{:,.0f}", unit: "/10 모듈", md: "7/10"}
+      - {label: 반증 조건('모두 90% 이상') 해당 여부, path: [h63_all_modules_ge_90], expected: false}
+      - {label: 변이 수(핵심 연산자), path: [overall, core, n], expected: 450, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 변이 수(추가 연산자 포함 전체), path: [overall, all, n], expected: 742, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: notifier 점수(가장 낮은 쪽), path: [modules, liot/layers/l4_execution/notifier.py, score_core], expected: 56.25, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "56.2"}
+      - {label: llm_judge 점수, path: [modules, liot/layers/l3_judgment/llm_judge.py, score_core], expected: 57.1, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "57.1"}
+      - {label: guardrail(Gate1) 점수(반례), path: [modules, liot/layers/l3_judgment/guardrail.py, score_core], expected: 100.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "100.0"}
+      - {label: executor 점수(반례), path: [modules, liot/layers/l4_execution/executor.py, score_core], expected: 97.5, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "97.5"}
+  - id: E8-02
+    group: IV.Q6
+    exp: e8_mutation
+    hyp: H6.3 (가정에 따른 흔들림)
+    verdict: 지지(개수는 가정에 따라 크게 흔들림)
+    text: 90% 미만인 모듈의 개수는 가정에 따라 7 → 4 → 2 로 줄어든다(핵심 연산자·직접 관련 테스트 → 동치 변이를 분모에서 뺌 → 추가 연산자까지 포함하고 동치 제외). '하나 이상'이라는 판정은 어느 가정에서도 유지되지만 개수는 하나의 숫자로 쓰지 않는다. 동치 판정은 사람이 코드를 읽고 한 것이며 증명이 아니다.
+    limit: L-E8
+    items:
+      - {label: 핵심 연산자·직접 관련 테스트(사전 등록 방식), fn: e8_modules_below, args: {block: core, key: score_targeted}, path: [modules], expected: 7, round: 0, fmt: "{:,.0f}", unit: "/10 모듈", md: "7/10", note: 파생값 — 모듈별 summary.json 칸에서 계산}
+      - {label: 핵심 연산자·동치 변이를 분모에서 뺌, fn: e8_modules_below, args: {block: core, key: score_adjusted}, path: [modules], expected: 4, round: 0, fmt: "{:,.0f}", unit: "/10 모듈", md: "4/10", note: 파생값 — 모듈별 summary.json 칸에서 계산}
+      - {label: 추가 연산자 포함·동치 제외, fn: e8_modules_below, args: {block: all, key: score_adjusted}, path: [modules], expected: 2, round: 0, fmt: "{:,.0f}", unit: "/10 모듈", md: "2/10", note: 파생값 — 모듈별 summary.json 칸에서 계산}
+      - {label: 동치로 판정한 변이, path: [survivor_class_counts, equivalent], expected: 35, round: 0, fmt: "{:,.0f}", unit: " 개", md: "35"}
+  - id: E8-03
+    group: IV.Q6
+    exp: e8_mutation
+    hyp: H6.3 (살아남은 변이의 분류)
+    verdict: 지지 — 안전 관련 빈틈 15곳(후속 테스트 대상)
+    text: 전체 테스트로도 안 잡힌 살아남은 변이 95개를 사람이 읽고 나누면 동치 35, 테스트 없는 동작 45, 안전 관련 빈틈 15이다. 안전 관련 빈틈 15는 '그 줄이 지금 사고를 낸다'는 뜻이 아니라 '틀려져도 테스트가 알려 주지 못한다'는 뜻이다(egress_gate 6·severity 6·llm_judge 1·executor 1·notifier 1). 진짜 하드 게이트 위반은 이 실험에서 관찰되지 않았다. 이 15곳의 테스트는 이후 보강되어 병합됐고(연구 일지 04:15) 이 자료집의 숫자는 보강 전 측정이며 재측정은 하지 않았다.
+    limit: L-E8
+    items:
+      - {label: 전체 테스트로도 살아남은 변이, path: [survivors_after_full_suite], expected: 95, round: 0, fmt: "{:,.0f}", unit: " 개", md: "95"}
+      - {label: 안전 관련 빈틈, path: [survivor_class_counts, safety_gap], expected: 15, round: 0, fmt: "{:,.0f}", unit: " 곳", md: "15"}
+      - {label: 테스트 없는 동작, path: [survivor_class_counts, untested], expected: 45, round: 0, fmt: "{:,.0f}", unit: " 개", md: "45"}
+      - {label: 하네스 점검 카나리 변이가 모두 잡혔나, path: [validation, canary_all_killed], expected: true}
+      - {label: 하네스 점검 운영 코드가 변이 전후 동일한가, path: [validation, integrity_all_equal], expected: true}
+      - {label: 부하로 120초에 걸린 시험 중 재판정에서 살아남은 것, path: [timeouts, recheck_outcomes, survived], expected: 6, round: 0, fmt: "{:,.0f}", unit: "/9 건", md: "6"}
+
+  - id: E9-01
+    group: IV.Q5
+    exp: e9_cloud
+    hyp: H5.4
+    verdict: 판정 불가(luna 요청 전부 실패, HTTP 429)
+    text: Jev 와 luna 의 원시 답 일치는 판정할 수 없다. luna 요청 109건이 전부 실패해(OpenAI 크레딧 소진, 별도 탐침 요청의 응답에서 읽은 사실) 일치율의 분모가 0 이고, 사전 등록 조건(둘 중 하나라도 하한을 벗어난 단계에서만 일치를 본다)을 만족시킬 데이터가 없다. 일치는 정확도가 아니다.
+    limit: L-E9
+    items:
+      - {label: luna 요청 실패, path: [h54, luna_unavailable], expected: 109, round: 0, fmt: "{:,.0f}", unit: " 건", md: "109"}
+      - {label: Jev 가 판정한 단계(luna 와 같은 수), path: [estimated_calls], expected: 109, round: 0, fmt: "{:,.0f}", unit: " 건", md: "109"}
+      - {label: 일치율 분모(둘 중 하나라도 하한을 벗어난 단계), path: [h54, agree_where_one_departs, den], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: Jev 가 하한을 벗어난 단계, path: [h54, jev_departs], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 건"}
+  - id: E9-02
+    group: IV.Q5
+    exp: e9_cloud
+    hyp: H5.4 (Jev 만 본 하한 일치)
+    verdict: 기술 결과 — 일부는 구조상 결과
+    text: Jev 의 원시 답은 109단계 모두 하한과 같은 칸이었다(하한보다 올림 0, 내림 0). 이 숫자를 Jev 의 판단력 증거로 읽으면 안 된다. (1) 하한이 불씨(가장 높은 칸)인 30단계는 구조상 위로 벗어날 수 없고, 하한이 잔잔인 59단계는 아래로 벗어날 수 없다(구조상 결과). 위로 벗어날 수 있었던 단계는 하한이 잔잔·숨인 79단계뿐이다. (2) 하한은 Jev 입력의 일부라 입력에 적힌 하한을 따라 답했을 가능성을 이 데이터로는 가를 수 없다. 이 장면은 대부분 답이 뻔한 편의 제안이라 'Jev 가 항상 하한을 따른다'는 일반 결론이 아니다.
+    limit: L-E9
+    items:
+      - {label: 하한과 같은 칸으로 답한 단계, path: [jev_vs_floor, at_floor], expected: 109, round: 0, fmt: "{:,.0f}", unit: " 단계", md: "109"}
+      - {label: 판정한 전체 단계, path: [jev_vs_floor, judged_steps], expected: 109, round: 0, fmt: "{:,.0f}", unit: " 단계", md: "109"}
+      - {label: 하한보다 올림, path: [jev_vs_floor, above_floor], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 단계"}
+      - {label: 하한보다 내림, path: [jev_vs_floor, below_floor], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 단계"}
+      - {label: 구조상 위로 못 벗어나는 단계(하한 불씨) †, path: [jev_vs_floor, by_floor, ember, n], expected: 30, round: 0, fmt: "{:,.0f}", unit: " 단계", md: "30"}
+      - {label: 구조상 아래로 못 벗어나는 단계(하한 잔잔) †, path: [jev_vs_floor, by_floor, ambient, n], expected: 59, round: 0, fmt: "{:,.0f}", unit: " 단계", md: "59"}
+      - {label: 위로 벗어날 수 있었던 단계(하한 잔잔·숨), fn: e9_upward_possible, path: [jev_vs_floor, by_floor], expected: 79, round: 0, fmt: "{:,.0f}", unit: " 단계", md: "79", note: 파생값 — 잔잔 59 + 숨 20}
+  - id: E9-03
+    group: IV.Q5
+    exp: e9_cloud
+    hyp: H5.4 (실제 모델 종단 실행 — 안전 경로·호출)
+    verdict: 기술 결과
+    text: 실제 모델(판정 Jev, 이유 문장·가상 거주자 Haiku, 기억 memgineering)을 켠 상태의 30시뮬레이션일에서 안전 첫 알림 30건이 모두 즉시 전송됐고 판정·기억 호출을 기다리지 않았다. 이유 문장과 거주자 결정은 79건 모두 모델이 썼다. 총 추정 비용은 약 0.011달러다. 기준은 등록돼 있지 않다.
+    limit: L-E9
+    items:
+      - {label: 안전 첫 알림, path: [safety, first_alerts], expected: 30, round: 0, fmt: "{:,.0f}", unit: " 건", md: "30"}
+      - {label: 그중 즉시 전송, path: [safety, first_alerts_immediate], expected: 30, round: 0, fmt: "{:,.0f}", unit: " 건", md: "30"}
+      - {label: 입력부터 전송까지 최댓값, path: [safety, first_alert_ms_max], expected: 46.3, round: 1, fmt: "{:.1f}", unit: " ms", md: "46.3"}
+      - {label: 이유 문장을 모델이 쓴 건, path: [reason_writing_model_rate, num], expected: 79, round: 0, fmt: "{:,.0f}", unit: "/79 건", md: "79"}
+      - {label: 거주자 결정을 모델이 고른 건, path: [resident_model_rate, num], expected: 79, round: 0, fmt: "{:,.0f}", unit: "/79 건", md: "79"}
+      - {label: 추정 비용(합계), path: [usd_total_estimated], expected: 0.0113, round: 4, fmt: "{:.4f}", unit: " 달러", md: "0.0113"}
+      - {label: 판정 Jev 호출당 평균 시간, path: [stage_latency, judge, mean_s_per_call], expected: 0.211, round: 3, fmt: "{:.3f}", unit: " 초", md: "0.211"}

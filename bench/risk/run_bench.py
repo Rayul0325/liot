@@ -40,6 +40,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(REPO))
 
+from liot.core.clock import Clock  # noqa: E402
 from liot.core.contracts import CandidateAction, ContextSnapshot  # noqa: E402
 from liot.core.risk import RiskTier  # noqa: E402
 from liot.core.severity import SeverityLevel, load_severity_table  # noqa: E402
@@ -47,6 +48,7 @@ from liot.layers.l3_judgment.decision_backend import (  # noqa: E402
     DecisionBackend,
     HTTPDecisionTransport,
 )
+from liot.layers.l2_context.context_builder import ContextBuilder  # noqa: E402
 from liot.layers.l3_judgment.guardrail import Guardrail  # noqa: E402
 from liot.layers.l3_judgment.llm_judge import LLMJudge, LLMResult, LLMUnavailable  # noqa: E402
 from liot.layers.l3_judgment.prompt_registry import PromptRegistry  # noqa: E402
@@ -60,6 +62,17 @@ RAW_DIR = HERE / "raw"
 RESULTS_PATH = HERE / "results.md"
 MODEL_DIR = Path.home() / "models" / "judge"
 LOG_DIR = MODEL_DIR / "logs"
+
+# --context operational 의 원자료(원본 raw/ 는 그대로 둔다)와 --latency-only 의 원자료(요청마다 load1).
+RAW_OPERATIONAL_DIR = HERE / "raw_operational"
+RAW_LATENCY_DIR = HERE / "raw_latency"
+RAW_STRUCTURED_DIR = HERE / "raw_structured"  # --context structured (C2.5)
+OBSERVATIONS_PATH = HERE / "observations.yaml"
+RAW_SUBTYPE_DIR = HERE / "raw_subtype"  # --context subtype (C3.1 주 팔)
+RAW_SUBTYPE_TRAIT_DIR = HERE / "raw_subtype_trait"  # --context subtype_trait (영아 코드 그대로, 탐색 부차 팔)
+BLIND_PATH = HERE / "observations_blind.yaml"
+REPLACEMENTS_PATH = HERE / "subtype_replacements.yaml"
+CONTEXT_MODES = ("sentence", "operational", "structured", "subtype", "subtype_trait")
 
 PORT_BASE = 18770
 REQUEST_TIMEOUT_S = 60.0  # 측정용. 운영 기본(1.5s)보다 길게 — 느린 모델도 degraded 대신 잰다.
@@ -105,7 +118,78 @@ def load_models() -> list[dict[str, Any]]:
     return list(_load_yaml(MODELS_PATH)["models"])
 
 
-def build_all(cases: list[dict[str, Any]]) -> list[Built]:
+_BUCKET_HOUR = {"morning": 8, "day": 13, "evening": 19, "night": 23}  # UTC 시, Clock 버킷 안
+
+
+def operational_summary(b: Built) -> str:
+    """운영 경로의 맥락 요약(집계 템플릿)을 이 케이스로 만든다.
+
+    ``ContextBuilder.build`` 가 만드는 ``nl_summary`` 를 그대로 쓴다(템플릿을 여기서 다시 쓰지
+    않는다). 가정: 신호는 후보 기기 하나이고 그 하나가 막 바뀌었다(prev 정상 → cur 이상/동작).
+    상황 케이스는 ``sensor_reading``, 그 밖(편의 제안)은 ``proactive`` 트리거다. 시간대는 케이스의
+    time_bucket 이다.
+    """
+    eid = b.candidate.entity_id
+    at = f"2026-10-19T{_BUCKET_HOUR[b.spec['time_bucket']]:02d}:00:00+00:00"
+    builder = ContextBuilder(Clock(fixed=at), categories={eid: b.candidate.category})
+    snap = builder.build(
+        cur={eid: True},
+        prev={eid: False},
+        trigger={"kind": "sensor_reading" if b.spec.get("situation") else "proactive"},
+        trace_id=b.ctx.trace_id,
+    )
+    return snap.nl_summary
+
+
+def structured_summary(b: Built, obs: dict[str, dict[str, str]]) -> str:
+    """운영 집계 요약 + 구조화 관측값 두 개(occupied, abnormal_for). 자유 텍스트 없음.
+
+    값은 ``observations.yaml`` 에서 온다(케이스 문장의 명시된 사실만 옮긴 표). 운영 코드의 템플릿은
+    바꾸지 않고, 벤치에서 문자열 뒤에 ``; occupied=..; abnormal_for=..`` 를 덧붙인다.
+    """
+    o = obs[b.cid]
+    return f"{operational_summary(b)}; occupied={o['occupied']}; abnormal_for={o['abnormal_for']}"
+
+
+def subtype_summary(b: Built, blind: dict[str, dict[str, str]], repl: dict[str, str]) -> str:
+    """운영 집계 요약 + 맹검 코더의 하위 종류 코드와 두 관측값. 자유 텍스트 없음.
+
+    ``repl`` 이 비어 있지 않으면 특성(영아·나이)을 담은 코드를 특성 없는 동등 코드로 바꾼다(주 팔).
+    """
+    o = blind[b.cid]
+    code = repl.get(o["subtype"], o["subtype"])
+    return (
+        f"{operational_summary(b)}; subtype={code}; occupied={o['occupied']}; "
+        f"abnormal_for={o['abnormal_for']}"
+    )
+
+
+def load_blind() -> tuple[dict[str, dict[str, str]], dict[str, str], list[str]]:
+    doc = _load_yaml(BLIND_PATH)
+    rep_doc = _load_yaml(REPLACEMENTS_PATH)
+
+    def norm(x: Any) -> str:
+        return "yes" if x is True else "no" if x is False else str(x)
+
+    blind = {
+        str(k): {f: norm(v[f]) for f in ("subtype", "occupied", "abnormal_for")}
+        for k, v in doc["cases"].items()
+    }
+    return blind, dict(rep_doc["replace"]), list(rep_doc["forbidden_substrings"])
+
+
+def load_observations() -> dict[str, dict[str, str]]:
+    doc = _load_yaml(OBSERVATIONS_PATH)
+    # YAML 1.1 은 yes/no 를 불리언으로 읽는다 → 문자열로 되돌린다.
+    def norm(x: Any) -> str:
+        return "yes" if x is True else "no" if x is False else str(x)
+
+    return {str(k): {f: norm(val) for f, val in v.items()} for k, v in doc["cases"].items()}
+
+
+def build_all(cases: list[dict[str, Any]], context_mode: str = "sentence") -> list[Built]:
+    if context_mode not in CONTEXT_MODES:
+        raise SystemExit(f"모르는 맥락 방식: {context_mode} ({CONTEXT_MODES})")
     guard = Guardrail()
     table = load_severity_table()
     if table.load_failed:
@@ -116,6 +200,51 @@ def build_all(cases: list[dict[str, Any]]) -> list[Built]:
             out.append(build_one(spec, guard, table))
         except CaseError as exc:
             raise SystemExit(str(exc)) from None
+    if context_mode in ("subtype", "subtype_trait"):
+        blind, repl, forbidden = load_blind()
+        missing = sorted({b.cid for b in out} - set(blind))
+        if missing:
+            raise SystemExit(f"observations_blind.yaml 에 없는 케이스: {missing}")
+        use = repl if context_mode == "subtype" else {}
+        out = [
+            Built(
+                b.cid, b.spec, b.candidate,
+                b.ctx.model_copy(update={"nl_summary": subtype_summary(b, blind, use)}),
+                b.gate1, b.severity_floor, b.severity_sources,
+            )
+            for b in out
+        ]
+        hits = [(b.cid, w) for b in out for w in TRAIT_WORDS if w in b.ctx.nl_summary]
+        if context_mode == "subtype":  # 주 팔: 영문 특성 낱말도 막는다
+            hits += [(b.cid, w) for b in out for w in forbidden if w in b.ctx.nl_summary]
+        if hits:
+            raise SystemExit(f"하위 종류 요약에 특성 낱말이 있다: {hits}")
+    if context_mode == "structured":
+        obs = load_observations()
+        missing = sorted({b.cid for b in out} - set(obs))
+        if missing:
+            raise SystemExit(f"observations.yaml 에 없는 케이스: {missing}")
+        out = [
+            Built(
+                b.cid, b.spec, b.candidate,
+                b.ctx.model_copy(update={"nl_summary": structured_summary(b, obs)}),
+                b.gate1, b.severity_floor, b.severity_sources,
+            )
+            for b in out
+        ]
+        hits = [(b.cid, w) for b in out for w in TRAIT_WORDS if w in b.ctx.nl_summary]
+        if hits:
+            raise SystemExit(f"구조화 요약에 특성 낱말이 있다: {hits}")
+    if context_mode == "operational":
+        # 맥락 문장 자리에 운영 집계 요약을 넣는다. 하한·후보·시간대는 그대로(Built 만 다시 만든다).
+        out = [
+            Built(
+                b.cid, b.spec, b.candidate,
+                b.ctx.model_copy(update={"nl_summary": operational_summary(b)}),
+                b.gate1, b.severity_floor, b.severity_sources,
+            )
+            for b in out
+        ]
     # 쌍은 자유 텍스트만 다르다 → 두 하한이 같아야 한다.
     pairs: dict[str, list[Built]] = {}
     for b in out:
@@ -413,14 +542,32 @@ def cmd_run(args: argparse.Namespace) -> int:
     if args.model not in models:
         raise SystemExit(f"모르는 모델 키: {args.model} (models.yaml: {sorted(models)})")
     m = models[args.model]
-    built = build_all(load_cases())
+    context_mode = getattr(args, "context", "sentence")
+    latency_only = bool(getattr(args, "latency_only", False))
+    built = build_all(load_cases(), context_mode)
     problems = validate_labels(built, load_labels())
     if problems:
         raise SystemExit("라벨 검증 실패:\n" + "\n".join(problems))
-    RAW_DIR.mkdir(exist_ok=True)
+    # 기본(sentence, 지연 전용 아님)은 예전과 똑같이 raw/ 에 쓴다. 다른 방식은 따로 둔다.
+    if latency_only:
+        raw_dir = RAW_LATENCY_DIR / context_mode
+    elif context_mode == "operational":
+        raw_dir = RAW_OPERATIONAL_DIR
+    elif context_mode == "structured":
+        raw_dir = RAW_STRUCTURED_DIR
+    elif context_mode == "subtype":
+        raw_dir = RAW_SUBTYPE_DIR
+    elif context_mode == "subtype_trait":
+        raw_dir = RAW_SUBTYPE_TRAIT_DIR
+    else:
+        raw_dir = RAW_DIR
+    if getattr(args, "raw_dir", None):  # 재현 확인용: 원본 raw/ 를 건드리지 않고 다른 곳에 쓴다
+        raw_dir = Path(args.raw_dir)
+    reps = int(getattr(args, "reps", None) or (3 if latency_only else REPS))
+    raw_dir.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = RAW_DIR / f"{m['key']}.jsonl"
-    sess_path = RAW_DIR / f"{m['key']}.sessions.jsonl"
+    out_path = raw_dir / f"{m['key']}.jsonl"
+    sess_path = raw_dir / f"{m['key']}.sessions.jsonl"
     gguf = MODEL_DIR / m["file"]
     session: dict[str, Any] = {
         "model": m["key"], "file": m["file"], "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -434,7 +581,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     session["file_bytes"] = gguf.stat().st_size
 
     done = {(r["id"], r["rep"]) for r in _read_jsonl(out_path)}
-    todo = [(rep, b) for rep in range(REPS) for b in built if (b.cid, rep) not in done]
+    todo = [(rep, b) for rep in range(reps) for b in built if (b.cid, rep) not in done]
+    only = getattr(args, "only", None)
+    if only:  # 시험용: 케이스 id 앞부분이 맞는 것만(스모크)
+        todo = [(rep, b) for rep, b in todo if b.cid.startswith(only)]
     if not todo:
         print(f"{m['key']}: 이미 다 쟀다({len(done)} 기록)")
         return 0
@@ -485,7 +635,9 @@ def cmd_run(args: argparse.Namespace) -> int:
             measure_one(warm, judge, timed, rec_t, ruleset_version)
 
         for rep, b in todo:
+            load_before = os.getloadavg()[0]
             r = measure_one(b, judge, timed, rec_t, ruleset_version)
+            load_after = os.getloadavg()[0]
             evidence = backend._evidence(b.candidate, b.ctx, b.gate1.floor_tier)
             rec = {
                 "model": m["key"], "id": b.cid, "rep": rep, "group": b.spec["group"],
@@ -494,6 +646,13 @@ def cmd_run(args: argparse.Namespace) -> int:
                 **r,
                 "evidence": evidence if rep == 0 else None,
             }
+            if context_mode != "sentence" or latency_only:
+                # 새 방식의 기록에만 덧붙인다(기본 방식의 raw 형식은 예전과 같다).
+                rec.update(
+                    context_mode=context_mode, latency_only=latency_only,
+                    load1_before=round(load_before, 2), load1_after=round(load_after, 2),
+                    ts=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                )
             _append_jsonl(out_path, rec)
             n_done += 1
             print(
@@ -893,6 +1052,17 @@ def main(argv: list[str] | None = None) -> int:
     pr = sub.add_parser("run")
     pr.add_argument("--model", required=True)
     pr.add_argument("--port", type=int, default=PORT_BASE)
+    pr.add_argument(
+        "--context", choices=CONTEXT_MODES, default="sentence",
+        help="sentence(기본, 한국어 상황 문장) | operational(운영 집계 요약 — raw_operational/) | structured(집계 요약 + 관측값 둘 — raw_structured/) | subtype(집계 요약 + 맹검 하위 종류 코드 — raw_subtype/) | subtype_trait(영아 코드 그대로, 탐색 — raw_subtype_trait/)",
+    )
+    pr.add_argument(
+        "--latency-only", action="store_true",
+        help="지연 재측정: raw_latency/<context>/ 에 쓰고 요청마다 load1 을 남긴다(기본 3회 반복)",
+    )
+    pr.add_argument("--reps", type=int, default=None, help="반복 횟수(기본 2, 지연 전용은 3)")
+    pr.add_argument("--only", default=None, help="케이스 id 앞부분(스모크 시험용)")
+    pr.add_argument("--raw-dir", default=None, help="원자료 폴더를 직접 지정(재현 확인용)")
     pr.set_defaults(fn=cmd_run)
     sub.add_parser("report").set_defaults(fn=cmd_report)
     args = ap.parse_args(argv)

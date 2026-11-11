@@ -480,6 +480,27 @@ def _parse_document(doc: Any) -> tuple[
     return cells, situations, disabled
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):  # type: ignore[misc]
+    """같은 매핑에 같은 키가 두 번 나오면 ``SeverityConfigError`` (fail-closed).
+
+    ``yaml.safe_load`` 는 중복 키를 조용히 "뒤 값이 이긴다"로 읽는다. 표 행·열이나 상황 행,
+    임계값이 실수로 두 번 적히면 뒤의 낮은 값이 앞의 값을 덮어 하한이 내려갈 수 있다.
+    """
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+        self.flatten_mapping(node)
+        seen: set[Any] = set()
+        for key_node, _value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key in seen:  # 해시 불가 키는 여기서 TypeError → 로더가 fail-closed 로 받는다
+                raise SeverityConfigError(
+                    f"duplicate key {key!r} (line {key_node.start_mark.line + 1})"
+                )
+            seen.add(key)
+        mapping: dict[Any, Any] = super().construct_mapping(node, deep=deep)
+        return mapping
+
+
 def load_severity_table(path: str | None = None) -> SeverityTable:
     """situations.yaml 을 읽어 ``SeverityTable`` 을 만든다. 예외를 던지지 않는다.
 
@@ -490,7 +511,7 @@ def load_severity_table(path: str | None = None) -> SeverityTable:
     p = Path(path) if path is not None else DEFAULT_SITUATIONS_PATH
     try:
         with p.open("r", encoding="utf-8") as fh:
-            doc = yaml.safe_load(fh)
+            doc = yaml.load(fh, Loader=_UniqueKeyLoader)  # noqa: S506 — SafeLoader 파생
         cells, situations, disabled = _parse_document(doc)
     except Exception as exc:  # noqa: BLE001 — 어떤 실패든 조용해지지 않고 fail-closed 로.
         reason = f"{type(exc).__name__}: {exc}"

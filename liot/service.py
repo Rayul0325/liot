@@ -86,6 +86,7 @@ from liot.layers.l4_execution.notifier import (
     NotificationContext,
     Notifier,
     dedup_key,
+    gate_pipeline,
 )
 from liot.layers.l4_execution.ntfy_transport import NtfyError, NtfyTransport
 from liot.layers.l4_execution.proposal_service import ProposalService
@@ -178,6 +179,12 @@ class DispatchResult:
 
 class LiotService:
     """파이프라인 + 영속 + 알림 + 만료 + 피드백을 잇는 상시 서비스."""
+
+    # 연구용 재정의(기본 = 출하값, 운영 경로는 건드리지 않는다). 하루 시뮬레이터가 인스턴스에만
+    # 덮어쓴다: 선호 EMA 학습률·감쇠율, '그만해' 뒤 같은 류를 쉬는 일수(0 = 쉬지 않음).
+    pref_alpha: float | None = None
+    pref_decay: float | None = None
+    reject_window_days: int = 30
 
     def __init__(
         self,
@@ -317,7 +324,7 @@ class LiotService:
         charter = await self.prefs.get("charter_enabled", True)
         muted_cats = await self.prefs.get("muted_categories", [])
         muted_ents = await self.prefs.get("muted_entities", [])
-        rejected = await self.proposals.recently_rejected_keys()
+        rejected = await self.proposals.recently_rejected_keys(days=self.reject_window_days)
         return NotificationContext(
             charter_enabled=bool(charter),
             muted_categories=frozenset(muted_cats or []),
@@ -883,16 +890,69 @@ class LiotService:
         if not escalation.needs_ladder(final, info.severity_floor):
             return
         ladder = await self.safety.get_ladder(situation_id)
+        # 첫 거주자 알림이 아직 못 나갔으면(송신 실패) 다음 발화를 30초 뒤로 당긴다.
+        # 이 사실은 DB(알림 기록 없음 + 게이트 통과)에서 매번 다시 읽으므로 재시작 뒤
+        # 재무장해도 유지된다.
+        first_retry = await self._first_alert_unsent(info) is not None
         if ladder is None:
-            nxt = await self._plan_next(info, final, stage=0, guidance_sent=False)
+            nxt = await self._plan_next(
+                info, final, stage=0, guidance_sent=False, retry=first_retry
+            )
             await self.safety.create_ladder(situation_id, 0, nxt)
             return
         if not self._ladder_open(ladder):
             return
         nxt = await self._plan_next(
-            info, final, stage=ladder.stage, guidance_sent=ladder.guidance_119_sent
+            info,
+            final,
+            stage=ladder.stage,
+            guidance_sent=ladder.guidance_119_sent,
+            retry=first_retry,
         )
+        if first_retry and ladder.next_fire_at is not None and (
+            nxt is None or ladder.next_fire_at < nxt
+        ):
+            # 이미 잡힌 재시도가 더 이르면 미루지 않는다(2단계 후속·재시작 재무장이 30초를
+            # 다시 세지 않게).
+            nxt = ladder.next_fire_at
         await self.safety.update_ladder(situation_id, next_fire_at=nxt)
+
+    async def _first_alert_unsent(self, info: escalation.SituationInfo) -> Proposal | None:
+        """아직 거주자에게 한 번도 못 나간 상황 알림이 있으면 그 제안을, 없으면 None.
+
+        '못 나갔다' = 그 상황의 어떤 제안도 알림 기록이 없고(기록은 송신 성공 뒤에만 쓴다),
+        배달 경로(transport)가 있고, 지금 첫 알림과 같은 발화 게이트가 IMMEDIATE 로 통과시킬
+        때다. 헌장 OFF·음소거·최근 거절로 막힌 첫 알림은 송신 실패가 아니라 사용자가 정한
+        침묵이라 여기 잡히지 않는다(재시도 없음). 게이트 판정만 읽고 예산은 차감하지 않는다.
+        """
+        if self.transport is None:
+            return None
+        if await escalation.situation_notified(self._db, self.home_id, info.situation_id):
+            return None
+        pid = await escalation.latest_alert_proposal_id(self._db, self.home_id, info.situation_id)
+        proposal = await self.proposals.get(pid) if pid is not None else None
+        if proposal is None:
+            return None
+        now_dt = self.clock.now_dt()
+        self._roll_budget(now_dt)
+        ctx = await self._build_context(now_dt)
+        if gate_pipeline(proposal, ctx, self._budget, self.clock.now_utc()) != "IMMEDIATE":
+            return None
+        return proposal
+
+    async def _resend_first_alert(self, proposal: Proposal) -> bool:
+        """못 나간 첫 알림을 다시 보낸다(dispatch 와 같은 순서: 송신 → 기록 → dedup 갱신).
+
+        링크는 살아 있는 토큰을 그대로 쓴다(_send_realert 와 같다). 재알림이 아니라 첫 알림이므로
+        재알림 횟수(stage)는 쓰지 않는다.
+        """
+        nonce = self._nonce.get(proposal.proposal_id) or self._issue_nonce(proposal.proposal_id)
+        sanitized = self.notifier.sanitize(proposal, nonce)
+        if not self._deliver(self.topic, sanitized):
+            return False
+        await self.proposals.record_notification(sanitized, now=self.clock.now_utc())
+        self._recent_notified[dedup_key(proposal)] = self.clock.now_dt()
+        return True
 
     async def _rearm_ladders(self) -> int:
         """시작 시 열린 사다리를 DB 에서 다시 무장한다. 무장한 수를 돌려준다.
@@ -953,16 +1013,26 @@ class LiotService:
 
         stage = ladder.stage
         due = escalation.realerts_due(opened, final, now_dt)
+        realert_attempted = False
         if due > stage:
             # 공유 연결에서 닫힘이 끼어들었을 수 있다 — 해소 뒤 낡은 재알림 금지.
             if not await self._ladder_still_open(situation_id):
                 return
             await self._send_realert(info, final)
+            realert_attempted = True
             stage = due  # 재시작 뒤 밀린 재알림은 한 번으로 따라잡는다
 
+        # 첫 거주자 알림이 아직 못 나갔으면 다시 보낸다(재알림 횟수는 쓰지 않는다). 같은
+        # 발화에서 재알림이 방금 시도됐으면 그것이 나갔는지만 보고 같은 틱에 또 보내지 않는다.
         notified = list(ladder.notified_guardian_ids)
         guidance_sent = ladder.guidance_119_sent
         retry = False
+        unsent = await self._first_alert_unsent(info)
+        if unsent is not None:
+            if realert_attempted:
+                retry = True
+            elif await self._ladder_still_open(situation_id):
+                retry = not await self._resend_first_alert(unsent)
         # 보호자 전달·119 안내: 상황 하한(표+거주자)이 CRITICAL 일 때만.
         if escalation.guardian_path(info.severity_floor):
             if now_dt >= escalation.forward_due_at(opened) and await self._ladder_still_open(
@@ -1251,8 +1321,8 @@ class LiotService:
         if key is None or proposal_id in self._pref_signaled:
             return
         cells = await load_cells(self.prefs)
-        cells = apply_decay(cells, steps=1, exclude=frozenset({key}))
-        cells = apply_signal(cells, key, signal)
+        cells = apply_decay(cells, steps=1, exclude=frozenset({key}), rate=self.pref_decay)
+        cells = apply_signal(cells, key, signal, alpha=self.pref_alpha)
         await save_cells(self.prefs, cells, updated_at=self.clock.now_utc())
         self._pref_signaled.add(proposal_id)
 
@@ -1349,7 +1419,7 @@ class LiotService:
         L2 평가기는 동기·결정론을 유지해야 하므로(비동기 DB 조회 금지),
         비동기 조회는 여기(서비스)서 하고 결과만 넘긴다.
         """
-        rejected = await self.proposals.recently_rejected_keys()
+        rejected = await self.proposals.recently_rejected_keys(days=self.reject_window_days)
         rates = await self.proposals.accept_rate()
         self.app.feedback_store = InMemoryFeedbackStore(
             rejected_keys=rejected,
