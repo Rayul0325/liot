@@ -25,6 +25,12 @@ dev = [
     "mypy",
     "websockets>=12",
 ]
+# 연구 실험(experiments/) 전용 — dev 에는 넣지 않는다. make check 는 이것 없이 돈다.
+experiments = [
+    "matplotlib>=3.8",
+    "numpy>=1.26",
+    "scipy>=1.11",
+]
 # Home Assistant WebSocket 연동(실연동 시에만 필요). 단위 테스트는 미설치여도 동작.
 ha = [
     "websockets>=12",
@@ -85,10 +91,19 @@ python_version = "3.11"
 files = ["liot", "scripts", "tests"]
 strict = true
 warn_unused_configs = true
+# 아래 numpy 의 follow_imports="skip" 이 스텁(.pyi)에도 먹게 한다(기본은 스텁을 무조건 따라간다).
+follow_imports_for_stubs = true
 
 [[tool.mypy.overrides]]
 module = ["aiosqlite.*", "yaml.*", "websockets.*"]
 ignore_missing_imports = true
+
+# numpy 2.5 의 스텁은 파이썬 3.12 문법(type 문)이라 python_version 3.11 의 mypy 가 구문 오류로
+# 멈춘다. pytest 가 TYPE_CHECKING 에서 numpy 를 부르기 때문에 experiments 용으로 numpy 를 깔면
+# make check 의 mypy 가 깨졌다(2026-11-12 실측). 우리 코드는 numpy 를 쓰지 않으므로 따라가지 않는다.
+[[tool.mypy.overrides]]
+module = ["numpy"]
+follow_imports = "skip"
 
 [[tool.mypy.overrides]]
 # 테스트에는 '모든 함수에 주석' 요구만 뺀다. 픽스처·테스트 함수 수백 개에
