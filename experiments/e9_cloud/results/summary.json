@@ -1,0 +1,199 @@
+{
+  "calls_per_run": [
+    67,
+    67,
+    67,
+    67,
+    67,
+    67,
+    67,
+    60,
+    67,
+    67
+  ],
+  "calls_total": 663,
+  "comfort": {
+    "accepted": 19,
+    "dismissed": 0,
+    "proposals": 79,
+    "pushes": 50
+  },
+  "days_per_run": 3,
+  "estimated_calls": 109,
+  "h54": {
+    "agree_all_steps": {
+      "den": 0,
+      "hi": null,
+      "lo": null,
+      "num": 0,
+      "rate": null,
+      "seeds": 10
+    },
+    "agree_where_one_departs": {
+      "den": 0,
+      "hi": null,
+      "lo": null,
+      "num": 0,
+      "rate": null,
+      "seeds": 10
+    },
+    "both_at_floor": 0,
+    "depart_confusion_jev_luna": {},
+    "depart_steps": 0,
+    "floor_counts": {},
+    "jev_departs": 0,
+    "luna_departs": 0,
+    "luna_unavailable": 109,
+    "pairs_with_floor": 0,
+    "tier_pairs_total": 0
+  },
+  "h54_verdict": "undecidable: luna answered 0 of 109 requests (OpenAI credit_balance_exhausted, HTTP 429)",
+  "jev_vs_floor": {
+    "above_floor": 0,
+    "at_floor": 109,
+    "below_floor": 0,
+    "by_floor": {
+      "ambient": {
+        "above": 0,
+        "below": 0,
+        "n": 59
+      },
+      "breath": {
+        "above": 0,
+        "below": 0,
+        "n": 20
+      },
+      "ember": {
+        "above": 0,
+        "below": 0,
+        "n": 30
+      }
+    },
+    "judged_steps": 109
+  },
+  "kit_status": [
+    {
+      "model": "jev:jev-latest",
+      "part": "judge",
+      "state": "cloud"
+    },
+    {
+      "model": "anthropic:claude-haiku-5-5",
+      "part": "reason",
+      "state": "cloud"
+    },
+    {
+      "model": "anthropic:claude-haiku-5-5",
+      "part": "resident",
+      "state": "cloud"
+    },
+    {
+      "model": "gpt-6-luna",
+      "part": "luna",
+      "state": "cloud"
+    },
+    {
+      "model": "memgineering:liot-demo",
+      "part": "memory",
+      "state": "cloud"
+    }
+  ],
+  "reason_fallback_causes": {},
+  "reason_writing_model_rate": {
+    "den": 79,
+    "hi": 1.0,
+    "lo": 1.0,
+    "num": 79,
+    "rate": 1.0,
+    "seeds": 10
+  },
+  "resident_fallback_causes": {},
+  "resident_model_rate": {
+    "den": 79,
+    "hi": 1.0,
+    "lo": 1.0,
+    "num": 79,
+    "rate": 1.0,
+    "seeds": 10
+  },
+  "runs": 10,
+  "safety": {
+    "days_total": 30,
+    "first_alert_ms_max": 46.268,
+    "first_alerts": 30,
+    "first_alerts_immediate": 30
+  },
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "severity_pairs": {
+    "agree": 0,
+    "n": 0
+  },
+  "stage_latency": {
+    "judge": {
+      "calls": 109,
+      "mean_s_per_call": 0.211416,
+      "per_run_mean_s_max": 0.225264,
+      "per_run_mean_s_median": 0.210073,
+      "per_run_mean_s_min": 0.202355,
+      "usd": 0.002339
+    },
+    "luna": {
+      "calls": 109,
+      "mean_s_per_call": 0.28796,
+      "per_run_mean_s_max": 0.383645,
+      "per_run_mean_s_median": 0.279294,
+      "per_run_mean_s_min": 0.221318,
+      "usd": 0.0
+    },
+    "memory": {
+      "calls": 287,
+      "mean_s_per_call": 0.728633,
+      "per_run_mean_s_max": 0.934303,
+      "per_run_mean_s_median": 0.718012,
+      "per_run_mean_s_min": 0.578914,
+      "usd": 0.0
+    },
+    "reason": {
+      "calls": 79,
+      "mean_s_per_call": 1.207338,
+      "per_run_mean_s_max": 1.327038,
+      "per_run_mean_s_median": 1.1856,
+      "per_run_mean_s_min": 1.103862,
+      "usd": 0.006185
+    },
+    "resident": {
+      "calls": 79,
+      "mean_s_per_call": 0.982092,
+      "per_run_mean_s_max": 1.096737,
+      "per_run_mean_s_median": 0.970394,
+      "per_run_mean_s_min": 0.927625,
+      "usd": 0.002783
+    }
+  },
+  "tripped_runs": [],
+  "unknown_price_calls": 0,
+  "usd_per_run": [
+    0.001193,
+    0.001147,
+    0.001149,
+    0.001153,
+    0.001134,
+    0.001149,
+    0.001122,
+    0.000982,
+    0.001132,
+    0.001143
+  ],
+  "usd_total_estimated": 0.011304
+}
