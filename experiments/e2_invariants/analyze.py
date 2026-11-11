@@ -211,6 +211,60 @@ def _summarize_quota(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
+def _summarize_h15b(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    cells: dict[str, Any] = {}
+    for r in rows:
+        seeds = r["seeds"]
+        e = {k: _arm_block(seeds, k) for k in ARM_KEYS}
+        e["c_star"] = _cstar(seeds)
+        e["params"] = {k: r[k] for k in ("unreg", "obs", "auc", "attack", "mode", "fpr", "point")}
+        e["structural"] = bool(r["mode"] == "blind" or (r["unreg"] == 0.0 and r["obs"] == 0.0))
+        e["miss_by_cause_liot"] = {
+            k: float(np.mean([sd["miss_by_cause_liot"][k] / sd["n_events"] for sd in seeds]))
+            for k in seeds[0]["miss_by_cause_liot"]}
+        tp = [sd["model_tpr_realised"] for sd in seeds if sd["model_tpr_realised"] is not None]
+        e["model_tpr_realised"] = float(np.mean(tp)) if tp else None
+        e["model_fpr_realised"] = float(np.mean([sd["model_fpr_realised"] for sd in seeds]))
+        cells[r["key"]] = e
+    out: dict[str, Any] = {"cells": cells, "by_mode": {}}
+    for mode in ("honest", "blind"):
+        sel = [v for v in cells.values() if v["params"]["mode"] == mode
+               and v["params"]["point"] == "sweep"]
+        trade = [v["c_star"]["point"] for v in sel if v["c_star"]["class"] == "tradeoff"]
+        hi_auc = [v for v in sel if v["params"]["auc"] >= 0.8 and not v["structural"]
+                  and v["c_star"]["class"] in ("tradeoff", "final_dominates")]
+        cstar_hi = [(v["c_star"]["point"] if v["c_star"]["class"] == "tradeoff" else 0.0)
+                    for v in hi_auc]
+        out["by_mode"][mode] = {
+            "cells": len(sel),
+            "class_counts": dict(sorted(collections.Counter(
+                v["c_star"]["class"] for v in sel).items())),
+            "cstar_tradeoff": ({"n": len(trade), "min": float(min(trade)),
+                                "median": float(np.median(trade)), "max": float(max(trade))}
+                               if trade else None),
+            "auc_ge_0.8_nonstructural": {
+                "cells": len(hi_auc),
+                "cstar_over_2_share": float(np.mean([c > 2.0 for c in cstar_hi])) if cstar_hi else None,
+                "cstar_median": float(np.median(cstar_hi)) if cstar_hi else None,
+                "cstar_over_2_share_attack0": float(np.mean([
+                    c > 2.0 for v, c in zip(hi_auc, cstar_hi, strict=True)
+                    if v["params"]["attack"] == 0.0])) if cstar_hi else None,
+            },
+        }
+    op = [v for v in cells.values() if v["params"]["point"] == "e5_operational"]
+    out["e5_operational"] = {
+        "cells": len(op),
+        "final_minus_liot_false_rate_max": float(max(
+            v["final"]["false_rate"] - v["liot"]["false_rate"] for v in op if v["params"]["attack"] == 0.0)),
+        "final_minus_liot_miss_rate_min": float(min(
+            v["final"]["miss_rate"] - v["liot"]["miss_rate"] for v in op if v["params"]["attack"] == 0.0)),
+        "class_counts_attack0": dict(sorted(collections.Counter(
+            v["c_star"]["class"] for v in op if v["params"]["attack"] == 0.0).items())),
+        "note": "AUC 0.5, false-raise rate 3% (E5: operational raises 0-2 of 61); attack 0 only",
+    }
+    return out
+
+
 def summarize(raw_dir: Path) -> dict[str, Any]:
     raw_dir = Path(raw_dir)
     out: dict[str, Any] = {}
@@ -220,6 +274,9 @@ def summarize(raw_dir: Path) -> dict[str, Any]:
     h = read_jsonl(raw_dir / "h15.jsonl")
     if h:
         out["h15"] = _summarize_h15(sorted(h, key=lambda r: r["key"]))
+    hb = read_jsonl(raw_dir / "h15b.jsonl")
+    if hb:
+        out["h15b"] = _summarize_h15b(sorted(hb, key=lambda r: r["key"]))
     q = read_jsonl(raw_dir / "quota.jsonl")
     if q:
         out["quota"] = _summarize_quota(sorted(q, key=lambda r: (r["path"], r["episode"])))

@@ -32,7 +32,7 @@ from experiments.common.service_kit import (
     reading,
     situations,
 )
-from experiments.e2_invariants import analyze, fuzz, h15, quota
+from experiments.e2_invariants import analyze, fuzz, h15, h15b, quota
 from liot.layers.l4_execution.escalation import guardian_path
 
 EXP_DIR = Path(__file__).resolve().parent
@@ -53,6 +53,49 @@ async def collect_fuzz(n_per: int, raw: Path) -> int:
             rec["meta"] = io.run_meta()
             io.append_jsonl(path, rec)
             written += 1
+    return written
+
+
+# ── C2.8 h15b ───────────────────────────────────────────────────────────────
+def h15b_cells(quick: bool) -> list[dict[str, Any]]:
+    cells: list[dict[str, Any]] = []
+    aucs = (0.5, 0.9) if quick else h15b.AUC
+    for u, e, a, atk, mode in itertools.product(
+        (0.0, 0.1) if quick else h15b.UNREG, (0.0, 0.1) if quick else h15b.OBS, aucs,
+        (0.0, 0.3) if quick else h15b.ATTACK, ("honest", "blind"),
+    ):
+        cells.append({"unreg": u, "obs": e, "auc": a, "attack": atk, "mode": mode,
+                      "fpr": h15b.FPR, "point": "sweep"})
+    for u, e, atk, mode in itertools.product(
+        (0.0, 0.1) if quick else h15b.UNREG, (0.0, 0.1) if quick else h15b.OBS,
+        (0.0, 0.3) if quick else h15b.ATTACK, ("honest", "blind"),
+    ):
+        cells.append({"unreg": u, "obs": e, "auc": 0.5, "attack": atk, "mode": mode,
+                      "fpr": h15b.OPERATIONAL_FPR, "point": "e5_operational"})
+    return cells
+
+
+def h15b_key(c: dict[str, Any]) -> str:
+    return (f"u{c['unreg']}|obs{c['obs']}|auc{c['auc']}|a{c['attack']}|{c['mode']}|"
+            f"fpr{c['fpr']}|{c['point']}")
+
+
+def collect_h15b(raw: Path, quick: bool) -> int:
+    path = raw / "h15b.jsonl"
+    done = io.done_keys(path, ("key",))
+    n_seeds = 3 if quick else h15b.N_SEEDS
+    n_events = 2000 if quick else h15b.N_EVENTS
+    written = 0
+    for c in h15b_cells(quick):
+        key = h15b_key(c)
+        if (key,) in done:
+            continue
+        seeds = [h15b.run_cell(sd, unreg=c["unreg"], obs=c["obs"], auc=c["auc"],
+                               attack=c["attack"], mode=c["mode"], fpr=c["fpr"], n=n_events)
+                 for sd in range(n_seeds)]
+        io.append_jsonl(path, {"key": key, **c, "n_seeds": n_seeds, "seeds": seeds,
+                               "meta": io.run_meta()})
+        written += 1
     return written
 
 
@@ -394,6 +437,8 @@ def main() -> None:
 
     if args.part in ("h15", "all"):
         print("h15 wrote", collect_h15(raw, args.quick))
+    if args.part in ("h15b", "all"):
+        print("h15b wrote", collect_h15b(raw, args.quick))
     asyncio.run(go())
 
 
