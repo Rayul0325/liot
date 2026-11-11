@@ -28,6 +28,7 @@ Phase1: 실행 코드 없음. L4 는 Proposal 생성에서 멈춘다.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass, replace
 from datetime import timedelta
@@ -435,7 +436,15 @@ class LiotApp:
             await self._publish_judgment(msg.trace_id, judgment)
             return
 
-        judgment = self.judge.judge(
+        # 컴포트 판정(능동 틱·명시 action)은 결정 모델을 기다릴 수 있다(질문당 HTTP 최대 2회).
+        # 이벤트 루프에서 동기로 부르면 그동안 스트림이 멈춰 가스 첫 알림이 늦는다(하드 게이트 1).
+        # 그래서 판정만 워커 스레드로 보내고 await 한다 — 이 코루틴은 판정이 끝나야 이어지므로
+        # 틱의 순서(후보 → 평가 → 판정 → 아비터 상한 → 라우팅 → 선호 갱신)는 그대로다.
+        # 스레드로 가는 것은 판정기 호출 하나뿐이다: 인자는 모두 여기(루프 스레드)에서 계산해 넘기고,
+        # 판정기 경로는 DB 를 만지지 않는다(2단계 판정과 같은 경계). stash·last_judgment 등
+        # 앱 상태는 판정이 돌아온 뒤 루프 스레드에서만 쓴다.
+        judgment = await asyncio.to_thread(
+            self.judge.judge,
             candidate,
             snapshot,
             gate1,

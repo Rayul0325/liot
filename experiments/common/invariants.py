@@ -90,8 +90,9 @@ def check_guardian_gate(
       consent, as of the time of the forwards (a mid-run revoke needs the state at send time).
     * ``situations``: ``{situation_id: severity_floor}`` or situation rows with those keys.
     The gate looks at the *floor* only — a model-only raise must never reach family.
-    ``forward`` needs that guardian's consent; ``guidance_119`` needs at least one consenting
-    guardian; ``resolved`` must go only to a guardian already forwarded for that situation.
+    ``forward`` needs that guardian's consent; ``guidance_119`` (to the resident) needs only the
+    CRITICAL floor, not a consenting guardian; ``resolved`` must go only to a guardian already
+    forwarded for that situation.
     """
     critical = int(SeverityLevel.CRITICAL)
     consented = (
@@ -117,8 +118,8 @@ def check_guardian_gate(
                               severity_floor=floor, **ctx))
         if kind == "forward" and gid not in consented:
             out.append(_v("guardian_gate", "forward to a guardian without valid consent", **ctx))
-        elif kind == "guidance_119" and not consented:
-            out.append(_v("guardian_gate", "119 guidance with no valid consent in the home", **ctx))
+        # business-rules.md '보호자와 전달 동의'·'알림 사다리': 119 guidance reaches the resident
+        # even with 0 consenting guardians when the floor is CRITICAL, so no consent test here.
         elif kind == "resolved" and (sid, gid) not in forwarded:
             out.append(_v("guardian_gate", "resolved notice to a guardian never forwarded", **ctx))
     return out

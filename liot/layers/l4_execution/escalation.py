@@ -12,6 +12,9 @@
 사다리(모든 수치는 조정 가능한 기본값 — 아래 모듈 상수):
   - RECORD: 다이제스트, 사다리 없음.   NOTICE: 일반 푸시 1회, 재알림 없음.
   - WARNING: 무응답이면 10분마다 재알림, 최대 3회.
+  - 첫 거주자 알림 송신이 실패하면 사다리의 다음 발화를 LADDER_RETRY(30초) 뒤로 당겨
+    첫 알림을 다시 보낸다(성공할 때까지). 재알림·보호자 전달·119 시각의 기준은 그대로
+    '상황이 열린 시각'이라 이 재시도가 그것들을 옮기지 않고, 재알림 횟수도 쓰지 않는다.
   - CRITICAL: 무응답이면 1분마다 재알림.
       하한이 CRITICAL 이면 첫 알림 90초 뒤 동의한 보호자 전원에게 동시 전달,
       그 전달 5분 뒤에도 아무도 확인하지 않으면 거주자·보호자에게 119 전화 **안내**.
@@ -54,6 +57,7 @@ __all__ = [
     "guidance_due_at",
     "latest_alert_proposal_id",
     "load_situation",
+    "situation_notified",
     "message_label",
     "needs_ladder",
     "next_fire_at",
@@ -72,7 +76,7 @@ __all__ = [
 # 사다리 루프의 해상도(초). 300초 틱과 별개로 돈다 — 90초·5분 경계가 틱 주기에
 # 묻히지 않게. 다음 발화 시각은 DB(next_fire_at)에서 읽는다.
 LADDER_RESOLUTION_S: Final[float] = 5.0
-# 송신이 실패한 단계(보호자 전달·119 안내)를 다시 시도하기까지의 간격.
+# 송신이 실패한 단계(거주자 첫 알림·보호자 전달·119 안내)를 다시 시도하기까지의 간격.
 LADDER_RETRY: Final[timedelta] = timedelta(seconds=30)
 CRITICAL_REALERT_INTERVAL: Final[timedelta] = timedelta(minutes=1)
 WARNING_REALERT_INTERVAL: Final[timedelta] = timedelta(minutes=10)
@@ -306,6 +310,22 @@ async def load_situation(db: aiosqlite.Connection, situation_id: str) -> Situati
         closed_at=None if row[5] is None else str(row[5]),
         severity_floor=SeverityLevel.from_str(int(row[6])),
     )
+
+
+async def situation_notified(db: aiosqlite.Connection, home_id: str, situation_id: str) -> bool:
+    """그 상황의 제안 중 하나라도 거주자에게 실제로 기록된(=송신 성공) 알림이 있는가.
+
+    알림 기록(notifications)은 송신이 성공한 뒤에만 쓴다 — 송신 실패·게이트 억제는 남지 않는다.
+    """
+    cur = await db.execute(
+        "SELECT 1 FROM notifications AS n JOIN proposals AS p ON p.proposal_id = n.proposal_id"
+        " WHERE p.home_id = ? AND p.situation_id = ? LIMIT 1",
+        (home_id, situation_id),
+    )
+    try:
+        return await cur.fetchone() is not None
+    finally:
+        await cur.close()
 
 
 async def final_severity_of(
