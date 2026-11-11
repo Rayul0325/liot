@@ -143,13 +143,16 @@ def make_figures(summary: dict[str, Any], exp_dir: Path, plotstyle: Any) -> list
             ax.axvline(1.0, color=plotstyle.GREY_DARK, linestyle="--", label="기준 1초")
             ax.set_title(ttl, fontsize=9)
             ax.set_xlabel("명세 시각과의 최대 오차 (초)")
+            if vals and max(vals) == 0.0:
+                ax.text(0.5, 0.5, "모든 시나리오 오차 0초", transform=ax.transAxes,
+                        ha="center", va="center", fontsize=11, color=plotstyle.GREY_DARK)
         axes[0].legend()
         fig.suptitle("H6.1 사다리 명세 적합 — 시나리오별 최대 오차 (붉은색 = 부적합)", fontsize=11)
         out.append(plotstyle.save(fig, exp_dir, "h61_conformance"))
     m = summary.get("mc")
     if m:
         cells = m["cells"]
-        fig, axes = plt.subplots(2, 3, figsize=(13, 7))
+        fig, axes = plt.subplots(2, 3, figsize=(13, 7.5), constrained_layout=True)
         for col, mu in enumerate((1.0, 3.0, 10.0)):
             for row, (metric, ylab) in enumerate((("e_t_ack_s", "첫 확인까지 시간(초, 확인된 사건)"),
                                                   ("pages", "사건당 호출받는 사람 수"))):
@@ -165,7 +168,8 @@ def make_figures(summary: dict[str, Any], exp_dir: Path, plotstyle: Any) -> list
                     ax.plot(xs, ys, color=color, linestyle=ls, marker="o",
                             label="동시 호출(LIOT)" if pol == "sim" else "순차 호출(90초 간격)")
                 ax.set_title(f"평균 응답 {mu:g}분 · 무응답 20% · 방관 b=0.3", fontsize=9)
-                ax.set_xlabel("동의한 보호자 수")
+                if row == 1:
+                    ax.set_xlabel("동의한 보호자 수")
                 ax.set_ylabel(ylab)
         axes[0][0].legend(fontsize=7)
         fig.suptitle("H6.2 동시 호출 대 순차 호출 (시뮬레이션, 가정 기반)", fontsize=12)
