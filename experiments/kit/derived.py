@@ -101,7 +101,13 @@ def h15b_auc08_cells(summary: dict[str, Any], mode: str) -> float:
     )
 
 
+def e8_modules_below(summary: dict[str, Any], block: str, key: str, threshold: float = 0.9) -> float:
+    """Number of E8 modules whose ``modules.<m>.<block>.<key>`` score is below *threshold*."""
+    return float(sum(1 for module in summary["modules"].values() if module[block][key] < threshold))
+
+
 FUNCS: dict[str, Callable[..., float]] = {
+    "e8_modules_below": e8_modules_below,
     "h15b_auc08_over2_share": h15b_auc08_over2_share,
     "h15b_auc08_cells": h15b_auc08_cells,
     "h15_cstar": h15_cstar,

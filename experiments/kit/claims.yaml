@@ -53,6 +53,8 @@ limits:
     맹검 코더가 만든 41종 코드는 사례의 위험 구분을 사실상 다시 적은 것일 수 있고, 규칙 매핑은 맹검이 아니다. 이 코드를 운영에서 자동으로 얻을 수 있는지는 시험하지 않았다.
   L-E5-JEV: >-
     Jev API 한 판정자의 0.54 는 결과를 본 뒤 눈에 띈 사후 관찰이고 표본이 13건이라 단독으로 결론을 세우지 않는다.
+  L-E8: >-
+    측정 대상은 U1/U3 변경 전 코드다(변경 뒤에는 다시 돌려야 한다). 변이기는 AST 로 직접 만든 것이고 한 번에 한 곳만 바꾸며 상용 도구와 점수를 비교할 수 없다. 동치·안전 관련 분류는 한 사람이 코드를 읽고 한 판단이고, 변이가 같은 줄에 뭉쳐 있어 구간은 실제보다 좁다. 줄 커버리지만 쟀다(분기 아님).
   L-PENDING: >-
     이 실험은 아직 끝나지 않아 숫자가 없다. 보고서에는 '진행 중'이라고만 쓰고 추정 숫자를 넣지 않는다.
 
@@ -68,11 +70,11 @@ inconsistencies:
   - id: INC-3
     where: e3_policy
     text: >-
-      RESULTS.md 가 정확히 .x5 인 백분율을 일관되게 반올림하지 않는다: 88.25%를 '88.2', 79.75%를 '79.7', 30.25%를 '30.2' 로 쓰지만 71.25%는 '71.3', 13.25%는 '13.3' 으로 쓴다. 의미는 같고 마지막 자리 반올림만 다르다. kit 은 이 세 값을 소수 둘째 자리까지 적었다.
+      RESULTS.md 가 정확히 .x5 인 백분율을 일관되게 반올림하지 않는다: 88.25%를 '88.2', 79.75%를 '79.7', 30.25%를 '30.2'(E3), 56.25%를 '56.2'(E8) 로 쓰지만 71.25%는 '71.3', 13.25%는 '13.3' 으로 쓴다. 의미는 같고 마지막 자리 반올림만 다르다. kit 은 이 네 값을 소수 둘째 자리까지 적었다.
   - id: INC-4
     where: RESEARCH_LOG.md ↔ HYPOTHESES.md
     text: >-
-      연구 일지 02:05 행은 'luna 비교 불가(H5.4 판정 불가)'라고 적지만, HYPOTHESES.md 에서 H5.4 는 E9(실제 종단 실행에서 Jev 와 luna)이고 E9 는 아직 끝나지 않았다. luna 호출 불가는 E5 RESULTS.md 가 H5.2 의 한계로 적었다. kit 은 H5.4 를 '대기'로, H5.2 를 '판정 불가'로 둔다.
+      연구 일지 02:05 행은 이제 'E5 의 luna 판정자 실행 불가(E9 의 H5.4 도 같은 이유로 판정 불가가 됨)'라고 적는다(이전 판은 H5.4 판정 불가를 E5 결과처럼 적었다). 다만 E9 결과 자체는 아직 검토 중이라 kit 은 H5.4 를 '대기'로 둔다. E5 쪽 luna 불가는 H5.2 의 한계이며 H5.2 는 '판정 불가'다.
   - id: INC-5
     where: HYPOTHESES.md
     text: >-
@@ -138,6 +140,16 @@ claims:
       - {label: 대조한 사건, path: [conformance, by_driver, event, events_matched], expected: 162, round: 0, fmt: "{:,.0f}", unit: " 건"}
       - {label: 시뮬레이션 설정 수, path: [mc, cells], agg: len, expected: 108, round: 0, fmt: "{:,.0f}", unit: " 개"}
       - {label: 설정마다 시행, path: [mc, trials_per_setting], expected: 10000, round: 0, fmt: "{:,.0f}", unit: " 회"}
+
+  - id: M-07
+    group: III
+    exp: e8_mutation
+    text: E8 은 안전 핵심 모듈 10개의 코드를 AST 로 일부러 틀리게 바꾼 변이 742개(핵심 연산자 450개)를 만들어 테스트가 알아채는지 보았다.
+    limit: L-E8
+    items:
+      - {label: 변이 수(전수), path: [overall, all, n], expected: 742, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 핵심 연산자 변이, path: [overall, core, n], expected: 450, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 대상 모듈, path: [modules], agg: len, expected: 10, round: 0, fmt: "{:,.0f}", unit: " 개"}
 
   # ------------------------------------------------------------------ IV. Q1 안전 · E1
   - id: E1-01
@@ -388,18 +400,20 @@ claims:
     exp: e3_policy
     hyp: H2.1 (= P2), N1
     verdict: 판정 불가(구조상 결과)
-    text: 같은 능동 상한(땅거미 이상 침묵)을 모두 명시 확인에도 똑같이 씌우면 상한의 몫이 빠지고 '단계별 확인만의 값'이 남는다. 이때 LIOT 실제는 오분류 10%에서 해로운 실행률이 +3.2%p 높고(96% 세트에서 더 나쁨), 도움 완료는 +12.5%p 높고, 확인은 하루 2.4건 적다. 즉 LIOT 실제의 낮은 피해는 단계 매김의 이점이 아니라 상한(침묵)에서 온다. LIOT 의 낮은 피해를 '단계 매김의 정보'로 읽을 근거는 없다.
+    text: 같은 능동 상한(땅거미 이상 침묵)을 모두 명시 확인에도 똑같이 씌우면 상한의 몫이 빠지고 '단계별 확인만의 값'이 남는다. 이때 LIOT 실제는 오분류 10%에서 해로운 실행률이 +3.2%p 높고(95.8% 세트에서 더 나쁨), 도움 완료는 +12.5%p 높고, 확인은 하루 2.4건 적다. 즉 LIOT 실제의 낮은 피해는 단계 매김의 이점이 아니라 상한(침묵)에서 온다. LIOT 의 낮은 피해를 '단계 매김의 정보'로 읽을 근거는 없다. (최종 재검증에서 정확한 동률을 별도 범주로 세도록 고쳤다 — m=0 에서는 LIOT 실제가 더 나쁜 세트 16.3%, 동률 35.8%, 더 좋은 세트 48.0% 로 갈라 적는다. 이전 판의 21%는 쓰지 않는다.)
     fig: e3_policy/figures/c22_ceiling_matched_silence.png
     limit: L-GEN
     items:
       - {label: 해로운 실행률 차이(LIOT 실제 − 모두 명시 확인+같은 상한), path: [c2_2, exp, m0.1, liot_real_vs_flat_same_liot_ceiling, harm_diff, mean], expected: 3.2, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "+0.032"}
       - {label: 그 차이의 세트 간 사분위 하한(Q25), path: [c2_2, exp, m0.1, liot_real_vs_flat_same_liot_ceiling, harm_diff, p25], expected: 2.1, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p"}
       - {label: 그 차이의 세트 간 사분위 상한(Q75), path: [c2_2, exp, m0.1, liot_real_vs_flat_same_liot_ceiling, harm_diff, p75], expected: 4.4, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p"}
-      - {label: LIOT 실제가 더 나쁜 세트 비율(점추정), path: [c2_2, exp, m0.1, liot_real_vs_flat_same_liot_ceiling, share_sets_liot_real_harm_higher_point], expected: 96, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "96%"}
+      - {label: LIOT 실제가 더 나쁜 세트 비율(점추정), path: [c2_2, exp, m0.1, liot_real_vs_flat_same_liot_ceiling, share_sets_liot_real_harm_higher_point], expected: 95.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "95.8%"}
       - {label: 도움 완료율 차이(LIOT 실제 − 대조), path: [c2_2, exp, m0.1, liot_real_vs_flat_same_liot_ceiling, help_diff, mean], expected: 12.5, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "+0.125"}
       - {label: 하루 확인 수 차이, path: [c2_2, exp, m0.1, liot_real_vs_flat_same_liot_ceiling, burden_diff, mean], expected: -2.40, round: 2, fmt: "{:+.2f}", unit: " 건", md: "-2.40"}
       - {label: 같은 비교, 오분류 m=0 일 때 해로운 실행률 차이, path: [c2_2, exp, m0.0, liot_real_vs_flat_same_liot_ceiling, harm_diff, mean], expected: -0.2, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "-0.002"}
-      - {label: 같은 비교, m=0 에서 LIOT 실제가 더 나쁜 세트, path: [c2_2, exp, m0.0, liot_real_vs_flat_same_liot_ceiling, share_sets_liot_real_harm_higher_point], expected: 21, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "21%"}
+      - {label: 같은 비교, m=0 에서 LIOT 실제가 더 나쁜 세트(동률 따로 셈), path: [c2_2, exp, m0.0, liot_real_vs_flat_same_liot_ceiling, share_sets_liot_real_harm_higher_point], expected: 16.3, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "16.3%"}
+      - {label: 같은 비교, m=0 에서 동률인 세트, path: [c2_2, exp, m0.0, liot_real_vs_flat_same_liot_ceiling, share_sets_liot_real_harm_tie], expected: 35.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "35.8%"}
+      - {label: 같은 비교, m=0 에서 LIOT 실제가 더 좋은 세트, path: [c2_2, exp, m0.0, liot_real_vs_flat_same_liot_ceiling, share_sets_liot_real_harm_lower_point], expected: 48.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "48.0%"}
   - id: E3-03
     group: IV.Q2
     exp: e3_policy
@@ -490,7 +504,7 @@ claims:
     exp: e3_policy
     hyp: C2.11 (a)
     verdict: 지지
-    text: 해로운 제안이 잔잔(자동 실행)에 놓이는 비율을 높이면 liot_real 의 피해 이점이 사라진다. 잔잔 50%에서 이점 면적이 5~9%로 떨어지고(예측대로) 면적이 50% 아래로 내려가는 지점은 잔잔 비율 약 16~20%다. 따라서 E3-07 의 '이점이 남는다'는 잔잔 쪽 해로움이 약 20% 이하일 때만 성립하며, 현실의 잔잔 비율은 모른다 — 이 다이얼의 위치가 곧 LIOT 실제의 피해 이점이 사라지는 경계다.
+    text: 해로운 제안이 잔잔(자동 실행)에 놓이는 비율을 높이면 liot_real 의 피해 이점이 사라진다. 잔잔 50%에서 이점 면적이 5~9%로 떨어진다(예측대로). 다만 50% 이상 구간의 큰 손실은 정의에 가까운 구조상 결과다(잔잔은 확인 없이 자동 실행되므로 거기 놓인 해로운 제안은 정의상 실행되고, 모두 명시 확인은 그것을 확인한다) — 그 격차를 발견으로 쓰지 않는다. 정보가 되는 출력은 교차점이다 — 이점 면적이 50% 아래로 내려가는 잔잔 비율은 약 16%(m=10%)~20%(m=0)다. 따라서 E3-07 의 '이점이 남는다'는 잔잔 쪽 해로움이 그 교차점 아래일 때만 성립하며, 현실의 잔잔 비율은 모른다. 또한 잔잔 해로움(저녁 조명 끄기)은 구성상 낮은 심각도인데 건수로는 '오븐 켜고 외출'과 똑같이 1건으로 센다(심각도 가중 없음).
     fig: e3_policy/figures/c211_ambient_harm_and_light_stamp.png
     limit: L-GEN-LIGHT
     items:
@@ -503,12 +517,14 @@ claims:
     exp: e3_policy
     hyp: C2.11 (b)
     verdict: 지지(m=10%) · 판정 불가(m=0)
-    text: 탭 한 번 확인이 명시 확인보다 무심코 승인되기 쉬우면(2.0배) liot_full 의 피해가 모두 명시 확인보다 높은 세트가 m=10%에서 과반이다(이미 1.0배에서도 과반이라 한계 효과는 작다). m=0 에서는 점추정으로 과반이지만 유의 기준으로는 과반이 아니어서 판정 불가로 둔다. LIOT 실제는 이 설정에서도 피해가 낮은 세트가 85%지만 그것은 침묵 때문이다.
+    text: 탭 한 번 확인이 명시 확인보다 무심코 승인되기 쉬우면(2.0배) liot_full 의 피해가 모두 명시 확인보다 높은 세트가 m=10%에서 과반이지만, 이 조건은 기준선(1.0배)에서 이미 충족돼 있었다 — 예측이 맞았다기보다 배수와 무관하게 성립하는 값이다. 발견은 2.0배의 한계 효과(피해 차이 평균 +3.1%p → +4.6%p, 약 +1.5%p, 유의하게 높은 세트 68.5% → 79.7%)다. m=0 에서는 점추정으로 과반이지만 유의 기준으로는 과반이 아니어서 판정 불가로 둔다. LIOT 실제는 이 설정에서도 피해가 낮은 세트가 85%지만 그것은 침묵 때문이다.
     fig: e3_policy/figures/c211_ambient_harm_and_light_stamp.png
     limit: L-GEN-LIGHT
     items:
       - {label: 2.0배 — liot_full 이 유의하게 더 해로운 세트(m=10%), path: [c2_11b, rows, {block: c211b_x200}, m0.1, liot_full, area_harm_higher_seed_noise_sig, share], expected: 79.75, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "79.7%"}
       - {label: 2.0배 — 같은 값(m=0), path: [c2_11b, rows, {block: c211b_x200}, m0.0, liot_full, area_harm_higher_seed_noise_sig, share], expected: 30.25, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "30.2%"}
+      - {label: 1.0배(기준선) — liot_full 피해 차이 평균(m=10%), path: [c2_11b, rows, {block: c211b_x100}, m0.1, liot_full, harm_diff_pooled, mean], expected: 3.1, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "+0.031"}
+      - {label: 2.0배 — liot_full 피해 차이 평균(m=10%), path: [c2_11b, rows, {block: c211b_x200}, m0.1, liot_full, harm_diff_pooled, mean], expected: 4.6, round: 1, scale: 100, fmt: "{:+.1f}", unit: "%p", md: "+0.046"}
       - {label: 2.0배 — liot_real 이 유의하게 덜 해로운 세트(m=10%), path: [c2_11b, rows, {block: c211b_x200}, m0.1, liot_real, area_harm_lower_seed_noise_sig, share], expected: 85.3, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "85.3%"}
   - id: E3-12
     group: IV.Q2
@@ -523,7 +539,7 @@ claims:
       - {label: LIOT 단계의 AUC(오분류 10%), path: [c2_4, liot_tier_auc, "tier_m0.1_median"], expected: 0.63, round: 2, fmt: "{:.2f}", md: "0.63"}
       - {label: 생성기 기본 심각도의 AUC(참고), path: [c2_4, liot_tier_auc, base_sev_median], expected: 0.79, round: 2, fmt: "{:.2f}", md: "0.79"}
       - {label: 잡음 없는 점수(AUC 0.82)가 liot_full 을 지배하는 세트(m=10%), path: [c2_4, rows, {kappa: 0.0, m: 0.1}, share_sets_dominating_liot_full, share], expected: 57.5, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "57.5%"}
-      - {label: 같은 값(m=0), path: [c2_4, rows, {kappa: 0.0, m: 0.0}, share_sets_dominating_liot_full, share], expected: 13.3, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "13.3%"}
+      - {label: 같은 값(m=0), path: [c2_4, rows, {kappa: 0.0, m: 0.0}, share_sets_dominating_liot_full, share], expected: 14.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "14.8%"}
 
   - id: E3-13
     group: IV.Q2
@@ -717,14 +733,54 @@ claims:
     verdict: 대기
     text: 개인화(학습·선호 변화·30일 거절 게이트) 실험은 아직 끝나지 않았다. 숫자 자리는 비워 둔다.
     limit: L-PENDING
-  - id: E8-00
+  - id: E8-01
     group: IV.Q6
-    kind: pending
-    pending_exp: e8_mutation
+    exp: e8_mutation
     hyp: H6.3
-    verdict: 대기
-    text: 뮤테이션(테스트 강도) 점검은 아직 끝나지 않았다. 연구 결론에는 쓰지 않고 품질 확인으로만 쓴다.
-    limit: L-PENDING
+    verdict: 지지(반증 실패)
+    text: 줄 커버리지가 모두 95% 이상인 안전 핵심 모듈 10개 중 7개가 뮤테이션 점수 90% 미만이다. 사전 등록 반증 조건('대상 모듈 모두 90% 이상')에 걸리지 않았으므로 H6.3 은 지지다. 핵심 연산자 450개의 점수는 80.0%이다. 커버리지(테스트가 그 줄을 지나갔는가)가 높아도 뮤테이션 점수(그 줄이 틀리면 테스트가 알아채는가)는 모듈마다 크게 다르다. 가장 낮은 것은 notifier·llm_judge·intervention 이고, Gate1 결정론 게이트(guardrail)와 executor 는 거의 다 잡는다 — 커버리지가 높으면 안심도 아니고 낮다도 아니며 모듈마다 다르다. 이 가설은 등록 때 품질 확인이라 연구 결론에서 제외로 적혀 있었다.
+    fig: e8_mutation/figures/coverage_vs_mutation.png
+    limit: L-E8
+    items:
+      - {label: 핵심 연산자 뮤테이션 점수(대상 10개 합), path: [overall, core, score_targeted], expected: 80.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "80.0"}
+      - {label: 95% 구간 하한, path: [overall, core, score_targeted_ci95, 0], expected: 76.2, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "76.2"}
+      - {label: 95% 구간 상한, path: [overall, core, score_targeted_ci95, 1], expected: 83.8, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "83.8"}
+      - {label: 가장 낮은 모듈의 줄 커버리지, path: [modules, "*", coverage_pct], agg: min, expected: 95.9, round: 1, fmt: "{:.1f}", unit: "%", md: "95.9"}
+      - {label: 점수가 90% 미만인 모듈(커버리지 95% 이상 중), path: [h63_modules_low_score_despite_coverage], agg: len, expected: 7, round: 0, fmt: "{:,.0f}", unit: "/10 모듈", md: "7/10"}
+      - {label: 반증 조건('모두 90% 이상') 해당 여부, path: [h63_all_modules_ge_90], expected: false}
+      - {label: 변이 수(핵심 연산자), path: [overall, core, n], expected: 450, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 변이 수(추가 연산자 포함 전체), path: [overall, all, n], expected: 742, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: notifier 점수(가장 낮은 쪽), path: [modules, liot/layers/l4_execution/notifier.py, score_core], expected: 56.25, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "56.2"}
+      - {label: llm_judge 점수, path: [modules, liot/layers/l3_judgment/llm_judge.py, score_core], expected: 57.1, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "57.1"}
+      - {label: guardrail(Gate1) 점수(반례), path: [modules, liot/layers/l3_judgment/guardrail.py, score_core], expected: 100.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "100.0"}
+      - {label: executor 점수(반례), path: [modules, liot/layers/l4_execution/executor.py, score_core], expected: 97.5, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "97.5"}
+  - id: E8-02
+    group: IV.Q6
+    exp: e8_mutation
+    hyp: H6.3 (가정에 따른 흔들림)
+    verdict: 지지(개수는 가정에 따라 크게 흔들림)
+    text: 90% 미만인 모듈의 개수는 가정에 따라 7 → 4 → 2 로 줄어든다(핵심 연산자·직접 관련 테스트 → 동치 변이를 분모에서 뺌 → 추가 연산자까지 포함하고 동치 제외). '하나 이상'이라는 판정은 어느 가정에서도 유지되지만 개수는 하나의 숫자로 쓰지 않는다. 동치 판정은 사람이 코드를 읽고 한 것이며 증명이 아니다.
+    limit: L-E8
+    items:
+      - {label: 핵심 연산자·직접 관련 테스트(사전 등록 방식), fn: e8_modules_below, args: {block: core, key: score_targeted}, path: [modules], expected: 7, round: 0, fmt: "{:,.0f}", unit: "/10 모듈", md: "7/10", note: 파생값 — 모듈별 summary.json 칸에서 계산}
+      - {label: 핵심 연산자·동치 변이를 분모에서 뺌, fn: e8_modules_below, args: {block: core, key: score_adjusted}, path: [modules], expected: 4, round: 0, fmt: "{:,.0f}", unit: "/10 모듈", md: "4/10", note: 파생값 — 모듈별 summary.json 칸에서 계산}
+      - {label: 추가 연산자 포함·동치 제외, fn: e8_modules_below, args: {block: all, key: score_adjusted}, path: [modules], expected: 2, round: 0, fmt: "{:,.0f}", unit: "/10 모듈", md: "2/10", note: 파생값 — 모듈별 summary.json 칸에서 계산}
+      - {label: 동치로 판정한 변이, path: [survivor_class_counts, equivalent], expected: 35, round: 0, fmt: "{:,.0f}", unit: " 개", md: "35"}
+  - id: E8-03
+    group: IV.Q6
+    exp: e8_mutation
+    hyp: H6.3 (살아남은 변이의 분류)
+    verdict: 지지 — 안전 관련 빈틈 15곳(후속 테스트 대상)
+    text: 전체 테스트로도 안 잡힌 살아남은 변이 95개를 사람이 읽고 나누면 동치 35, 테스트 없는 동작 45, 안전 관련 빈틈 15이다. 안전 관련 빈틈 15는 '그 줄이 지금 사고를 낸다'는 뜻이 아니라 '틀려져도 테스트가 알려 주지 못한다'는 뜻이다(egress_gate 6·severity 6·llm_judge 1·executor 1·notifier 1). 진짜 하드 게이트 위반은 이 실험에서 관찰되지 않았다. 이 15곳에 대한 테스트는 다른 가지에서 쓰는 중이라 이 자료집의 숫자는 테스트 추가 전 상태다.
+    limit: L-E8
+    items:
+      - {label: 전체 테스트로도 살아남은 변이, path: [survivors_after_full_suite], expected: 95, round: 0, fmt: "{:,.0f}", unit: " 개", md: "95"}
+      - {label: 안전 관련 빈틈, path: [survivor_class_counts, safety_gap], expected: 15, round: 0, fmt: "{:,.0f}", unit: " 곳", md: "15"}
+      - {label: 테스트 없는 동작, path: [survivor_class_counts, untested], expected: 45, round: 0, fmt: "{:,.0f}", unit: " 개", md: "45"}
+      - {label: 하네스 점검 카나리 변이가 모두 잡혔나, path: [validation, canary_all_killed], expected: true}
+      - {label: 하네스 점검 운영 코드가 변이 전후 동일한가, path: [validation, integrity_all_equal], expected: true}
+      - {label: 부하로 120초에 걸린 시험 중 재판정에서 살아남은 것, path: [timeouts, recheck_outcomes, survived], expected: 6, round: 0, fmt: "{:,.0f}", unit: "/9 건", md: "6"}
+
   - id: E9-00
     group: IV.Q5
     kind: pending
