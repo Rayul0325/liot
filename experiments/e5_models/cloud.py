@@ -28,7 +28,13 @@ from pathlib import Path
 from typing import Any
 
 from experiments.common import io
-from experiments.e5_models.benchkit import CLOUD_JUDGES, CONTEXTS, SEVERITIES, TIERS, run_bench
+from experiments.e5_models.benchkit import (
+    CLOUD_CONTEXTS,
+    CLOUD_JUDGES,
+    SEVERITIES,
+    TIERS,
+    run_bench,
+)
 
 EXP_DIR = Path(__file__).resolve().parent
 RAW = EXP_DIR / "raw"
@@ -348,7 +354,7 @@ def run_judge(
         return
     done = io.done_keys(DERIVED, ("judge", "context", "id", "rep"))
     consecutive = 0
-    for context in CONTEXTS:
+    for context in CLOUD_CONTEXTS:
         for rep in range(reps):
             for b in cases[context]:
                 if only and not b.cid.startswith(only):
@@ -390,7 +396,7 @@ def main() -> None:
     if secrets.status != "ok":
         raise SystemExit(f"secrets not usable: {secrets.status}")
     rb = run_bench()
-    cases = {c: rb.build_all(rb.load_cases(), c) for c in CONTEXTS}
+    cases = {c: rb.build_all(rb.load_cases(), c) for c in CLOUD_CONTEXTS}
     RAW.mkdir(parents=True, exist_ok=True)
     meter = Meter(args.budget, USAGE_PATH)
     stop: dict[str, str] = {}

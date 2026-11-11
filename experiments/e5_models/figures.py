@@ -129,7 +129,7 @@ def fig_c25(s: dict[str, Any], exp_dir: Path) -> Path:
         for off, ctx, color, label in (
             (-w, "sentence", plotstyle.ACCENT, "상황 문장"),
             (0, "operational", plotstyle.GREY, "운영 집계 요약"),
-            (w, "structured", plotstyle.GREY_DARK, "집계 요약 + 관측값 2개"),
+            (w, "target", plotstyle.GREY_DARK, "집계 요약 + 관측값 2개"),
         ):
             ax.bar(x + off, [c[j][f"{key}_{ctx}"] for j in judges], w, color=color, label=label)
         ax.set_xticks(x, judges, rotation=25, ha="right", fontsize=8)
@@ -138,7 +138,7 @@ def fig_c25(s: dict[str, Any], exp_dir: Path) -> Path:
     p = s["c25_structured"]["rep0"]["pooled"]
     fig.suptitle(
         f"C2.5: 올림 차이 중 돌아온 몫 {p['returned_fraction']:.2f} (문장 {p['raised_sentence']} → 요약 "
-        f"{p['raised_operational']} → 관측값 {p['raised_structured']}), 전체 7 판정자 합",
+        f"{p['raised_operational']} → 관측값 {p['raised_target']}), 전체 7 판정자 합",
         fontsize=11,
     )
     return plotstyle.save(fig, exp_dir, "c25_structured_observations")

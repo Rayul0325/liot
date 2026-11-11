@@ -24,7 +24,7 @@ from experiments.common.io import read_jsonl
 TIERS = ("ambient", "breath", "dusk", "ember")
 SEVERITIES = ("record", "notice", "warning", "critical")
 SCALE = {"tier": TIERS, "severity": SEVERITIES}
-CONTEXTS = ("sentence", "operational", "structured")
+CONTEXTS = ("sentence", "operational", "structured", "subtype", "subtype_trait")
 JEVK5 = ("jevk5-9b-q8", "jevk5-4b-q8", "jevk5-4b-q4")
 EXCLUDED = ("jev-omni-q4",)
 BOOT = 2000
@@ -51,6 +51,8 @@ def _load(raw: Path) -> tuple[dict[tuple[str, str], dict[tuple[str, int], dict[s
     for fname in ("answers_local.jsonl", "answers_cloud.jsonl"):
         for r in read_jsonl(raw / fname):
             table.setdefault((r["judge"], r["context"]), {})[(r["id"], r["rep"])] = r
+    for r in read_jsonl(raw / "answers_rule.jsonl"):
+        RULE_ROWS.setdefault((r["judge"], r["context"]), {})[(r["id"], r["rep"])] = r
     labels_rows = read_jsonl(raw / "labels_draft.jsonl")
     labels = labels_rows[0]["labels"] if labels_rows else {}
     return table, labels
@@ -313,6 +315,8 @@ def _h53(
     return out
 
 
+RULE_ROWS: dict[tuple[str, str], dict[tuple[str, int], dict[str, Any]]] = {}
+
 LOCAL_NAMES = ("jevk5-9b-q8", "jevk5-4b-q8", "jevk5-4b-q4", "apus-openjev-4b-q4", "jev-9b-q6")
 CLOUD_NAMES = ("jev-api", "luna", "haiku")
 
@@ -387,17 +391,19 @@ def _p_above(row: dict[str, Any], q: str, floor: int) -> float | None:
 
 # ── C2.5 ─────────────────────────────────────────────────────────────────────
 def _c25_counts(
-    table: dict[tuple[str, str], dict[tuple[str, int], dict[str, Any]]], judge: str, rep: int
+    table: dict[tuple[str, str], dict[tuple[str, int], dict[str, Any]]], judge: str, rep: int,
+    target: str = "structured",
 ) -> dict[str, Any] | None:
     """Per-item raise/below flags in the three contexts, paired on non-injection items."""
     its = {}
-    for c in CONTEXTS:
+    ctxs = ("sentence", "operational", target)
+    for c in ctxs:
         if (judge, c) not in table:
             return None
         its[c] = _by_item(table[(judge, c)], rep)
     keys = sorted(
         k for k in its["sentence"]
-        if k in its["operational"] and k in its["structured"] and not _is_injection(its["sentence"][k][2])
+        if k in its["operational"] and k in its[target] and not _is_injection(its["sentence"][k][2])
     )
     if not keys:
         return None
@@ -407,7 +413,7 @@ def _c25_counts(
             "below": np.array([int(its[c][k][0] < its[c][k][1]) for k in keys]),
             "ans": np.array([its[c][k][0] for k in keys]),
         }
-        for c in CONTEXTS
+        for c in ctxs
     }
     return {"keys": keys, "flags": flags}
 
@@ -418,7 +424,8 @@ def _returned(raise_s: float, raise_o: float, raise_t: float) -> float | None:
 
 
 def _c25(
-    table: dict[tuple[str, str], dict[tuple[str, int], dict[str, Any]]], judges: list[str], rep: int
+    table: dict[tuple[str, str], dict[tuple[str, int], dict[str, Any]]], judges: list[str], rep: int,
+    target: str = "structured",
 ) -> dict[str, Any]:
     """C2.5: share of the sentence-vs-operational raise gap that returns with two structured fields.
 
@@ -429,42 +436,43 @@ def _c25(
     per: dict[str, Any] = {}
     data: dict[str, dict[str, Any]] = {}
     for j in judges:
-        d = _c25_counts(table, j, rep)
+        d = _c25_counts(table, j, rep, target)
         if d is None:
             continue
         data[j] = d
         f = d["flags"]
-        rs, ro, rt = (int(f[c]["raise"].sum()) for c in ("sentence", "operational", "structured"))
-        bs, bo, bt = (int(f[c]["below"].sum()) for c in ("sentence", "operational", "structured"))
-        n10 = int(((f["structured"]["raise"] == 1) & (f["operational"]["raise"] == 0)).sum())
-        n01 = int(((f["structured"]["raise"] == 0) & (f["operational"]["raise"] == 1)).sum())
+        rs, ro, rt = (int(f[c]["raise"].sum()) for c in ("sentence", "operational", target))
+        bs, bo, bt = (int(f[c]["below"].sum()) for c in ("sentence", "operational", target))
+        n10 = int(((f[target]["raise"] == 1) & (f["operational"]["raise"] == 0)).sum())
+        n01 = int(((f[target]["raise"] == 0) & (f["operational"]["raise"] == 1)).sum())
         disc = n10 + n01
         per[j] = {
             "n_items": len(d["keys"]),
-            "raised_sentence": rs, "raised_operational": ro, "raised_structured": rt,
+            "raised_sentence": rs, "raised_operational": ro, "raised_target": rt,
             "gap_sentence_minus_operational": rs - ro,
             "returned_fraction": _returned(rs, ro, rt),
-            "below_floor_sentence": bs, "below_floor_operational": bo, "below_floor_structured": bt,
+            "below_floor_sentence": bs, "below_floor_operational": bo, "below_floor_target": bt,
             "below_floor_not_above_operational": bt <= bo,
-            "answers_changed_structured_vs_operational": int((f["structured"]["ans"] != f["operational"]["ans"]).sum()),
+            "answers_changed_target_vs_operational": int((f[target]["ans"] != f["operational"]["ans"]).sum()),
             "answers_changed_sentence_vs_operational": int((f["sentence"]["ans"] != f["operational"]["ans"]).sum()),
-            "mcnemar_structured_only_raise": n10, "mcnemar_operational_only_raise": n01,
+            "mcnemar_target_only_raise": n10, "mcnemar_operational_only_raise": n01,
             "mcnemar_exact_p": float(stats.binomtest(n10, disc, 0.5).pvalue) if disc else 1.0,
         }
     if not data:
         return {"rep": rep, "per_judge": per}
     # pooled over judges; bootstrap over cases (a case brings its items for every judge)
     case_ids = sorted({k[0] for d in data.values() for k in d["keys"]})
-    tot = {c: {"raise": 0, "below": 0} for c in CONTEXTS}
+    ctxs = ("sentence", "operational", target)
+    tot = {c: {"raise": 0, "below": 0} for c in ctxs}
     for d in data.values():
-        for c in CONTEXTS:
+        for c in ctxs:
             tot[c]["raise"] += int(d["flags"][c]["raise"].sum())
             tot[c]["below"] += int(d["flags"][c]["below"].sum())
     rng = _rng(f"c25-{rep}")
     fr: list[float] = []
     dbelow: list[int] = []
     cols = {
-        (j, c): (d["flags"][c]["raise"], d["flags"][c]["below"]) for j, d in data.items() for c in CONTEXTS
+        (j, c): (d["flags"][c]["raise"], d["flags"][c]["below"]) for j, d in data.items() for c in ctxs
     }
     idx_by_case = {
         j: {cid: [i for i, k in enumerate(d["keys"]) if k[0] == cid] for cid in case_ids}
@@ -472,48 +480,143 @@ def _c25(
     }
     for _ in range(BOOT):
         pick = rng.integers(0, len(case_ids), size=len(case_ids))
-        sums = {c: [0, 0] for c in CONTEXTS}
+        sums = {c: [0, 0] for c in ctxs}
         for j in data:
             sel = [i for p in pick for i in idx_by_case[j][case_ids[p]]]
-            for c in CONTEXTS:
+            for c in ctxs:
                 sums[c][0] += int(cols[(j, c)][0][sel].sum())
                 sums[c][1] += int(cols[(j, c)][1][sel].sum())
-        ret = _returned(sums["sentence"][0], sums["operational"][0], sums["structured"][0])
+        ret = _returned(sums["sentence"][0], sums["operational"][0], sums[target][0])
         if ret is not None:
             fr.append(ret)
-        dbelow.append(sums["structured"][1] - sums["operational"][1])
-    pooled_ret = _returned(tot["sentence"]["raise"], tot["operational"]["raise"], tot["structured"]["raise"])
-    below_ok = tot["structured"]["below"] <= tot["operational"]["below"]
+        dbelow.append(sums[target][1] - sums["operational"][1])
+    pooled_ret = _returned(tot["sentence"]["raise"], tot["operational"]["raise"], tot[target]["raise"])
+    below_ok = tot[target]["below"] <= tot["operational"]["below"]
     supported = pooled_ret is not None and pooled_ret >= 0.5 and below_ok
     return {
         "rep": rep,
+        "target_context": target,
         "judges": sorted(data),
         "per_judge": per,
         "pooled": {
             "raised_sentence": tot["sentence"]["raise"],
             "raised_operational": tot["operational"]["raise"],
-            "raised_structured": tot["structured"]["raise"],
+            "raised_target": tot[target]["raise"],
             "returned_fraction": pooled_ret,
             "returned_fraction_ci95_case_bootstrap": (
                 [float(np.percentile(fr, 2.5)), float(np.percentile(fr, 97.5))] if fr else None
             ),
             "below_floor_sentence": tot["sentence"]["below"],
             "below_floor_operational": tot["operational"]["below"],
-            "below_floor_structured": tot["structured"]["below"],
-            "below_floor_structured_minus_operational_ci95": [
+            "below_floor_target": tot[target]["below"],
+            "below_floor_target_minus_operational_ci95": [
                 float(np.percentile(dbelow, 2.5)), float(np.percentile(dbelow, 97.5))
             ],
         },
-        "prediction": "returned fraction >= 0.5 and pooled below-floor (structured) <= operational",
+        "prediction": "returned fraction >= 0.5 and pooled below-floor (target) <= operational",
         "prediction_supported": bool(supported),
         "returned_ge_half": bool(pooled_ret is not None and pooled_ret >= 0.5),
         "below_floor_not_above_operational": bool(below_ok),
     }
 
 
+# ── C3.1: coder agreement and the rule-lookup judge ──────────────────────────
+def _cohen_kappa(a: list[str], b: list[str]) -> float | None:
+    n = len(a)
+    cats = sorted(set(a) | set(b))
+    po = sum(int(x == y) for x, y in zip(a, b, strict=True)) / n
+    pe = sum((a.count(c) / n) * (b.count(c) / n) for c in cats)
+    return None if pe >= 1 else float((po - pe) / (1 - pe))
+
+
+def _coder_agreement(raw: Path) -> dict[str, Any]:
+    rows = read_jsonl(raw / "observations_agreement.jsonl")
+    if not rows:
+        return {}
+    mine, blind = rows[0]["mine"], rows[0]["blind"]
+    ids = sorted(set(mine) & set(blind))
+    out: dict[str, Any] = {"n_cases": len(ids), "coders": "author (C2.5, observations.yaml) vs blind coder"}
+    for f in ("occupied", "abnormal_for"):
+        a = [mine[i][f] for i in ids]
+        b = [blind[i][f] for i in ids]
+        diff = [i for i in ids if mine[i][f] != blind[i][f]]
+        out[f] = {
+            "raw_agreement": sum(int(x == y) for x, y in zip(a, b, strict=True)) / len(ids),
+            "cohen_kappa": _cohen_kappa(a, b),
+            "n_disagree": len(diff),
+            "disagree_ids": {i: [mine[i][f], blind[i][f]] for i in diff},
+            "categories_author": {c: a.count(c) for c in sorted(set(a))},
+            "categories_blind": {c: b.count(c) for c in sorted(set(b))},
+        }
+    codes = {blind[i]["subtype"] for i in ids}
+    out["n_subtype_codes_used"] = len(codes)
+    out["replacements_applied_in_main_arm"] = rows[0].get("replacements", {})
+    out["cases_with_instruction_flag"] = sum(int(blind[i]["has_instruction"] == "yes") for i in ids)
+    return out
+
+
+def _rule_block(
+    table: dict[tuple[str, str], dict[tuple[str, int], dict[str, Any]]],
+    labels: dict[str, Any],
+    judges: list[str],
+) -> dict[str, Any]:
+    rows = RULE_ROWS.get(("rule-lookup", "subtype"))
+    if not rows:
+        return {}
+    basics = _basics(rows, labels, 0)
+    add5 = _add5(rows, 0, "add5-rule")
+    models: dict[str, Any] = {}
+    for j in judges:
+        if (j, "subtype") not in table or (j, "subtype") not in table:
+            continue
+        mrows = table[(j, "subtype")]
+        mb = _basics(mrows, labels, 0)
+        ma = _add5(mrows, 0, f"add5-{j}-subtype")
+        # item-level agreement with the rule on the same codes (answer equality)
+        ri = _by_item(rows, 0)
+        mi = _by_item(mrows, 0)
+        common = sorted(set(ri) & set(mi))
+        models[j] = {
+            "above_floor": mb["above_floor"],
+            "below_floor": mb["below_floor"],
+            "add5_answer_level": None if ma is None else ma["answer_level"],
+            "answer_equal_to_rule": sum(int(ri[k][0] == mi[k][0]) for k in common),
+            "items_compared": len(common),
+        }
+    miss = [m["add5_answer_level"]["miss_rate"] for m in models.values() if m["add5_answer_level"]]
+    over = [m["add5_answer_level"]["over_raise_rate"] for m in models.values() if m["add5_answer_level"]]
+    rule_ans = None if add5 is None else add5["answer_level"]
+    matches = None
+    if rule_ans is not None and miss:
+        matches = bool(
+            rule_ans["miss_rate"] <= float(np.median(miss)) + 1e-9
+            and rule_ans["over_raise_rate"] <= float(np.median(over)) + 1.0 / max(1, add5["pairs"]) + 1e-9
+        )
+    return {
+        "rule": {
+            "above_floor": basics["above_floor"],
+            "below_floor": basics["below_floor"],
+            "noninjection_items": basics["noninjection_items"],
+            "draft_label_raise_when_should": basics["draft_label_raise_when_should"],
+            "draft_label_over_raise": basics["draft_label_over_raise"],
+            "add5_answer_level": rule_ans,
+            "add5_pairs": None if add5 is None else add5["pairs"],
+        },
+        "models_subtype_arm": models,
+        "comparison_rule": (
+            "rule matches or beats the models if its ADD-5 miss rate <= the models' median miss rate "
+            "AND its over-raise rate <= the models' median + one pair (fixed before the run)"
+        ),
+        "rule_matches_or_beats_models": matches,
+        "models_median_miss": float(np.median(miss)) if miss else None,
+        "models_median_over_raise": float(np.median(over)) if over else None,
+    }
+
+
 # ── main ─────────────────────────────────────────────────────────────────────
 def summarize(raw_dir: Path) -> dict[str, Any]:
     raw = Path(raw_dir)
+    RULE_ROWS.clear()
     table, labels = _load(raw)
     judges = sorted({j for j, _ in table})
     out: dict[str, Any] = {
@@ -574,10 +677,18 @@ def summarize(raw_dir: Path) -> dict[str, Any]:
                     and any(r == rep for (_, r) in table[(j, c)])]
             if len(have) >= 3:
                 out["h53_agreement"][f"{c}_rep{rep}"] = _h53(table, c, rep, have)
-    for rep in reps_all:
-        c25_judges = [j for j in valid_judges if all((j, c) in table for c in CONTEXTS)]
-        if c25_judges:
-            out["c25_structured"][f"rep{rep}"] = _c25(table, c25_judges, rep)
+    out["coder_agreement"] = _coder_agreement(raw)
+    out["rule_lookup_vs_models"] = _rule_block(table, labels, valid_judges)
+    out["c31_subtype"] = {}
+    out["c31_subtype_trait_side_arm"] = {}
+    for target, key in (("structured", "c25_structured"), ("subtype", "c31_subtype"),
+                        ("subtype_trait", "c31_subtype_trait_side_arm")):
+        for rep in reps_all:
+            need = ("sentence", "operational", target)
+            tj = [j for j in valid_judges if all((j, c) in table for c in need)
+                  and any(r == rep for (_, r) in table[(j, target)])]
+            if tj:
+                out[key][f"rep{rep}"] = _c25(table, tj, rep, target)
     for j in valid_judges:
         out["add5_miss_vs_table"][j] = {}
         for c in CONTEXTS:

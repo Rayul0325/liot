@@ -68,7 +68,11 @@ RAW_OPERATIONAL_DIR = HERE / "raw_operational"
 RAW_LATENCY_DIR = HERE / "raw_latency"
 RAW_STRUCTURED_DIR = HERE / "raw_structured"  # --context structured (C2.5)
 OBSERVATIONS_PATH = HERE / "observations.yaml"
-CONTEXT_MODES = ("sentence", "operational", "structured")
+RAW_SUBTYPE_DIR = HERE / "raw_subtype"  # --context subtype (C3.1 주 팔)
+RAW_SUBTYPE_TRAIT_DIR = HERE / "raw_subtype_trait"  # --context subtype_trait (영아 코드 그대로, 탐색 부차 팔)
+BLIND_PATH = HERE / "observations_blind.yaml"
+REPLACEMENTS_PATH = HERE / "subtype_replacements.yaml"
+CONTEXT_MODES = ("sentence", "operational", "structured", "subtype", "subtype_trait")
 
 PORT_BASE = 18770
 REQUEST_TIMEOUT_S = 60.0  # 측정용. 운영 기본(1.5s)보다 길게 — 느린 모델도 degraded 대신 잰다.
@@ -147,6 +151,33 @@ def structured_summary(b: Built, obs: dict[str, dict[str, str]]) -> str:
     return f"{operational_summary(b)}; occupied={o['occupied']}; abnormal_for={o['abnormal_for']}"
 
 
+def subtype_summary(b: Built, blind: dict[str, dict[str, str]], repl: dict[str, str]) -> str:
+    """운영 집계 요약 + 맹검 코더의 하위 종류 코드와 두 관측값. 자유 텍스트 없음.
+
+    ``repl`` 이 비어 있지 않으면 특성(영아·나이)을 담은 코드를 특성 없는 동등 코드로 바꾼다(주 팔).
+    """
+    o = blind[b.cid]
+    code = repl.get(o["subtype"], o["subtype"])
+    return (
+        f"{operational_summary(b)}; subtype={code}; occupied={o['occupied']}; "
+        f"abnormal_for={o['abnormal_for']}"
+    )
+
+
+def load_blind() -> tuple[dict[str, dict[str, str]], dict[str, str], list[str]]:
+    doc = _load_yaml(BLIND_PATH)
+    rep_doc = _load_yaml(REPLACEMENTS_PATH)
+
+    def norm(x: Any) -> str:
+        return "yes" if x is True else "no" if x is False else str(x)
+
+    blind = {
+        str(k): {f: norm(v[f]) for f in ("subtype", "occupied", "abnormal_for")}
+        for k, v in doc["cases"].items()
+    }
+    return blind, dict(rep_doc["replace"]), list(rep_doc["forbidden_substrings"])
+
+
 def load_observations() -> dict[str, dict[str, str]]:
     doc = _load_yaml(OBSERVATIONS_PATH)
     # YAML 1.1 은 yes/no 를 불리언으로 읽는다 → 문자열로 되돌린다.
@@ -169,6 +200,25 @@ def build_all(cases: list[dict[str, Any]], context_mode: str = "sentence") -> li
             out.append(build_one(spec, guard, table))
         except CaseError as exc:
             raise SystemExit(str(exc)) from None
+    if context_mode in ("subtype", "subtype_trait"):
+        blind, repl, forbidden = load_blind()
+        missing = sorted({b.cid for b in out} - set(blind))
+        if missing:
+            raise SystemExit(f"observations_blind.yaml 에 없는 케이스: {missing}")
+        use = repl if context_mode == "subtype" else {}
+        out = [
+            Built(
+                b.cid, b.spec, b.candidate,
+                b.ctx.model_copy(update={"nl_summary": subtype_summary(b, blind, use)}),
+                b.gate1, b.severity_floor, b.severity_sources,
+            )
+            for b in out
+        ]
+        hits = [(b.cid, w) for b in out for w in TRAIT_WORDS if w in b.ctx.nl_summary]
+        if context_mode == "subtype":  # 주 팔: 영문 특성 낱말도 막는다
+            hits += [(b.cid, w) for b in out for w in forbidden if w in b.ctx.nl_summary]
+        if hits:
+            raise SystemExit(f"하위 종류 요약에 특성 낱말이 있다: {hits}")
     if context_mode == "structured":
         obs = load_observations()
         missing = sorted({b.cid for b in out} - set(obs))
@@ -505,6 +555,10 @@ def cmd_run(args: argparse.Namespace) -> int:
         raw_dir = RAW_OPERATIONAL_DIR
     elif context_mode == "structured":
         raw_dir = RAW_STRUCTURED_DIR
+    elif context_mode == "subtype":
+        raw_dir = RAW_SUBTYPE_DIR
+    elif context_mode == "subtype_trait":
+        raw_dir = RAW_SUBTYPE_TRAIT_DIR
     else:
         raw_dir = RAW_DIR
     if getattr(args, "raw_dir", None):  # 재현 확인용: 원본 raw/ 를 건드리지 않고 다른 곳에 쓴다
@@ -1000,7 +1054,7 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--port", type=int, default=PORT_BASE)
     pr.add_argument(
         "--context", choices=CONTEXT_MODES, default="sentence",
-        help="sentence(기본, 한국어 상황 문장) | operational(운영 집계 요약 — raw_operational/) | structured(집계 요약 + 관측값 둘 — raw_structured/)",
+        help="sentence(기본, 한국어 상황 문장) | operational(운영 집계 요약 — raw_operational/) | structured(집계 요약 + 관측값 둘 — raw_structured/) | subtype(집계 요약 + 맹검 하위 종류 코드 — raw_subtype/) | subtype_trait(영아 코드 그대로, 탐색 — raw_subtype_trait/)",
     )
     pr.add_argument(
         "--latency-only", action="store_true",
