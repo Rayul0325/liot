@@ -38,22 +38,26 @@ def _lane(blk: Block, k: str) -> dict[str, np.ndarray]:
     }
 
 
-def _share_below(blk: Block) -> tuple[float, np.ndarray]:
+def _share_below(blk: Block, upto: int = 2) -> tuple[float, np.ndarray]:
+    """Share of harmful proposals on LIOT tiers < upto (2: AMBIENT+BREATH, 1: AMBIENT only)."""
     ht = np.array([r["harm_by_tier"] for r in blk.recs], float)
-    per_set = (ht[:, :2].sum(1)) / np.maximum(1, ht.sum(1))
-    return float(ht[:, :2].sum() / ht.sum()), per_set
+    per_set = (ht[:, :upto].sum(1)) / np.maximum(1, ht.sum(1))
+    return float(ht[:, :upto].sum() / ht.sum()), per_set
 
 
 # ── C2.1 ─────────────────────────────────────────────────────────────────────────────────
-def c21(blocks: dict[str, Block], names: tuple[str, ...]) -> dict[str, Any]:
+def c21(blocks: dict[str, Block], names: tuple[str, ...], upto: int = 2) -> dict[str, Any]:
+    """C2.1 (upto=2: share on BREATH-or-below) and C2.11(a) (upto=1: share on AMBIENT)."""
     rows = []
     for bname in names:
         if bname not in blocks:
             continue
         blk = blocks[bname]
         fpos = blk.p["f"] > 0
-        share, per_set = _share_below(blk)
+        share, per_set = _share_below(blk, upto)
         row: dict[str, Any] = {"block": bname, "realized_breath_or_below_share": share,
+                               "realized_ambient_share": _share_below(blk, 1)[0],
+                               "realized_dial_share": share,
                                "per_set_quartiles": [float(x) for x in np.percentile(per_set, [25, 50, 75])]}
         for m in (0.0, 0.1):
             flat = key("flat_explicit", "exp", m)
@@ -76,7 +80,7 @@ def c21(blocks: dict[str, Block], names: tuple[str, ...]) -> dict[str, Any]:
         rows.append(row)
     out: dict[str, Any] = {"rows": rows}
     for m in ("m0.0", "m0.1"):
-        xs = [r["realized_breath_or_below_share"] for r in rows]
+        xs = [r["realized_dial_share"] for r in rows]
         ys = [r[m]["liot_real"]["area_harm_lower_seed_noise_sig"]["share"] for r in rows]
         cross = None
         for i in range(1, len(xs)):
@@ -131,6 +135,18 @@ def c22(blk: Block) -> dict[str, Any]:
                     },
                 }
             kr, kf = key("liot_real", sh, m), key("liot_full", sh, m)
+            lr = _lane(blk, kr)
+            fc = _lane(blk, sim.Group("flat_explicit", sh, m=m, ceil="liot").key)
+            res["liot_real_vs_flat_same_liot_ceiling"] = {
+                "harm_diff": dist(lr["harm"] - fc["harm"], fpos), "help_diff": dist(lr["help"] - fc["help"], fpos),
+                "burden_diff": dist(lr["burden"] - fc["burden"], fpos),
+                "share_sets_liot_real_harm_higher_point": float(np.mean((lr["harm"] - fc["harm"])[fpos] > 0)),
+                "share_sets_liot_real_help_higher_point": float(np.mean((lr["help"] - fc["help"])[fpos] > 0)),
+                "means": {"harm_liot_real": float(lr["harm"][fpos].mean()), "harm_flat_ceiling": float(fc["harm"][fpos].mean()),
+                          "help_liot_real": float(lr["help"][fpos].mean()), "help_flat_ceiling": float(fc["help"][fpos].mean()),
+                          "burden_liot_real": float(lr["burden"][fpos].mean()),
+                          "burden_flat_ceiling": float(fc["burden"][fpos].mean())},
+            }
             res["liot_real_reference"] = {k: dist(v, fpos) for k, v in _lane(blk, kr).items()}
             res["liot_full_reference"] = {k: dist(v, fpos) for k, v in _lane(blk, kf).items()}
             out[sh][f"m{m:.1f}"] = res
@@ -228,3 +244,31 @@ def c24(blk: Block) -> dict[str, Any]:
         f"{p}_m{m:.1f}": {k: float(np.mean(v[fpos])) for k, v in _lane(blk, key(p, "exp", m)).items() if k != "silenced"}
         for p in ("flat_explicit", "liot_full", "liot_real") for m in (0.0, 0.1)}
     return out
+
+
+# ── C2.11(b): light-confirmation rubber-stamp as a multiple of explicit ──────────────────
+def c211b(blocks: dict[str, Block], names: tuple[str, ...], mults: tuple[float, ...]) -> dict[str, Any]:
+    rows = []
+    for bname, mult in zip(names, mults, strict=True):
+        if bname not in blocks:
+            continue
+        blk = blocks[bname]
+        fpos = blk.p["f"] > 0
+        row: dict[str, Any] = {"block": bname, "light_rubber_stamp_multiple": mult}
+        for m in (0.0, 0.1):
+            flat = key("flat_explicit", "exp", m)
+            res: dict[str, Any] = {}
+            for pol in ("liot_real", "liot_full"):
+                kp = key(pol, "exp", m)
+                d = paired(blk, kp, flat, "harm")
+                c = cls(d)
+                res[pol] = {
+                    "area_harm_higher_seed_noise_sig": area(c["higher"], fpos),
+                    "area_harm_lower_seed_noise_sig": area(c["lower"], fpos),
+                    "share_sets_harm_higher_point": float(np.mean(d["est"][fpos] > 0)),
+                    "harm_diff_pooled": pooled(blk, kp, flat, "harm", fpos),
+                    "help_diff_pooled": pooled(blk, kp, flat, "help", fpos),
+                }
+            row[f"m{m:.1f}"] = res
+        rows.append(row)
+    return {"rows": rows}

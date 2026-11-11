@@ -79,6 +79,7 @@ def truth_codes(
     vuln: np.ndarray,
     pm_bad: np.ndarray,
     low_rules: bool = False,
+    amb_rules: bool = False,
 ) -> np.ndarray:
     """0 helpful / 1 unwanted / 2 harmful for each (template, context) element.
 
@@ -98,6 +99,8 @@ def truth_codes(
 
     put(0, (home & night) if low_rules else False, home & (night | evening))
     harm_lo = home & night & vuln
+    if amb_rules:  # C2.11(a): evening light-off with someone home is harmful (an AMBIENT-tier context)
+        harm_lo = harm_lo | (home & evening)
     put(1, harm_lo, away | (home & (hr >= 6) & (hr < 17)) | (home & night & ~vuln))
     put(2, (home & night) if low_rules else False, home & pm_bad)
     put(3, home & vuln & (temp > 26), home & (temp < 14))
@@ -173,12 +176,13 @@ def _one_seed(prm: dict[str, float], key: int, seed: int, days: int,
         want = np.where(u < prm["harm_frac"], 2, np.where(u < prm["harm_frac"] + prm["unw_frac"], 1, 0))
         pool_ids = np.array(list(opts["low_ids"]))
         pool_low = np.zeros(N_PROP, dtype=bool)
-        pool_low[pool_ids] = True
+        pool_low[list(opts.get("avoid_ids", opts["low_ids"]))] = True  # non-steered harm keeps out of these
         steer = (want == 2) & (rng.random(n) < p_low)
         wl = gm[GROUP_OF[pool_ids]] / cnt[GROUP_OF[pool_ids]]
         wl = wl / wl.sum()
         ct_low = rng.choice(pool_ids, size=(n, kc), p=wl)
-        ch_low = np.where(rng.random((n, kc)) < 0.6, rng.choice([22, 23, 0, 1, 2, 3, 4, 5], size=(n, kc)), cand_h)
+        ch_low = np.where(rng.random((n, kc)) < opts.get("pool_hour_p", 0.6),
+                          rng.choice(opts.get("pool_hours", [22, 23, 0, 1, 2, 3, 4, 5]), size=(n, kc)), cand_h)
         cand_t = np.where(steer[:, None], ct_low, cand_t)
         cand_h = np.where(steer[:, None], ch_low, cand_h)
     daytime = (cand_h >= 8) & (cand_h < 19)
@@ -186,7 +190,8 @@ def _one_seed(prm: dict[str, float], key: int, seed: int, days: int,
     temp = tday[day_p][:, None] - np.where((cand_h >= 22) | (cand_h < 6), 5.0, 0.0)
     rain = rain_day[day_p][:, None]
     pm = pm_day[day_p][:, None]
-    codes = truth_codes(cand_t, cand_h, cand_away, temp, rain, vuln, pm, bool(opts.get("low_rules", False)))
+    codes = truth_codes(cand_t, cand_h, cand_away, temp, rain, vuln, pm, bool(opts.get("low_rules", False)),
+                        bool(opts.get("amb_rules", False)))
     if p_low is None:
         u = rng.random(n)
         want = np.where(u < prm["harm_frac"], 2, np.where(u < prm["harm_frac"] + prm["unw_frac"], 1, 0))

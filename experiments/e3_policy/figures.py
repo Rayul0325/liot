@@ -350,6 +350,37 @@ def c24_fig(summary: dict[str, Any], exp_dir: Path) -> Path:
     return plotstyle.save(fig, exp_dir, "c24_theta_auc")
 
 
+def c211_fig(summary: dict[str, Any], exp_dir: Path) -> Path:
+    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.3))
+    rows = summary["c2_11a"]["rows"]
+    x = [100 * r["realized_ambient_share"] for r in rows]
+    for m, ls in (("m0.0", "-"), ("m0.1", "--")):
+        axes[0].plot(x, [100 * r[m]["liot_real"]["area_harm_lower_seed_noise_sig"]["share"] for r in rows], ls,
+                     color=COLORS["liot_real"], marker="o", label=f"LIOT 실제가 낮음 · m={m[1:]}")
+        axes[0].plot(x, [100 * r[m]["liot_real"]["area_harm_higher_seed_noise_sig"]["share"] for r in rows], ls,
+                     color=plotstyle.GREY_DARK, marker="s", label=f"LIOT 실제가 높음 · m={m[1:]}")
+    axes[0].axhline(50, color=plotstyle.GREY, lw=1, ls=":")
+    axes[0].set_xlabel("해로운 제안 중 LIOT 단계가 잔잔인 비율 (%)")
+    axes[0].set_ylabel("세트 비율 (%, 씨앗 잡음 구간이 0 을 넘는 경우)")
+    axes[0].set_title("(a) 해로움이 잔잔(자동 실행)에 놓이면 — 모두 명시 확인 대비 피해", fontsize=9)
+    axes[0].legend(fontsize=7)
+    rb = summary["c2_11b"]["rows"]
+    xs = np.arange(len(rb))
+    w = 0.38
+    for off, m, col in ((-w / 2, "m0.0", plotstyle.GREY), (w / 2, "m0.1", COLORS["liot_full"])):
+        axes[1].bar(xs + off, [100 * r[m]["liot_full"]["share_sets_harm_higher_point"] for r in rb], w, color=col,
+                    label=f"LIOT 가상이 모두 명시 확인보다 피해 높음(점추정) · m={m[1:]}")
+    axes[1].axhline(50, color=plotstyle.GREY_DARK, lw=1, ls=":")
+    axes[1].set_xticks(xs)
+    axes[1].set_xticklabels([f"{r['light_rubber_stamp_multiple']:.1f}배" for r in rb])
+    axes[1].set_xlabel("탭 한 번 확인의 무심코 승인 확률 (명시 확인의 배수)")
+    axes[1].set_ylabel("세트 비율 (%)")
+    axes[1].set_ylim(0, 118)
+    axes[1].set_title("(b) 탭 한 번 확인이 더 쉽게 승인되면", fontsize=9)
+    axes[1].legend(fontsize=7)
+    return plotstyle.save(fig, exp_dir, "c211_ambient_harm_and_light_stamp")
+
+
 def make_all(raw_dir: Path, summary: dict[str, Any], exp_dir: Path) -> list[Path]:
     plotstyle.setup()
     blocks = analyze.load(raw_dir)
@@ -358,7 +389,8 @@ def make_all(raw_dir: Path, summary: dict[str, Any], exp_dir: Path) -> list[Path
            sensitivity(summary, exp_dir), silenced_by_device(summary, exp_dir)]
     if "policy_table_f0" in summary:
         out.append(f0_sanity(summary, exp_dir))
-    for key_, fn_ in (("c2_1", c21_fig), ("c2_2", c22_fig), ("c2_3", c23_fig), ("c2_4", c24_fig)):
+    for key_, fn_ in (("c2_1", c21_fig), ("c2_2", c22_fig), ("c2_3", c23_fig), ("c2_4", c24_fig),
+                      ("c2_11b", c211_fig)):
         if key_ in summary:
             out.append(fn_(summary, exp_dir))
     return out
