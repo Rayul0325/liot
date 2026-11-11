@@ -274,11 +274,11 @@ async def run_scenario(sc: Scenario, driver: str) -> dict[str, Any]:
         while pending and pending[0][0] <= 0.0:
             await _do(kit, sc, pending.pop(0), gids, rid, tr)
         first_res = await svc.handle_reading(reading(sc.entity, "on"))
+        await svc.drain_phase2()  # phase-2 follow-ups belong to t = 0
         send_times: list[float] = [0.0] * len(tr.stamps)  # driver time of every recorded send
         sit_id = (await svc.safety.get_open_situation(kit.home_id, "gas" if sc.entity == GAS
                                                       else "door", sc.entity))
         sid = sit_id.situation_id if sit_id else ""
-        await svc.drain_phase2()
         iters = 0
         while now < sc.horizon and iters < 20000:
             iters += 1
