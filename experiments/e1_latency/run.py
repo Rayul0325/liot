@@ -460,17 +460,19 @@ def make_figures(summary: dict[str, Any]) -> list[Path]:
                 patch.set_alpha(0.6)
             ax.set_xticks(range(1, len(labels) + 1), labels, fontsize=7)
             ax.set_yscale("log")
+            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:g}"))
+            ax.yaxis.set_minor_formatter(plt.NullFormatter())
             ax.set_title({"normal": "모델 정상 0.2초", "slow": "모델 느림 1.5초",
                           "raising": "모델 예외", "timeout": "마감 초과 4초"}[cond], fontsize=10)
         axes[0].set_ylabel("첫 알림까지 걸린 시간 (초, 로그)")
-        fig.suptitle("E1 첫 알림 지연 — 구조별 · 모델 조건별", fontsize=12)
+        fig.suptitle("E1 첫 알림 지연 — 구조별 · 모델 조건별", fontsize=12, y=1.02)
         out.append(plotstyle.save(fig, EXP_DIR, "latency_by_arm_cond"))
 
     h12 = summary.get("h12", {})
     if h12:
         fig, axes = plt.subplots(1, 3, figsize=(13, 3.9))
         for ax, t in zip(axes, H12_LEVELS, strict=True):
-            ax.plot([0, t], [t, 0], color=plotstyle.GREY, linestyle=":", label="예측 T−o")
+            ax.plot([0, t], [t, 0], color=plotstyle.GREY, linestyle=":", label="예측 T-o")
             for tag, color, marker in (("before", plotstyle.ACCENT, "o"), ("after", "#B24A3E", "s")):
                 cells_ = h12.get(tag, {}).get(f"{t}")
                 if not cells_:
@@ -488,7 +490,7 @@ def make_figures(summary: dict[str, Any]) -> list[Path]:
             ax.set_title(f"편의 판정 T = {t}초")
         axes[0].set_ylabel("가스 첫 알림 지연 (초)")
         axes[0].legend()
-        fig.suptitle("H1.2 느린 편의 판정이 가스 첫 알림을 늦춘다", fontsize=12)
+        fig.suptitle("H1.2 느린 편의 판정이 가스 첫 알림을 늦춘다", fontsize=12, y=1.04)
         out.append(plotstyle.save(fig, EXP_DIR, "h12_comfort_blocks_gas"))
 
     h13 = summary.get("h13", {})
