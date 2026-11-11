@@ -226,12 +226,50 @@ def sensitivity(summary: dict[str, Any], exp_dir: Path) -> Path:
     return plotstyle.save(fig, exp_dir, "sensitivity_ranges")
 
 
+def silenced_by_device(summary: dict[str, Any], exp_dir: Path) -> Path:
+    d = summary["h2_6_device_sweep"]
+    ko = {"light": "조명", "climate": "냉난방·공기", "cover": "창문·커버", "appliance": "가전(오븐·세탁기)",
+          "entry": "출입(잠금·차고·밸브)"}
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.4))
+    for ax, key_ in zip(axes[:2], ("region_map_entry_by_light", "region_map_entry_by_appliance"), strict=True):
+        g = d[key_]
+        arr = np.array([[np.nan if v is None else v for v in row] for row in g["mean_share"]])
+        im = ax.imshow(arr, origin="lower", cmap="Blues", vmin=0.2, vmax=0.8, aspect="auto")
+        for j in range(arr.shape[0]):
+            for i in range(arr.shape[1]):
+                if not np.isnan(arr[j, i]):
+                    ax.text(i, j, f"{arr[j, i] * 100:.0f}%", ha="center", va="center", fontsize=9)
+        e = g["edges"]
+        lab = [f"{e[i]:.2f}-{e[i + 1]:.2f}" for i in range(len(e) - 1)]
+        ax.set_xticks(range(len(lab)))
+        ax.set_xticklabels(lab, fontsize=8)
+        ax.set_yticks(range(len(lab)))
+        ax.set_yticklabels(lab, fontsize=8)
+        ax.set_xlabel(f"{ko[g['x'][5:]]} 비중 배수")
+        ax.set_ylabel(f"{ko[g['y'][5:]]} 비중 배수")
+        ax.set_title("능동 상한에 막힌 도움 제안 비율(세트 평균)", fontsize=9)
+        ax.grid(False)
+        fig.colorbar(im, ax=ax, shrink=0.8, pad=0.03)
+    ax = axes[2]
+    x = np.arange(5)
+    w = 0.38
+    ax.bar(x - w / 2, [100 * v for v in d["silenced_fraction_within_class"]], w, color=plotstyle.GREY, label="그 종류 도움 제안 중 막힌 비율")
+    ax.bar(x + w / 2, [100 * v for v in d["contribution_to_total_silenced"]], w, color=plotstyle.ACCENT, label="막힌 전체 중 그 종류가 차지한 몫")
+    ax.set_xticks(x)
+    ax.set_xticklabels([ko[c] for c in d["classes"]], rotation=25, ha="right", fontsize=8)
+    ax.set_ylabel("%")
+    ax.legend(fontsize=7)
+    ax.set_title("기기 종류별", fontsize=9)
+    fig.subplots_adjust(wspace=0.55)
+    return plotstyle.save(fig, exp_dir, "silenced_helpful_by_device")
+
+
 def make_all(raw_dir: Path, summary: dict[str, Any], exp_dir: Path) -> list[Path]:
     plotstyle.setup()
     blocks = analyze.load(raw_dir)
     out = [pareto(blocks, exp_dir), harm_vs_theta(summary, exp_dir), winfrac_vs_m(summary, exp_dir),
            burden_bars(summary, exp_dir), region_maps(summary, exp_dir), m_ratio(summary, exp_dir),
-           sensitivity(summary, exp_dir)]
+           sensitivity(summary, exp_dir), silenced_by_device(summary, exp_dir)]
     if "policy_table_f0" in summary:
         out.append(f0_sanity(summary, exp_dir))
     return out

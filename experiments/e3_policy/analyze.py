@@ -493,6 +493,109 @@ def h25(blk: Block, m: float = M_DEFAULT) -> dict[str, Any]:
     return out
 
 
+# ── H2.6 across the registered device-weight sweep ───────────────────────────────────────
+CLASSES = ("light", "climate", "cover", "appliance", "entry")
+MULT_EDGES = (0.5, 0.5 * 2**0.5, 1.0, 2**0.5, 2.0000001)
+
+
+def _rank(x: np.ndarray) -> np.ndarray:
+    return np.argsort(np.argsort(x, kind="stable"), kind="stable").astype(float)
+
+
+def first_order_sub(blk: Block, y: np.ndarray, names: list[str], nbin: int = 6) -> dict[str, float]:
+    var = y.var()
+    out = {}
+    for nm in names:
+        x = blk.p[nm]
+        edges = np.quantile(x, np.linspace(0, 1, nbin + 1))
+        b = np.clip(np.searchsorted(edges, x, side="right") - 1, 0, nbin - 1)
+        groups = [np.where(b == i)[0] for i in range(nbin)]
+        means = np.array([y[g].mean() for g in groups if g.size])
+        w = np.array([g.size for g in groups if g.size], float)
+        mu = (means * w).sum() / w.sum()
+        out[nm] = float(((w * (means - mu) ** 2).sum() / w.sum()) / var) if var > 0 else 0.0
+    return out
+
+
+def silenced_sweep(blk: Block) -> dict[str, Any]:
+    """Share of helpful proposals the proactive cap silences, over the device-weight sweep.
+
+    The cap acts per action (the action's tier), so the share is a property of the helpful-proposal
+    mix: which classes drive it, and how it moves with each class weight (0.5-2x).
+    """
+    helped = np.array([r["help_by_group"] for r in blk.recs], float)  # (sets, 5)
+    silent = np.array([r["silenced_help_by_group"] for r in blk.recs], float)
+    share = silent.sum(1) / np.maximum(1, helped.sum(1))
+    out: dict[str, Any] = {
+        "share_distribution_over_sets": {
+            "min": float(share.min()), "p10": float(np.percentile(share, 10)),
+            "p25": float(np.percentile(share, 25)), "median": float(np.median(share)),
+            "p75": float(np.percentile(share, 75)), "p90": float(np.percentile(share, 90)),
+            "max": float(share.max()), "pooled": float(silent.sum() / helped.sum()),
+        },
+        "classes": list(CLASSES),
+        "helpful_mix_pooled": [float(x) for x in helped.sum(0) / helped.sum()],
+        "silenced_fraction_within_class": [
+            float(a / b) if b else None for a, b in zip(silent.sum(0), helped.sum(0), strict=True)],
+        "contribution_to_total_silenced": [float(x) for x in silent.sum(0) / silent.sum()],
+    }
+    contrib = silent / np.maximum(1, silent.sum(1))[:, None]
+    out["contribution_range_over_sets"] = {
+        c: [float(contrib[:, i].min()), float(contrib[:, i].max())] for i, c in enumerate(CLASSES)}
+    drivers: dict[str, Any] = {}
+    for c in CLASSES:
+        x = blk.p[f"mult_{c}"]
+        lo_q, hi_q = np.quantile(x, [1 / 3, 2 / 3])
+        drivers[c] = {
+            "spearman_with_weight": float(np.corrcoef(_rank(x), _rank(share))[0, 1]),
+            "mean_share_weight_low_third": float(share[x <= lo_q].mean()),
+            "mean_share_weight_high_third": float(share[x > hi_q].mean()),
+        }
+    out["drivers"] = drivers
+    out["first_order_index"] = first_order_sub(blk, share, [f"mult_{c}" for c in CLASSES])
+
+    def grid(xn: str, yn: str) -> dict[str, Any]:
+        x, y = blk.p[xn], blk.p[yn]
+        g: list[list[float | None]] = []
+        for j in range(len(MULT_EDGES) - 1):
+            row: list[float | None] = []
+            for i in range(len(MULT_EDGES) - 1):
+                sel = ((x >= MULT_EDGES[i]) & (x < MULT_EDGES[i + 1])
+                       & (y >= MULT_EDGES[j]) & (y < MULT_EDGES[j + 1]))
+                row.append(float(share[sel].mean()) if sel.any() else None)
+            g.append(row)
+        return {"x": xn, "y": yn, "edges": [float(e) for e in MULT_EDGES[:-1]] + [2.0], "mean_share": g}
+
+    out["region_map_entry_by_light"] = grid("mult_entry", "mult_light")
+    out["region_map_entry_by_appliance"] = grid("mult_entry", "mult_appliance")
+    return out
+
+
+def p2_p3_separate(blk: Block) -> dict[str, Any]:
+    """Harm, helpful completion and hazard response side by side (pooled differences vs flat)."""
+    fpos = blk.p["f"] > 0
+    out: dict[str, Any] = {}
+    for sh in SHAPES:
+        rows = []
+        for m in M_GRID:
+            flat = key("flat_explicit", sh, m)
+            row: dict[str, Any] = {"m": m}
+            for pol in ("liot_real", "liot_full"):
+                d = {}
+                for met in ("harm", "help", "hz_ok", "burden"):
+                    pd_ = pooled(blk, key(pol, sh, m), flat, met, fpos)
+                    d[met] = {"mean": pd_["mean"], "lo": pd_["lo"], "hi": pd_["hi"]}
+                row[pol] = d
+            d = {}
+            for met in ("harm", "help", "hz_ok"):
+                pd_ = pooled(blk, key("liot_real", sh, m), key("liot_full", sh, m), met, fpos)
+                d[met] = {"mean": pd_["mean"], "lo": pd_["lo"], "hi": pd_["hi"]}
+            row["liot_real_minus_liot_full"] = d
+            rows.append(row)
+        out[sh] = rows
+    return out
+
+
 # ── H2.6 / H2.7 ──────────────────────────────────────────────────────────────────────────
 def h26(blk: Block, m: float = M_DEFAULT) -> dict[str, Any]:
     out: dict[str, Any] = {}
@@ -759,6 +862,8 @@ def _summarize(raw_dir: Path) -> dict[str, Any]:
     out["h2_4"] = h24(main)
     out["h2_5"] = h25(main)
     out["h2_6"] = h26(main)
+    out["h2_6_device_sweep"] = silenced_sweep(main)
+    out["p2_p3_separate"] = p2_p3_separate(main)
     out["h2_7"] = h27(main)
     out["pareto"] = {sh: strip_private(pareto_block(main, sh, M_DEFAULT, main.p["f"] > 0)) for sh in SHAPES}
     out["pareto_vs_m"] = pareto_vs_m(main)
