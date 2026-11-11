@@ -92,6 +92,21 @@ class Block:
         return np.array([float(r["res"][k][field]) if field in r["res"][k] else float(r["res"][k]["s_" + field])
                          for r in self.recs])
 
+    def grand(self, k: str, field: str) -> np.ndarray:
+        """Exact per-set total over seeds (per-seed strings are summed as integers; sums-only lanes read as is).
+
+        Use this, not seeds(...).sum(1), when two lanes are compared for exact ties: seeds() spreads a
+        sums-only value as total/n_seeds and the re-sum differs in the last bits.
+        """
+        out = []
+        for r in self.recs:
+            v = r["res"][k]
+            if field in v:
+                out.append(float(_arr(v[field]).sum()) if isinstance(v[field], str) else float(v[field]))
+            else:
+                out.append(float(v["s_" + field]))
+        return np.array(out)
+
     def has_seed_detail(self, k: str, field: str) -> bool:
         return isinstance(self.recs[0]["res"][k].get(field), str)
 
@@ -130,7 +145,9 @@ def metric_arrays(blk: Block, k: str, metric: str) -> tuple[np.ndarray, np.ndarr
 
 
 def ratio(num: np.ndarray, den: np.ndarray) -> np.ndarray:
-    s, d = num.sum(1), den.sum(1)
+    # round the totals: sums-only lanes are spread as total/n_seeds, and the re-sum can differ in the
+    # last bits, which turns an exact tie into a tiny nonzero difference
+    s, d = np.round(num.sum(1), 6), np.round(den.sum(1), 6)
     with np.errstate(invalid="ignore", divide="ignore"):
         return np.where(d > 0, s / d, np.nan)
 
@@ -150,13 +167,16 @@ def paired(blk: Block, ka: str, kb: str, metric: str) -> dict[str, np.ndarray]:
     bt = boot_ratio(na, da, c) - boot_ratio(nb, db, c)
     lo = np.nanpercentile(bt, 2.5, axis=1)
     hi = np.nanpercentile(bt, 97.5, axis=1)
-    return {"est": est, "lo": lo, "hi": hi, "a": ratio(na, da), "b": ratio(nb, db)}
+    snap = lambda x: np.where(np.abs(x) < 1e-9, 0.0, x)  # noqa: E731 - bit-level noise is a tie, not a difference
+    return {"est": snap(est), "lo": snap(lo), "hi": snap(hi), "a": ratio(na, da), "b": ratio(nb, db)}
 
 
 def cls(d: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     with np.errstate(invalid="ignore"):
-        return {"higher": d["lo"] > 0, "lower": d["hi"] < 0,
-                "ns": ~((d["lo"] > 0) | (d["hi"] < 0)) & ~np.isnan(d["est"])}
+        tie = (d["est"] == 0) & (d["lo"] == 0) & (d["hi"] == 0)  # identical totals: its own category
+        higher, lower = d["lo"] > 0, d["hi"] < 0
+        return {"higher": higher, "lower": lower, "tie": tie,
+                "ns": ~(higher | lower | tie) & ~np.isnan(d["est"])}
 
 
 def pooled(blk: Block, ka: str, kb: str, metric: str, mask: np.ndarray) -> dict[str, float]:

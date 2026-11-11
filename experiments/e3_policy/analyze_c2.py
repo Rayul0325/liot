@@ -31,10 +31,10 @@ def _lane(blk: Block, k: str) -> dict[str, np.ndarray]:
     npr = blk.n["n_help"].sum(1)
     n_prop = blk.n["n_prop"].sum(1)
     return {
-        "harm": blk.seeds(k, "xh").sum(1) / np.maximum(1, nh),
-        "help": blk.seeds(k, "xp").sum(1) / np.maximum(1, npr),
-        "burden": blk.seeds(k, "nc").sum(1) / (blk.n_seeds * blk.days),
-        "silenced": (blk.total(k, "bh") + blk.total(k, "bp") + blk.total(k, "bu")) / np.maximum(1, n_prop),
+        "harm": blk.grand(k, "xh") / np.maximum(1, nh),
+        "help": blk.grand(k, "xp") / np.maximum(1, npr),
+        "burden": blk.grand(k, "nc") / (blk.n_seeds * blk.days),
+        "silenced": (blk.grand(k, "bh") + blk.grand(k, "bp") + blk.grand(k, "bu")) / np.maximum(1, n_prop),
     }
 
 
@@ -141,6 +141,8 @@ def c22(blk: Block) -> dict[str, Any]:
                 "harm_diff": dist(lr["harm"] - fc["harm"], fpos), "help_diff": dist(lr["help"] - fc["help"], fpos),
                 "burden_diff": dist(lr["burden"] - fc["burden"], fpos),
                 "share_sets_liot_real_harm_higher_point": float(np.mean((lr["harm"] - fc["harm"])[fpos] > 0)),
+                "share_sets_liot_real_harm_tie": float(np.mean((lr["harm"] - fc["harm"])[fpos] == 0)),
+                "share_sets_liot_real_harm_lower_point": float(np.mean((lr["harm"] - fc["harm"])[fpos] < 0)),
                 "share_sets_liot_real_help_higher_point": float(np.mean((lr["help"] - fc["help"])[fpos] > 0)),
                 "means": {"harm_liot_real": float(lr["harm"][fpos].mean()), "harm_flat_ceiling": float(fc["harm"][fpos].mean()),
                           "help_liot_real": float(lr["help"][fpos].mean()), "help_flat_ceiling": float(fc["help"][fpos].mean()),
@@ -196,9 +198,9 @@ def c24(blk: Block) -> dict[str, Any]:
         lt = {"harm": lf["harm"], "burden": lf["burden"]}
         for kappa in sim.KAPPAS:
             ks = [sim.Group("theta", sh, theta=t, kappa=kappa).key for t in thetas]
-            th = np.array([blk.seeds(k, "xh").sum(1) / np.maximum(1, nh) for k in ks])  # (theta, sets)
-            tb = np.array([blk.seeds(k, "nc").sum(1) / (blk.n_seeds * blk.days) for k in ks])
-            tp = np.array([blk.seeds(k, "xp").sum(1) / np.maximum(1, npr) for k in ks])
+            th = np.array([blk.grand(k, "xh") / np.maximum(1, nh) for k in ks])  # (theta, sets)
+            tb = np.array([blk.grand(k, "nc") / (blk.n_seeds * blk.days) for k in ks])
+            tp = np.array([blk.grand(k, "xp") / np.maximum(1, npr) for k in ks])
             dom = ((tb <= lt["burden"][None]) & (th <= lt["harm"][None])
                    & ((tb < lt["burden"][None]) | (th < lt["harm"][None]))).any(0)
             dom_margin = ((tb <= lt["burden"][None]) & (th <= lt["harm"][None] - 0.01)).any(0)
