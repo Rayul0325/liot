@@ -230,6 +230,7 @@ async def run_episode(behavior: str, ep: int) -> dict[str, Any]:
                                            "guardian_id": r["guardian_id"]})
 
         for _ in range(rng.randint(8, 24)):
+            await check_new_forwards()  # consent only changes between steps: exact snapshot
             r = rng.random()
             if r < 0.45:  # ── safety sensor reading
                 counts["sensor"] += 1
@@ -255,8 +256,16 @@ async def run_episode(behavior: str, ep: int) -> dict[str, Any]:
                     counts["new_situations"] += 1
                     if not transport.fail and len(transport.stamps) <= n_push_before:
                         counts["silent_new_situation"] += 1
-                        violations.append({"invariant": "safety_never_silent",
-                                           "detail": f"new {cat} situation produced no push"})
+                        cur = await kit.db.execute(
+                            "SELECT COUNT(*) FROM proposals AS p WHERE p.state = 'rejected'")
+                        rejected_before = int((await cur.fetchone())[0])
+                        await cur.close()
+                        violations.append({
+                            "invariant": "safety_never_silent",
+                            "detail": f"new {cat} situation produced no push",
+                            "category": cat, "rejected_proposals_in_db": rejected_before,
+                            "charter_off": False,
+                        })
                 transport.fail = False
             elif r < 0.53:  # ── comfort reading + proactive tick
                 counts["comfort"] += 1
