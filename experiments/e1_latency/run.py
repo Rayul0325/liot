@@ -490,7 +490,7 @@ def make_figures(summary: dict[str, Any]) -> list[Path]:
             ax.set_title(f"편의 판정 T = {t}초")
         axes[0].set_ylabel("가스 첫 알림 지연 (초)")
         axes[0].legend()
-        fig.suptitle("H1.2 느린 편의 판정이 가스 첫 알림을 늦춘다", fontsize=12, y=1.04)
+        fig.suptitle("H1.2 느린 편의 판정 중 가스 첫 알림 (U1 전 · 후)", fontsize=12, y=1.04)
         out.append(plotstyle.save(fig, EXP_DIR, "h12_comfort_blocks_gas"))
 
     h13 = summary.get("h13", {})
