@@ -1909,6 +1909,314 @@
         "p75": 41.0
       }
     },
+    "M2p1_without_zero_based": {
+      "agree_all24_settings": 21,
+      "agree_ge_90pct_settings": 397,
+      "agree_ge_90pct_share": 0.021546,
+      "agree_hist_24": {
+        "10": 1374,
+        "11": 1233,
+        "12": 1699,
+        "13": 1316,
+        "14": 1723,
+        "15": 1401,
+        "16": 1272,
+        "17": 1089,
+        "18": 1339,
+        "19": 1017,
+        "20": 746,
+        "21": 456,
+        "22": 251,
+        "23": 125,
+        "24": 21,
+        "5": 503,
+        "6": 163,
+        "7": 770,
+        "8": 957,
+        "9": 971
+      },
+      "best_by_table_similarity": {
+        "agree_n": 24,
+        "harm_code": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "key": "lin|lin|k1.5|a1.0|b0.5",
+        "levels": [
+          0,
+          1,
+          1,
+          2,
+          1,
+          2,
+          1,
+          2,
+          2,
+          3,
+          2,
+          3,
+          2,
+          3,
+          2,
+          3,
+          3,
+          3,
+          2,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "mismatches": [],
+        "thresholds": [
+          1.414214,
+          2.828427,
+          5.196152
+        ],
+        "time_code": [
+          1,
+          2,
+          3
+        ],
+        "variant": "M2p1",
+        "vuln_k": 1.5,
+        "weights": [
+          1.0,
+          0.5,
+          1.0
+        ]
+      },
+      "by_family": {
+        "geo10|geo10": {
+          "agree90": 16,
+          "max_agree": 23,
+          "settings": 542
+        },
+        "geo10|geo2": {
+          "agree90": 47,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo10|geo3": {
+          "agree90": 47,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo10|lin": {
+          "agree90": 48,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo2|geo10": {
+          "agree90": 10,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo2|geo2": {
+          "agree90": 16,
+          "max_agree": 23,
+          "settings": 542
+        },
+        "geo2|geo3": {
+          "agree90": 24,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo2|lin": {
+          "agree90": 30,
+          "max_agree": 24,
+          "settings": 996
+        },
+        "geo3|geo10": {
+          "agree90": 10,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo3|geo2": {
+          "agree90": 41,
+          "max_agree": 24,
+          "settings": 1485
+        },
+        "geo3|geo3": {
+          "agree90": 16,
+          "max_agree": 23,
+          "settings": 542
+        },
+        "geo3|lin": {
+          "agree90": 31,
+          "max_agree": 23,
+          "settings": 996
+        },
+        "lin|geo10": {
+          "agree90": 2,
+          "max_agree": 22,
+          "settings": 1485
+        },
+        "lin|geo2": {
+          "agree90": 20,
+          "max_agree": 24,
+          "settings": 771
+        },
+        "lin|geo3": {
+          "agree90": 12,
+          "max_agree": 24,
+          "settings": 1152
+        },
+        "lin|lin": {
+          "agree90": 27,
+          "max_agree": 24,
+          "settings": 1005
+        }
+      },
+      "category_all16_equal_settings": 2511,
+      "category_all16_equal_share": 0.136275,
+      "min_tie_loss_setting": {
+        "agree_n": 10,
+        "harm_code": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "key": "lin|geo2|k1.5|a0.5|b0.5",
+        "levels": [
+          0,
+          1,
+          0,
+          1,
+          1,
+          2,
+          0,
+          1,
+          1,
+          2,
+          2,
+          3,
+          1,
+          2,
+          1,
+          2,
+          2,
+          3,
+          1,
+          2,
+          2,
+          3,
+          3,
+          3
+        ],
+        "mismatches": [
+          {
+            "input": "inconvenience/hour/plain",
+            "mult": 0,
+            "table": 1
+          },
+          {
+            "input": "inconvenience/hour/vuln",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/later/plain",
+            "mult": 0,
+            "table": 1
+          },
+          {
+            "input": "property/later/vuln",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/hour/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/hour/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "injury/later/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "injury/later/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "injury/hour/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "injury/hour/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "injury/minutes/plain",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "life/later/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "life/later/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "life/hour/plain",
+            "mult": 2,
+            "table": 3
+          }
+        ],
+        "thresholds": [
+          1.732051,
+          2.828427,
+          4.0
+        ],
+        "time_code": [
+          1,
+          2,
+          4
+        ],
+        "variant": "M2p1",
+        "vuln_k": 1.5,
+        "weights": [
+          0.5,
+          0.5,
+          1.0
+        ]
+      },
+      "mono_violation_settings": 0,
+      "n_codings": 144,
+      "n_settings": 18426,
+      "optimum_settings_count": 21,
+      "settings_with_a_category_above_table": 6021,
+      "settings_with_a_category_below_table": 12297,
+      "settings_with_a_critical_category_below_critical": 0,
+      "settings_with_less_than_4_levels": 0,
+      "settings_with_more_tie_loss_than_table_share": 0.556171,
+      "table_tie_loss": 32,
+      "tie_loss": {
+        "max": 93.0,
+        "mean": 36.289754,
+        "median": 34.0,
+        "min": 16.0,
+        "p25": 28.0,
+        "p75": 42.0
+      }
+    },
     "M3": {
       "agree_all24_settings": 16,
       "agree_ge_90pct_settings": 520,
@@ -2213,6 +2521,322 @@
         "median": 43.0,
         "min": 14.0,
         "p25": 35.0,
+        "p75": 52.0
+      }
+    },
+    "M3_without_zero_based": {
+      "agree_all24_settings": 16,
+      "agree_ge_90pct_settings": 520,
+      "agree_ge_90pct_share": 0.000793,
+      "agree_hist_24": {
+        "10": 49545,
+        "11": 47986,
+        "12": 44539,
+        "13": 39639,
+        "14": 34461,
+        "15": 28538,
+        "16": 22019,
+        "17": 15744,
+        "18": 10108,
+        "19": 5469,
+        "2": 23977,
+        "20": 2664,
+        "21": 1128,
+        "22": 416,
+        "23": 88,
+        "24": 16,
+        "3": 33363,
+        "4": 38478,
+        "5": 43754,
+        "6": 51639,
+        "7": 55339,
+        "8": 54449,
+        "9": 52292
+      },
+      "best_by_table_similarity": {
+        "agree_n": 24,
+        "harm_code": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "key": "lin|lin|k2.0|a1.0|b0.5",
+        "levels": [
+          0,
+          1,
+          1,
+          2,
+          1,
+          2,
+          1,
+          2,
+          2,
+          3,
+          2,
+          3,
+          2,
+          3,
+          2,
+          3,
+          3,
+          3,
+          2,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "mismatches": [],
+        "thresholds": [
+          1.414214,
+          2.828427,
+          5.196152
+        ],
+        "time_code": [
+          1,
+          2,
+          3
+        ],
+        "variant": "M3",
+        "vuln_k": 2.0,
+        "weights": [
+          1.0,
+          0.5,
+          1.0
+        ]
+      },
+      "by_family": {
+        "geo10|geo10": {
+          "agree90": 3,
+          "max_agree": 22,
+          "settings": 25228
+        },
+        "geo10|geo2": {
+          "agree90": 18,
+          "max_agree": 23,
+          "settings": 54437
+        },
+        "geo10|geo3": {
+          "agree90": 32,
+          "max_agree": 24,
+          "settings": 57402
+        },
+        "geo10|lin": {
+          "agree90": 39,
+          "max_agree": 24,
+          "settings": 55466
+        },
+        "geo2|geo10": {
+          "agree90": 11,
+          "max_agree": 23,
+          "settings": 53297
+        },
+        "geo2|geo2": {
+          "agree90": 29,
+          "max_agree": 23,
+          "settings": 20331
+        },
+        "geo2|geo3": {
+          "agree90": 37,
+          "max_agree": 24,
+          "settings": 46943
+        },
+        "geo2|lin": {
+          "agree90": 50,
+          "max_agree": 24,
+          "settings": 34387
+        },
+        "geo3|geo10": {
+          "agree90": 3,
+          "max_agree": 22,
+          "settings": 56262
+        },
+        "geo3|geo2": {
+          "agree90": 42,
+          "max_agree": 24,
+          "settings": 46943
+        },
+        "geo3|geo3": {
+          "agree90": 15,
+          "max_agree": 23,
+          "settings": 20331
+        },
+        "geo3|lin": {
+          "agree90": 38,
+          "max_agree": 23,
+          "settings": 34387
+        },
+        "lin|geo10": {
+          "agree90": 4,
+          "max_agree": 22,
+          "settings": 52889
+        },
+        "lin|geo2": {
+          "agree90": 70,
+          "max_agree": 24,
+          "settings": 27400
+        },
+        "lin|geo3": {
+          "agree90": 44,
+          "max_agree": 24,
+          "settings": 37365
+        },
+        "lin|lin": {
+          "agree90": 85,
+          "max_agree": 24,
+          "settings": 32583
+        }
+      },
+      "category_all16_equal_settings": 2447,
+      "category_all16_equal_share": 0.003732,
+      "min_tie_loss_setting": {
+        "agree_n": 9,
+        "harm_code": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "key": "lin|geo2|k1.5|a0.5|b0.5",
+        "levels": [
+          0,
+          0,
+          0,
+          1,
+          1,
+          2,
+          0,
+          1,
+          1,
+          2,
+          2,
+          3,
+          0,
+          1,
+          1,
+          2,
+          2,
+          3,
+          1,
+          2,
+          2,
+          3,
+          3,
+          3
+        ],
+        "mismatches": [
+          {
+            "input": "inconvenience/later/vuln",
+            "mult": 0,
+            "table": 1
+          },
+          {
+            "input": "inconvenience/hour/plain",
+            "mult": 0,
+            "table": 1
+          },
+          {
+            "input": "inconvenience/hour/vuln",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/later/plain",
+            "mult": 0,
+            "table": 1
+          },
+          {
+            "input": "property/later/vuln",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/hour/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "property/hour/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "injury/later/plain",
+            "mult": 0,
+            "table": 2
+          },
+          {
+            "input": "injury/later/vuln",
+            "mult": 1,
+            "table": 3
+          },
+          {
+            "input": "injury/hour/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "injury/hour/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "injury/minutes/plain",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "life/later/plain",
+            "mult": 1,
+            "table": 2
+          },
+          {
+            "input": "life/later/vuln",
+            "mult": 2,
+            "table": 3
+          },
+          {
+            "input": "life/hour/plain",
+            "mult": 2,
+            "table": 3
+          }
+        ],
+        "thresholds": [
+          2.0,
+          2.828427,
+          4.0
+        ],
+        "time_code": [
+          1,
+          2,
+          4
+        ],
+        "variant": "M3",
+        "vuln_k": 1.5,
+        "weights": [
+          0.5,
+          0.5,
+          1.0
+        ]
+      },
+      "mono_violation_settings": 0,
+      "n_codings": 576,
+      "n_settings": 655651,
+      "optimum_settings_count": 16,
+      "settings_with_a_category_above_table": 141068,
+      "settings_with_a_category_below_table": 608305,
+      "settings_with_a_critical_category_below_critical": 210478,
+      "settings_with_less_than_4_levels": 0,
+      "settings_with_more_tie_loss_than_table_share": 0.803067,
+      "table_tie_loss": 32,
+      "tie_loss": {
+        "max": 111.0,
+        "mean": 44.72966,
+        "median": 43.0,
+        "min": 14.0,
+        "p25": 34.0,
         "p75": 52.0
       }
     }

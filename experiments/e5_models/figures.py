@@ -115,10 +115,40 @@ def fig_add5(s: dict[str, Any], exp_dir: Path) -> Path:
     return plotstyle.save(fig, exp_dir, "add5_miss_vs_overraise")
 
 
+def fig_c25(s: dict[str, Any], exp_dir: Path) -> Path:
+    plotstyle.setup()
+    c = s["c25_structured"]["rep0"]["per_judge"]
+    judges = sorted(c)
+    x = np.arange(len(judges))
+    w = 0.26
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.2))
+    for ax, key, title in (
+        (axes[0], "raised", "하한보다 높게 답한 문항 수 (주입 제외 61)"),
+        (axes[1], "below_floor", "하한보다 낮게 답한 문항 수"),
+    ):
+        for off, ctx, color, label in (
+            (-w, "sentence", plotstyle.ACCENT, "상황 문장"),
+            (0, "operational", plotstyle.GREY, "운영 집계 요약"),
+            (w, "structured", plotstyle.GREY_DARK, "집계 요약 + 관측값 2개"),
+        ):
+            ax.bar(x + off, [c[j][f"{key}_{ctx}"] for j in judges], w, color=color, label=label)
+        ax.set_xticks(x, judges, rotation=25, ha="right", fontsize=8)
+        ax.set_title(title, fontsize=10)
+    axes[0].legend(fontsize=8)
+    p = s["c25_structured"]["rep0"]["pooled"]
+    fig.suptitle(
+        f"C2.5: 올림 차이 중 돌아온 몫 {p['returned_fraction']:.2f} (문장 {p['raised_sentence']} → 요약 "
+        f"{p['raised_operational']} → 관측값 {p['raised_structured']}), 전체 7 판정자 합",
+        fontsize=11,
+    )
+    return plotstyle.save(fig, exp_dir, "c25_structured_observations")
+
+
 def make_all(summary: dict[str, Any], exp_dir: Path) -> list[Path]:
     return [
         fig_h51(summary, exp_dir),
         fig_h52(summary, exp_dir),
         fig_h53(summary, exp_dir),
         fig_add5(summary, exp_dir),
+        fig_c25(summary, exp_dir),
     ]

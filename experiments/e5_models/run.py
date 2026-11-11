@@ -35,7 +35,11 @@ from experiments.e5_models.benchkit import (
 
 EXP_DIR = Path(__file__).resolve().parent
 RAW = EXP_DIR / "raw"
-SOURCES = {"sentence": BENCH_DIR / "raw", "operational": BENCH_DIR / "raw_operational"}
+SOURCES = {
+    "sentence": BENCH_DIR / "raw",
+    "operational": BENCH_DIR / "raw_operational",
+    "structured": BENCH_DIR / "raw_structured",
+}
 
 
 def _probs(p: dict[str, dict[str, float]] | None, q: str, order: tuple[str, ...]) -> list[float] | None:
