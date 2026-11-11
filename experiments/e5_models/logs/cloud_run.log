@@ -1,0 +1,2 @@
+stop reasons: {"luna": "6 consecutive errors (last: luna 미접근 · 호출 실패)", "jev-api": "complete", "haiku": "complete"}
+cost summary: {"calls": 494, "run_usd": 0.021263, "run_cap_usd": 1.5, "tripped": null, "by_kind": {"jev-api": {"calls": 244, "seconds": 50.3997, "input_tokens": 128894, "output_tokens": 5396, "usd": 0.005414}, "haiku": {"calls": 244, "seconds": 248.5915, "input_tokens": 139814, "output_tokens": 3736, "usd": 0.015849}}, "unknown_price_calls": 0, "estimated_calls": 244}
