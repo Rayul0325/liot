@@ -17,8 +17,10 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any
 
+from liot.core.risk import RiskTier
 from liot.core.severity import SeverityLevel
 from liot.layers.l4_execution import escalation
+from liot.layers.l4_execution.notifier import dedup_key
 from liot.layers.l4_execution.ntfy_transport import FakeNtfyTransport, NtfyError
 from tests.test_escalation_ladder import (
     DOOR,
@@ -334,5 +336,83 @@ async def test_resolution_before_retry_stops_it() -> None:
         await _advance(svc, clock, 120)
         assert transport.attempts == attempts_after_close
         assert len(transport.sent) == sent_after_close
+    finally:
+        await db.close()
+
+
+# ==========================================================================
+# 8) 가드 하나하나를 못 박는 시험(뮤테이션 검사로 각각 정확히 이 시험만 깨지는지 확인)
+# ==========================================================================
+async def test_ack_landing_while_evaluating_unsent_alert_prevents_the_resend() -> None:
+    """발화가 '못 나갔나'를 평가하는 사이 확인(ack)이 들어오면 재전송하지 않는다."""
+    svc, db, transport, clock = await _make(transport=_FailFirstResidentSends(1))
+    try:
+        res = await _open(svc)
+        sid = res.proposal.situation_id
+        assert transport.attempts == 1
+
+        real = svc._first_alert_unsent
+
+        async def _ack_during_evaluation(info: Any) -> Any:
+            found = await real(info)
+            assert found is not None  # 평가 시점엔 아직 못 나간 알림이다
+            assert await svc._ack_situation(sid, "resident")  # 평가 도중 확인이 도착
+            return found
+
+        svc._first_alert_unsent = _ack_during_evaluation  # type: ignore[method-assign]
+        await _advance(svc, clock, RETRY_S)
+        assert transport.attempts == 1 and _to(transport, TOPIC) == []
+        ladder = await svc.safety.get_ladder(sid)
+        assert ladder is not None and ladder.acked
+    finally:
+        await db.close()
+
+
+async def test_service_without_transport_neither_attempts_nor_records_a_resend() -> None:
+    """배달 경로가 없는 서비스(sanitize-only)는 첫 알림 재시도를 잡지도, 기록하지도 않는다."""
+    svc, db, transport, clock = await _make(transport=_FailFirstResidentSends(1))
+    try:
+        res = await _open(svc)
+        sid = res.proposal.situation_id
+        svc.transport = None  # 배달 경로가 사라졌다(예: sanitize-only 로 재시작)
+        info = await escalation.load_situation(db, sid)
+        assert info is not None
+        assert await svc._first_alert_unsent(info) is None
+
+        await svc._arm_ladder(sid)
+        ladder = await svc.safety.get_ladder(sid)
+        assert ladder is not None and ladder.next_fire_at == _at(60)  # 30초 재시도가 없다
+        await _advance(svc, clock, RETRY_S)
+        cur = await db.execute("SELECT COUNT(*) FROM notifications")
+        row = await cur.fetchone()
+        await cur.close()
+        assert row is not None and row[0] == 0  # 기록된 알림 없음
+        assert transport.attempts == 1  # 송신 시도도 없다
+    finally:
+        await db.close()
+
+
+async def test_resend_updates_the_dedup_window_like_a_normal_first_alert() -> None:
+    """재전송이 성공하면 dedup 창이 갱신돼, 같은 류의 비우회 제안이 2시간 안에 두 번 나가지 않는다."""
+    svc, db, transport, clock = await _make(transport=_FailFirstResidentSends(1))
+    try:
+        res = await _open(svc)
+        key = dedup_key(res.proposal)
+        assert key not in svc._recent_notified_keys(clock.now_dt())  # 첫 송신 실패: 오염 없음
+        await _advance(svc, clock, RETRY_S)
+        assert len(_to(transport, TOPIC)) == 1
+        assert key in svc._recent_notified_keys(clock.now_dt())
+
+        twin = res.proposal.model_copy(
+            update={
+                "proposal_id": "twin-proposal",
+                "risk_tier": RiskTier.BREATH,
+                "severity": None,
+                "perishable": False,
+                "situation_id": None,
+            }
+        )
+        out = await svc.dispatch(twin)
+        assert out.decision == "SUPPRESS" and out.sent is False
     finally:
         await db.close()
