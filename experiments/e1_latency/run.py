@@ -283,7 +283,10 @@ async def one_h12(seconds: float, ofrac: float, rep: int, tag: str) -> dict[str,
             tick_res = await svc.run_tick()
             tick_s = time.perf_counter() - t_tick
             for _ in range(4000):
-                if gas_tasks or not th.is_alive():
+                if gas_tasks:
+                    break
+                if not th.is_alive():  # the thread's callback may not have run yet
+                    await asyncio.sleep(0.02)
                     break
                 await asyncio.sleep(0.005)
             if gas_tasks:
@@ -363,7 +366,10 @@ async def one_h13(scenario: str, delay_s: float, n_guard: int, rep: int) -> dict
             await svc.ladder_tick()
         n_before = len(tr.stamps)
         for _ in range(60000):
-            if smoke_tasks or not th.is_alive():
+            if smoke_tasks:
+                break
+            if not th.is_alive():  # the thread's callback may not have run yet
+                await asyncio.sleep(0.02)
                 break
             await asyncio.sleep(0.005)
         if smoke_tasks:

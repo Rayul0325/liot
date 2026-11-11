@@ -135,6 +135,55 @@ async def validate_one(i: int) -> dict[str, Any]:
         await kit.close()
 
 
+async def probe_dismissal(cat: str, registered: bool) -> dict[str, Any]:
+    """Known finding: dismiss the first alert, close the situation, reopen it — is the second
+    episode's first alert pushed? (docs/tracking/findings.md '경고 상황을 거절하면 …')"""
+    from experiments.common.service_kit import SECRET
+    from liot.layers.l4_execution.notifier import sign_feedback
+
+    eid, abn = fuzz.SENSORS[cat]
+    kit = await build_service(backend=LowestBackend(), categories=fuzz.CATEGORIES,
+                              transport=TimedTransport())
+    svc = kit.svc
+    try:
+        rid = await svc.safety.add_resident(HOME, "R0")
+        if registered:
+            await svc.safety.set_trait(rid, "age_75_plus", True, "resident")
+        first = await svc.handle_reading(reading(eid, abn))
+        await svc.drain_phase2()
+        prop = first.proposal  # type: ignore[union-attr]
+        tier_int = int(prop.risk_tier)
+        nonce = svc._nonce.get(prop.proposal_id, "")
+        sig = sign_feedback(SECRET, prop.proposal_id, tier_int, "reject", nonce)
+        await svc._route_feedback(
+            f"GET /feedback?p={prop.proposal_id}&t={tier_int}&n={nonce}&sig={sig}&a=reject HTTP/1.1"
+        )
+        await svc.handle_reading(reading(eid, "off" if not isinstance(abn, float) else 20.0))
+        before = len(kit.transport.stamps)
+        await svc.handle_reading(reading(eid, abn))
+        await svc.drain_phase2()
+        sits = await situations(kit.db)
+        return {"category": cat, "registered_vulnerable": registered,
+                "floor": sits[-1]["severity_floor"],
+                "second_first_alert_pushed": len(kit.transport.stamps) > before,
+                "meta": io.run_meta()}
+    finally:
+        await kit.close()
+
+
+async def collect_probe(raw: Path) -> int:
+    path = raw / "probe.jsonl"
+    done = io.done_keys(path, ("category", "registered_vulnerable"))
+    written = 0
+    for cat in fuzz.SENSORS_LIST:
+        for reg in (False, True):
+            if (cat, reg) in done:
+                continue
+            io.append_jsonl(path, await probe_dismissal(cat, reg))
+            written += 1
+    return written
+
+
 def selfcheck() -> dict[str, Any]:
     """Each detector must fire on a hand-made violation (so 0 violations is meaningful)."""
     fired = {
@@ -146,13 +195,18 @@ def selfcheck() -> dict[str, Any]:
         "guardian_gate_consent": len(invariants.check_guardian_gate(
             [{"situation_id": "s", "guardian_id": "g", "kind": "forward"}], {"g": False},
             {"s": 3})),
+        "guardian_gate_119_no_consent_ok": len(invariants.check_guardian_gate(
+            [{"situation_id": "s", "guardian_id": None, "kind": "guidance_119"}], {}, {"s": 3})),
         "no_opening_exec": len(invariants.check_no_opening_exec(
             [{"capability": "lock", "action": "unlock", "kind": "execute",
               "outcome": "executed"}])),
         "no_trait_leak": len(invariants.check_no_trait_leak(
             [("t", {"label": "독거 어르신"})], ["age_75_plus"])),
     }
-    return {"fired": fired, "all_fire": all(v >= 1 for v in fired.values()),
+    quiet = {"guardian_gate_119_no_consent_ok"}  # must NOT fire: allowed by business-rules.md
+    return {"fired": fired,
+            "all_fire": all(v >= 1 for k, v in fired.items() if k not in quiet)
+            and all(fired[k] == 0 for k in quiet),
             "composer_mismatches": h15.check_composer_equivalence()}
 
 
@@ -165,6 +219,7 @@ async def collect_validate(n: int, raw: Path) -> int:
             continue
         io.append_jsonl(path, await validate_one(i))
         written += 1
+    print("probe wrote", await collect_probe(raw))
     if not io.read_jsonl(raw / "selfcheck.jsonl"):
         io.append_jsonl(raw / "selfcheck.jsonl", {**selfcheck(), "meta": io.run_meta()})
     return written
@@ -240,7 +295,9 @@ def make_figures(summary: dict[str, Any]) -> list[Path]:
     fig.supylabel("공격 비율")
     fig.suptitle("손익분기 비용비 c* (놓침 1건 비용 / 오호출 1건 비용). F=최종값 우세 · L=LIOT 우세",
                  fontsize=11)
-    fig.colorbar(im, ax=axes, shrink=0.5, label="c*")
+    cb = fig.colorbar(im, ax=axes, shrink=0.5, label="c*")
+    cb.ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:g}"))
+    cb.ax.yaxis.set_minor_formatter(plt.NullFormatter())
     out.append(plotstyle.save(fig, EXP_DIR, "h15_cstar_maps"))
 
     # 3) trait-inference exploratory arm

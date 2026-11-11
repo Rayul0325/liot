@@ -164,7 +164,8 @@ async def run_episode(behavior: str, ep: int) -> dict[str, Any]:
     counts = {"sensor": 0, "advance": 0, "approve": 0, "attack": 0, "consent": 0, "trait": 0,
               "comfort": 0, "new_situations": 0, "silent_new_situation": 0,
               "escaped_model_exception": 0, "safety_path_exception": 0,
-              "guidance_119_without_consenting_guardian": 0}
+              "guidance_119_without_consenting_guardian": 0,
+              "first_alert_suppressed_known_finding": 0}
     try:
         # ── random household ────────────────────────────────────────────
         residents: list[str] = []
@@ -206,14 +207,11 @@ async def run_episode(behavior: str, ep: int) -> dict[str, Any]:
                 return
             sits = await situations(kit.db)
             floors = {s["situation_id"]: s["severity_floor"] for s in sits}
-            gate_rows = [r for r in new if r["kind"] == "forward"]
+            gate_rows = [r for r in new if r["kind"] in ("forward", "guidance_119")]
             violations.extend(invariants.check_guardian_gate(gate_rows, consent, floors))
-            # 119 guidance goes to the resident even with no consenting guardian (business-rules.md
-            # '동의한 보호자가 0명이어도 …'); the shared checker demands >=1 consenting guardian, so
-            # the floor-only part is checked with a sentinel consent and the spec gap is counted.
             guid = [r for r in new if r["kind"] == "guidance_119"]
-            violations.extend(invariants.check_guardian_gate(guid, {"__resident__": True}, floors))
             if guid and not any(consent.values()):
+                # allowed by business-rules.md; counted so the reader sees how often it happens
                 counts["guidance_119_without_consenting_guardian"] += len(guid)
             resolved = [r for r in new if r["kind"] == "resolved"]
             if resolved:
@@ -256,16 +254,21 @@ async def run_episode(behavior: str, ep: int) -> dict[str, Any]:
                     counts["new_situations"] += 1
                     if not transport.fail and len(transport.stamps) <= n_push_before:
                         counts["silent_new_situation"] += 1
-                        cur = await kit.db.execute(
-                            "SELECT COUNT(*) FROM proposals AS p WHERE p.state = 'rejected'")
-                        rejected_before = int((await cur.fetchone())[0])
-                        await cur.close()
-                        violations.append({
+                        dismissed = await svc.proposals.recently_rejected_keys()
+                        known = any(k.endswith(f":{cat}") for k in dismissed)
+                        entry = {
                             "invariant": "safety_never_silent",
                             "detail": f"new {cat} situation produced no push",
-                            "category": cat, "rejected_proposals_in_db": rejected_before,
-                            "charter_off": False,
-                        })
+                            "category": cat, "dismissed_same_category_in_30d": known,
+                        }
+                        if known:
+                            # documented in docs/tracking/findings.md '경고 상황을 거절하면 …':
+                            # a dismissal blocks the next episode's first alert for WARNING-floor
+                            # situations (only CRITICAL-floor situations bypass the 30-day gate).
+                            counts["first_alert_suppressed_known_finding"] += 1
+                            anomalies.append({**entry, "where": "known finding", "exc": "-"})
+                        else:
+                            violations.append(entry)
                 transport.fail = False
             elif r < 0.53:  # ── comfort reading + proactive tick
                 counts["comfort"] += 1

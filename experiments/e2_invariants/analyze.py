@@ -23,7 +23,7 @@ def _summarize_fuzz(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "answers_below_floor_discarded", "critical_floor_situations", "new_situations",
         "sensor", "advance", "approve", "attack", "consent", "trait", "comfort",
         "escaped_model_exception", "safety_path_exception", "silent_new_situation",
-        "guidance_119_without_consenting_guardian",
+        "guidance_119_without_consenting_guardian", "first_alert_suppressed_known_finding",
     )
     total_viol: collections.Counter[str] = collections.Counter()
     for b in sorted({r["behavior"] for r in rows}):
@@ -181,6 +181,13 @@ def summarize(raw_dir: Path) -> dict[str, Any]:
             "forwards_predicted": sum(1 for r in v if r["predicted_forward"]),
             "forwards_actual": sum(1 for r in v if r["actual_forward"]),
             "disagreements": [r["i"] for r in v if not r["agree"]][:10],
+        }
+    pr = read_jsonl(raw_dir / "probe.jsonl")
+    if pr:
+        out["probe_dismissal"] = {
+            f"{r['category']}/{'registered_vulnerable' if r['registered_vulnerable'] else 'plain'}": {
+                "floor": r["floor"], "second_first_alert_pushed": r["second_first_alert_pushed"]}
+            for r in sorted(pr, key=lambda r: (r["category"], r["registered_vulnerable"]))
         }
     sc = read_jsonl(raw_dir / "selfcheck.jsonl")
     if sc:
