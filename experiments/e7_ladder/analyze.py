@@ -66,7 +66,7 @@ def _mc(rows: list[dict[str, Any]]) -> dict[str, Any]:
         entry: dict[str, Any] = {"mu_min": r["mu_min"], "q": r["q"], "b": r["b"],
                                  "n_guard": r["n_guard"], "p_respond": cf["p"],
                                  "p_no_ack_closed": cf["p_no_ack"]}
-        for pol in ("sim", "seq"):
+        for pol in ("sim", "seq", "seq_concurrent"):
             n_ack = np.array([b[pol]["n_ack"] for b in bs], dtype=float)
             s_t = np.array([b[pol]["sum_t_ack"] for b in bs], dtype=float)
             n300 = np.array([b[pol]["n_ack_300"] for b in bs], dtype=float)
@@ -97,9 +97,33 @@ def _mc(rows: list[dict[str, Any]]) -> dict[str, Any]:
         d, d_lo, d_hi = _ratio_ci(s_diff, n_both)
         entry["delta_seq_minus_sim_s"] = {"point": d, "lo": d_lo, "hi": d_hi,
                                           "ci_excludes_zero": bool(d_lo > 0 or d_hi < 0)}
+        n_both_c = np.array([b["paired_concurrent"]["n_both"] for b in bs], dtype=float)
+        s_diff_c = np.array([b["paired_concurrent"]["sum_diff_seq_minus_sim"] for b in bs],
+                            dtype=float)
+        dc, dc_lo, dc_hi = _ratio_ci(s_diff_c, n_both_c)
+        entry["delta_seq_concurrent_minus_sim_s"] = {
+            "point": dc, "lo": dc_lo, "hi": dc_hi, "ci_excludes_zero": bool(dc_lo > 0 or dc_hi < 0)}
         entry["extra_people_paged_by_sim"] = entry["sim"]["pages"] - entry["seq"]["pages"]
         cells[f"mu{r['mu_min']}|q{r['q']}|b{r['b']}|N{r['n_guard']}"] = entry
+    # C2.10: does the sequential reading with the concurrency-based bystander effect beat
+    # simultaneous paging on P(ack within 300 s) when b >= 0.3 (N >= 2)? Both readings reported.
+    c210: dict[str, Any] = {}
+    for reading_name, pol in (("N_scaled_both", "seq"), ("concurrent_scaled_seq", "seq_concurrent")):
+        per_b: dict[str, Any] = {}
+        for bb in (0.0, 0.3, 0.6):
+            rs = [v for v in cells.values() if v["b"] == bb and v["n_guard"] >= 2]
+            wins = sum(1 for v in rs if v[pol]["p_ack_300_lo"] > v["sim"]["p_ack_300_hi"])
+            loses = sum(1 for v in rs if v[pol]["p_ack_300_hi"] < v["sim"]["p_ack_300_lo"])
+            diffs = [v[pol]["p_ack_300"] - v["sim"]["p_ack_300"] for v in rs]
+            per_b[f"b{bb}"] = {
+                "settings": len(rs), "seq_higher_ci_separated": wins,
+                "sim_higher_ci_separated": loses, "overlap": len(rs) - wins - loses,
+                "median_diff_p300_seq_minus_sim": float(np.median(diffs)),
+                "min_diff": float(min(diffs)), "max_diff": float(max(diffs)),
+            }
+        c210[reading_name] = per_b
     return {
+        "c2_10": c210,
         "cells": cells,
         "closed_form_check": {
             "share_closed_inside_sim_ci": {k: (v[0] / v[1] if v[1] else None)
@@ -158,7 +182,8 @@ def make_figures(summary: dict[str, Any], exp_dir: Path, plotstyle: Any) -> list
                                                   ("pages", "사건당 호출받는 사람 수"))):
                 ax = axes[row][col]
                 for pol, color, ls in (("sim", plotstyle.policy_color("liot"), "-"),
-                                       ("seq", plotstyle.policy_color("model_only"), "--")):
+                                       ("seq", plotstyle.policy_color("model_only"), "--"),
+                                       ("seq_concurrent", "#8E5A9B", ":")):
                     xs, ys = [], []
                     for n in (1, 2, 3, 5):
                         c = cells.get(f"mu{mu}|q0.2|b0.3|N{n}")
@@ -166,7 +191,8 @@ def make_figures(summary: dict[str, Any], exp_dir: Path, plotstyle: Any) -> list
                             xs.append(n)
                             ys.append(c[pol][metric])
                     ax.plot(xs, ys, color=color, linestyle=ls, marker="o",
-                            label="동시 호출(LIOT)" if pol == "sim" else "순차 호출(90초 간격)")
+                            label={"sim": "동시 호출(LIOT)", "seq": "순차(방관 효과를 보호자 수로)",
+                                           "seq_concurrent": "순차(방관 효과를 동시 호출 수로)"}[pol])
                 ax.set_title(f"평균 응답 {mu:g}분 · 무응답 20% · 방관 b=0.3", fontsize=9)
                 if row == 1:
                     ax.set_xlabel("동의한 보호자 수")
