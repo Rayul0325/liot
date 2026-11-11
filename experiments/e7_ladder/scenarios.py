@@ -20,6 +20,7 @@ situation opened, so lateness up to 5 s is possible by design).
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -36,6 +37,7 @@ from experiments.common.service_kit import (
 )
 from liot.layers.l4_execution.notifier import sign_feedback, sign_guardian_ack
 
+logging.getLogger("liot").setLevel(logging.CRITICAL)
 DOOR = "binary_sensor.front_door"
 STEP5 = 5.0
 Event = tuple[str, str, float]  # (kind, target, seconds since opening)
@@ -158,8 +160,8 @@ def build_scenarios() -> list[Scenario]:
         "S14", "보호자 송신 실패(0~200초) 뒤 복구", n_guardians=1, horizon=700,
         fail_guardian_windows=((0.0, 200.0),),
         expected=[first, *crit_realerts(700), ("forward", "g0", 210.0),
-                  ("guidance", "resident", 390.0), ("guidance", "g0", 510.0)],
-        note="실패한 전달은 30초 간격 재시도: 90·120·150·180 실패, 210 성공(복구 200초)",
+                  ("guidance", "resident", 510.0), ("guidance", "g0", 510.0)],
+        note="실패한 전달은 30초 간격 재시도: 90·120·150·180 실패, 210 성공(복구 200초). 119 안내는 전달 5분 뒤(510)",
     ))
     S.append(Scenario(
         "S15", "헌장 OFF · 보호자 1명", n_guardians=1, horizon=700,
@@ -176,16 +178,21 @@ def build_scenarios() -> list[Scenario]:
 
 
 # ── driver ───────────────────────────────────────────────────────────────────
-def _classify(topic: str, payload: dict[str, Any], gtopics: dict[str, str], first_pid: str | None,
-              ) -> tuple[str, str]:
+def _classify(topic: str, payload: dict[str, Any], gtopics: dict[str, str], seen_pids: set[str],
+              t: float) -> tuple[str, str]:
     who = gtopics.get(topic, "resident")
     label = str(payload.get("situation_label", ""))
     if "proposal_id" in payload:
-        if first_pid is None or payload["proposal_id"] == first_pid:
-            return ("alert" if first_pid is None else "realert"), who
+        pid = payload["proposal_id"]
+        if not seen_pids:
+            seen_pids.add(pid)
+            return "alert", who
+        if pid in seen_pids:
+            return "realert", who  # a re-send of a proposal already sent
+        seen_pids.add(pid)
         if payload.get("severity_label") == "주의":
             return "resolved", who
-        return "alert", who  # a model follow-up proposal (new proposal id)
+        return "alert", who  # a model follow-up proposal (new proposal id) at opening
     if "해소" in label:
         return "resolved", who
     if "119" in label:
@@ -268,7 +275,6 @@ async def run_scenario(sc: Scenario, driver: str) -> dict[str, Any]:
             await _do(kit, sc, pending.pop(0), gids, rid, tr)
         first_res = await svc.handle_reading(reading(sc.entity, "on"))
         send_times: list[float] = [0.0] * len(tr.stamps)  # driver time of every recorded send
-        first_pid = first_res.proposal.proposal_id if first_res is not None else None
         sit_id = (await svc.safety.get_open_situation(kit.home_id, "gas" if sc.entity == GAS
                                                       else "door", sc.entity))
         sid = sit_id.situation_id if sit_id else ""
@@ -307,12 +313,10 @@ async def run_scenario(sc: Scenario, driver: str) -> dict[str, Any]:
         await svc.drain_phase2()
         send_times += [now] * (len(tr.stamps) - len(send_times))
         actual: list[Event] = []
-        seen_first = False
+        seen_pids: set[str] = set()
         # exact driver time of each send (the service clock string is truncated to whole seconds)
         for st, t in zip(tr.stamps, send_times, strict=True):
-            kind, who = _classify(st[2], st[3], gtopics, first_pid if seen_first else None)
-            if not seen_first and kind == "alert":
-                seen_first = True
+            kind, who = _classify(st[2], st[3], gtopics, seen_pids, t)
             actual.append((kind, who, t))
         # a model follow-up proposal (S13) shows up as a second 'alert'
         res = _match(sc.expected, actual)
