@@ -322,6 +322,28 @@ def make_figures(summary: dict[str, Any]) -> list[Path]:
 
     plotstyle.setup()
     out: list[Path] = []
+    hb = summary.get("h15b")
+    if hb:
+        fig, axes = plt.subplots(1, 3, figsize=(13, 4), sharey=True)
+        for ax, (u, e) in zip(axes, [(0.0, 0.1), (0.1, 0.1), (0.3, 0.1)], strict=True):
+            for mode, color in (("honest", plotstyle.ACCENT), ("blind", "#8E5A9B")):
+                for atk, ls in ((0.0, "-"), (0.3, "--")):
+                    xs, ys = [], []
+                    for a in h15b.AUC:
+                        v = hb["cells"].get(f"u{u}|obs{e}|auc{a}|a{atk}|{mode}|fpr0.05|sweep")
+                        if v and v["c_star"]["class"] == "tradeoff":
+                            xs.append(a)
+                            ys.append(v["c_star"]["point"])
+                    ax.plot(xs, ys, color=color, linestyle=ls, marker="o",
+                            label=f"{'진실을 보는 모델' if mode == 'honest' else '취약성 못 보는 모델(구조상)'} · 공격 {atk:.0%}")
+            ax.axhline(2.0, color=plotstyle.GREY, linestyle=":")
+            ax.set_yscale("log")
+            ax.set_xlabel("모델 신호 세기 AUC")
+            ax.set_title(f"미등록 취약 {u:.0%} · 관찰로 드러나는 위험 {e:.0%}", fontsize=9)
+        axes[0].set_ylabel("손익분기 비용비 c* (점선 = 2)")
+        axes[0].legend(fontsize=6)
+        fig.suptitle("C2.8 모델 신호 세기에 따른 c* (E5 운영 지점은 AUC 0.5·상향률 3%)", fontsize=11)
+        out.append(plotstyle.save(fig, EXP_DIR, "c28_cstar_vs_auc"))
     h = summary.get("h15")
     if not h:
         return out
