@@ -11,7 +11,7 @@ from types import ModuleType
 REPO = Path(__file__).resolve().parents[2]
 BENCH_DIR = REPO / "bench" / "risk"
 
-CONTEXTS = ("sentence", "operational")
+CONTEXTS = ("sentence", "operational", "structured")
 LOCAL_MODELS = (
     "jevk5-9b-q8",
     "jevk5-4b-q8",

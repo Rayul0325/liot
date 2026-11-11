@@ -24,7 +24,7 @@ from experiments.common.io import read_jsonl
 TIERS = ("ambient", "breath", "dusk", "ember")
 SEVERITIES = ("record", "notice", "warning", "critical")
 SCALE = {"tier": TIERS, "severity": SEVERITIES}
-CONTEXTS = ("sentence", "operational")
+CONTEXTS = ("sentence", "operational", "structured")
 JEVK5 = ("jevk5-9b-q8", "jevk5-4b-q8", "jevk5-4b-q4")
 EXCLUDED = ("jev-omni-q4",)
 BOOT = 2000
@@ -385,6 +385,132 @@ def _p_above(row: dict[str, Any], q: str, floor: int) -> float | None:
     return float(sum(p[floor + 1:]))
 
 
+# ── C2.5 ─────────────────────────────────────────────────────────────────────
+def _c25_counts(
+    table: dict[tuple[str, str], dict[tuple[str, int], dict[str, Any]]], judge: str, rep: int
+) -> dict[str, Any] | None:
+    """Per-item raise/below flags in the three contexts, paired on non-injection items."""
+    its = {}
+    for c in CONTEXTS:
+        if (judge, c) not in table:
+            return None
+        its[c] = _by_item(table[(judge, c)], rep)
+    keys = sorted(
+        k for k in its["sentence"]
+        if k in its["operational"] and k in its["structured"] and not _is_injection(its["sentence"][k][2])
+    )
+    if not keys:
+        return None
+    flags = {
+        c: {
+            "raise": np.array([int(its[c][k][0] > its[c][k][1]) for k in keys]),
+            "below": np.array([int(its[c][k][0] < its[c][k][1]) for k in keys]),
+            "ans": np.array([its[c][k][0] for k in keys]),
+        }
+        for c in CONTEXTS
+    }
+    return {"keys": keys, "flags": flags}
+
+
+def _returned(raise_s: float, raise_o: float, raise_t: float) -> float | None:
+    gap = raise_s - raise_o
+    return None if gap <= 0 else (raise_t - raise_o) / gap
+
+
+def _c25(
+    table: dict[tuple[str, str], dict[tuple[str, int], dict[str, Any]]], judges: list[str], rep: int
+) -> dict[str, Any]:
+    """C2.5: share of the sentence-vs-operational raise gap that returns with two structured fields.
+
+    Prediction (pre-registered): returned >= 0.5 AND below-floor answers in the structured context
+    do not exceed the operational context.  Falsified otherwise.  Evaluated on the pooled counts of
+    all judges with all three contexts; per-judge rows are shown for transparency.
+    """
+    per: dict[str, Any] = {}
+    data: dict[str, dict[str, Any]] = {}
+    for j in judges:
+        d = _c25_counts(table, j, rep)
+        if d is None:
+            continue
+        data[j] = d
+        f = d["flags"]
+        rs, ro, rt = (int(f[c]["raise"].sum()) for c in ("sentence", "operational", "structured"))
+        bs, bo, bt = (int(f[c]["below"].sum()) for c in ("sentence", "operational", "structured"))
+        n10 = int(((f["structured"]["raise"] == 1) & (f["operational"]["raise"] == 0)).sum())
+        n01 = int(((f["structured"]["raise"] == 0) & (f["operational"]["raise"] == 1)).sum())
+        disc = n10 + n01
+        per[j] = {
+            "n_items": len(d["keys"]),
+            "raised_sentence": rs, "raised_operational": ro, "raised_structured": rt,
+            "gap_sentence_minus_operational": rs - ro,
+            "returned_fraction": _returned(rs, ro, rt),
+            "below_floor_sentence": bs, "below_floor_operational": bo, "below_floor_structured": bt,
+            "below_floor_not_above_operational": bt <= bo,
+            "answers_changed_structured_vs_operational": int((f["structured"]["ans"] != f["operational"]["ans"]).sum()),
+            "answers_changed_sentence_vs_operational": int((f["sentence"]["ans"] != f["operational"]["ans"]).sum()),
+            "mcnemar_structured_only_raise": n10, "mcnemar_operational_only_raise": n01,
+            "mcnemar_exact_p": float(stats.binomtest(n10, disc, 0.5).pvalue) if disc else 1.0,
+        }
+    if not data:
+        return {"rep": rep, "per_judge": per}
+    # pooled over judges; bootstrap over cases (a case brings its items for every judge)
+    case_ids = sorted({k[0] for d in data.values() for k in d["keys"]})
+    tot = {c: {"raise": 0, "below": 0} for c in CONTEXTS}
+    for d in data.values():
+        for c in CONTEXTS:
+            tot[c]["raise"] += int(d["flags"][c]["raise"].sum())
+            tot[c]["below"] += int(d["flags"][c]["below"].sum())
+    rng = _rng(f"c25-{rep}")
+    fr: list[float] = []
+    dbelow: list[int] = []
+    cols = {
+        (j, c): (d["flags"][c]["raise"], d["flags"][c]["below"]) for j, d in data.items() for c in CONTEXTS
+    }
+    idx_by_case = {
+        j: {cid: [i for i, k in enumerate(d["keys"]) if k[0] == cid] for cid in case_ids}
+        for j, d in data.items()
+    }
+    for _ in range(BOOT):
+        pick = rng.integers(0, len(case_ids), size=len(case_ids))
+        sums = {c: [0, 0] for c in CONTEXTS}
+        for j in data:
+            sel = [i for p in pick for i in idx_by_case[j][case_ids[p]]]
+            for c in CONTEXTS:
+                sums[c][0] += int(cols[(j, c)][0][sel].sum())
+                sums[c][1] += int(cols[(j, c)][1][sel].sum())
+        ret = _returned(sums["sentence"][0], sums["operational"][0], sums["structured"][0])
+        if ret is not None:
+            fr.append(ret)
+        dbelow.append(sums["structured"][1] - sums["operational"][1])
+    pooled_ret = _returned(tot["sentence"]["raise"], tot["operational"]["raise"], tot["structured"]["raise"])
+    below_ok = tot["structured"]["below"] <= tot["operational"]["below"]
+    supported = pooled_ret is not None and pooled_ret >= 0.5 and below_ok
+    return {
+        "rep": rep,
+        "judges": sorted(data),
+        "per_judge": per,
+        "pooled": {
+            "raised_sentence": tot["sentence"]["raise"],
+            "raised_operational": tot["operational"]["raise"],
+            "raised_structured": tot["structured"]["raise"],
+            "returned_fraction": pooled_ret,
+            "returned_fraction_ci95_case_bootstrap": (
+                [float(np.percentile(fr, 2.5)), float(np.percentile(fr, 97.5))] if fr else None
+            ),
+            "below_floor_sentence": tot["sentence"]["below"],
+            "below_floor_operational": tot["operational"]["below"],
+            "below_floor_structured": tot["structured"]["below"],
+            "below_floor_structured_minus_operational_ci95": [
+                float(np.percentile(dbelow, 2.5)), float(np.percentile(dbelow, 97.5))
+            ],
+        },
+        "prediction": "returned fraction >= 0.5 and pooled below-floor (structured) <= operational",
+        "prediction_supported": bool(supported),
+        "returned_ge_half": bool(pooled_ret is not None and pooled_ret >= 0.5),
+        "below_floor_not_above_operational": bool(below_ok),
+    }
+
+
 # ── main ─────────────────────────────────────────────────────────────────────
 def summarize(raw_dir: Path) -> dict[str, Any]:
     raw = Path(raw_dir)
@@ -402,6 +528,7 @@ def summarize(raw_dir: Path) -> dict[str, Any]:
         "h52_lower_injection": {},
         "h53_agreement": {},
         "add5_miss_vs_table": {},
+        "c25_structured": {},
     }
     reps_all = sorted({k[1] for rows in table.values() for k in rows})
     usable = {
@@ -447,6 +574,10 @@ def summarize(raw_dir: Path) -> dict[str, Any]:
                     and any(r == rep for (_, r) in table[(j, c)])]
             if len(have) >= 3:
                 out["h53_agreement"][f"{c}_rep{rep}"] = _h53(table, c, rep, have)
+    for rep in reps_all:
+        c25_judges = [j for j in valid_judges if all((j, c) in table for c in CONTEXTS)]
+        if c25_judges:
+            out["c25_structured"][f"rep{rep}"] = _c25(table, c25_judges, rep)
     for j in valid_judges:
         out["add5_miss_vs_table"][j] = {}
         for c in CONTEXTS:

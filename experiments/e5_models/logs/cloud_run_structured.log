@@ -1,0 +1,2 @@
+stop reasons: {"jev-api": "complete", "haiku": "complete"}
+cost summary: {"calls": 244, "run_usd": 0.010791, "run_cap_usd": 1.5, "tripped": null, "by_kind": {"jev-api": {"calls": 122, "seconds": 25.0781, "input_tokens": 65150, "output_tokens": 2698, "usd": 0.002736}, "haiku": {"calls": 122, "seconds": 125.7201, "input_tokens": 71192, "output_tokens": 1870, "usd": 0.008054}}, "unknown_price_calls": 0, "estimated_calls": 122}

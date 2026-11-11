@@ -182,6 +182,15 @@ def summarize(raw_dir: Path) -> dict[str, Any]:
             grid_score_vectors = best.pop("_scores")
         else:
             best.pop("_scores", None)
+        # same sweep without the zero-based codes (a 0 code wipes out a whole row of scores)
+        nz = [
+            r for r in recs
+            if r["harm_family"] != "zero_based" and r["time_family"] != "zero_based"
+        ]
+        agg_nz, best_nz = _grid_aggregate(nz, variant, ref, dx, dy, cat_idx, ref_cat, critical_idx)
+        best_nz.pop("_scores", None)
+        agg_nz["best_by_table_similarity"] = best_nz
+        out["mult_grid"][f"{variant}_without_zero_based"] = agg_nz
 
     # ── multiplicative: random codings ───────────────────────────────────────
     rnd = read_jsonl(raw / "codings_random.jsonl")

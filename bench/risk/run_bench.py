@@ -66,7 +66,9 @@ LOG_DIR = MODEL_DIR / "logs"
 # --context operational 의 원자료(원본 raw/ 는 그대로 둔다)와 --latency-only 의 원자료(요청마다 load1).
 RAW_OPERATIONAL_DIR = HERE / "raw_operational"
 RAW_LATENCY_DIR = HERE / "raw_latency"
-CONTEXT_MODES = ("sentence", "operational")
+RAW_STRUCTURED_DIR = HERE / "raw_structured"  # --context structured (C2.5)
+OBSERVATIONS_PATH = HERE / "observations.yaml"
+CONTEXT_MODES = ("sentence", "operational", "structured")
 
 PORT_BASE = 18770
 REQUEST_TIMEOUT_S = 60.0  # 측정용. 운영 기본(1.5s)보다 길게 — 느린 모델도 degraded 대신 잰다.
@@ -135,6 +137,25 @@ def operational_summary(b: Built) -> str:
     return snap.nl_summary
 
 
+def structured_summary(b: Built, obs: dict[str, dict[str, str]]) -> str:
+    """운영 집계 요약 + 구조화 관측값 두 개(occupied, abnormal_for). 자유 텍스트 없음.
+
+    값은 ``observations.yaml`` 에서 온다(케이스 문장의 명시된 사실만 옮긴 표). 운영 코드의 템플릿은
+    바꾸지 않고, 벤치에서 문자열 뒤에 ``; occupied=..; abnormal_for=..`` 를 덧붙인다.
+    """
+    o = obs[b.cid]
+    return f"{operational_summary(b)}; occupied={o['occupied']}; abnormal_for={o['abnormal_for']}"
+
+
+def load_observations() -> dict[str, dict[str, str]]:
+    doc = _load_yaml(OBSERVATIONS_PATH)
+    # YAML 1.1 은 yes/no 를 불리언으로 읽는다 → 문자열로 되돌린다.
+    def norm(x: Any) -> str:
+        return "yes" if x is True else "no" if x is False else str(x)
+
+    return {str(k): {f: norm(val) for f, val in v.items()} for k, v in doc["cases"].items()}
+
+
 def build_all(cases: list[dict[str, Any]], context_mode: str = "sentence") -> list[Built]:
     if context_mode not in CONTEXT_MODES:
         raise SystemExit(f"모르는 맥락 방식: {context_mode} ({CONTEXT_MODES})")
@@ -148,6 +169,22 @@ def build_all(cases: list[dict[str, Any]], context_mode: str = "sentence") -> li
             out.append(build_one(spec, guard, table))
         except CaseError as exc:
             raise SystemExit(str(exc)) from None
+    if context_mode == "structured":
+        obs = load_observations()
+        missing = sorted({b.cid for b in out} - set(obs))
+        if missing:
+            raise SystemExit(f"observations.yaml 에 없는 케이스: {missing}")
+        out = [
+            Built(
+                b.cid, b.spec, b.candidate,
+                b.ctx.model_copy(update={"nl_summary": structured_summary(b, obs)}),
+                b.gate1, b.severity_floor, b.severity_sources,
+            )
+            for b in out
+        ]
+        hits = [(b.cid, w) for b in out for w in TRAIT_WORDS if w in b.ctx.nl_summary]
+        if hits:
+            raise SystemExit(f"구조화 요약에 특성 낱말이 있다: {hits}")
     if context_mode == "operational":
         # 맥락 문장 자리에 운영 집계 요약을 넣는다. 하한·후보·시간대는 그대로(Built 만 다시 만든다).
         out = [
@@ -466,6 +503,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         raw_dir = RAW_LATENCY_DIR / context_mode
     elif context_mode == "operational":
         raw_dir = RAW_OPERATIONAL_DIR
+    elif context_mode == "structured":
+        raw_dir = RAW_STRUCTURED_DIR
     else:
         raw_dir = RAW_DIR
     if getattr(args, "raw_dir", None):  # 재현 확인용: 원본 raw/ 를 건드리지 않고 다른 곳에 쓴다
@@ -961,7 +1000,7 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--port", type=int, default=PORT_BASE)
     pr.add_argument(
         "--context", choices=CONTEXT_MODES, default="sentence",
-        help="sentence(기본, 한국어 상황 문장) | operational(운영 집계 요약 — raw_operational/ 에 저장)",
+        help="sentence(기본, 한국어 상황 문장) | operational(운영 집계 요약 — raw_operational/) | structured(집계 요약 + 관측값 둘 — raw_structured/)",
     )
     pr.add_argument(
         "--latency-only", action="store_true",

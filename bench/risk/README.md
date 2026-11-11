@@ -34,3 +34,4 @@ PYTHONPATH=. $V bench/risk/run_bench.py report
 - `run --model KEY --latency-only [--context ...] [--reps N]`: 지연 재측정. `raw_latency/<맥락>/` 에 쓰고
   요청마다 `load1_before`·`load1_after` 를 남긴다(조용한 기계에서 돌린다).
 - `--raw-dir PATH`(재현 확인용) · `--only 접두사`(스모크용).
+- `run --model KEY --context structured`: 운영 집계 요약 뒤에 구조화 관측값 둘(`occupied`, `abnormal_for`)을 덧붙인다. 값은 `observations.yaml`(케이스 문장의 명시된 사실만 옮긴 표). 결과는 `raw_structured/`.
