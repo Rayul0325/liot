@@ -19,3 +19,4 @@ events:
   - {time: "03:20", cycle: 2, lane: R, text: E3 보정 — 같은 상한 비교, mark: LIOT 열세}
   - {time: "03:30", cycle: 3, lane: R, text: E5 C3.1 반증, mark: 분류 코드}
   - {time: "03:50", cycle: 2, lane: R, text: E8 뮤테이션 7/10 모듈 90% 미만, mark: H6.3 지지}
+  - {time: "04:15", cycle: 2, lane: V, text: E8 빈틈 15곳 테스트 보강 PASS·병합, mark: 로더 중복 키 거부}

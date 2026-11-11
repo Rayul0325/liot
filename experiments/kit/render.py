@@ -125,7 +125,7 @@ def _pending_block(claims: list[Claim]) -> str:
         have = load_summary(claim.pending_exp or "") is not None
         state = "결과 도착 — 청구를 채워야 함" if have else "대기"
         lines.append(f"- **{claim.pending_exp}** ({claim.hyp}): {state}. {claim.text}")
-    return "\n".join(lines)
+    return "\n".join(lines) or "현재 진행 중인 실험은 없다. 모든 실험(E1~E9)의 결과가 들어와 있다."
 
 
 def render() -> str:

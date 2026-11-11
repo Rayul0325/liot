@@ -33,7 +33,7 @@ __all__ = [
 
 # Verdict colours are categorical and deliberately not the per-policy colours: a verdict is about
 # a hypothesis, not about a policy. Hatches keep the categories apart in greyscale print.
-VERDICT_ORDER = ["지지", "반증", "판정 불가", "구조상 결과", "기술 결과", "읽기에 따라 갈림", "대기"]
+VERDICT_ORDER = ["지지", "반증", "판정 불가", "구조상 결과", "기술 결과", "읽기에 따라 갈림", "등록 결론 불충족", "대기"]
 VERDICT_STYLE: dict[str, dict[str, Any]] = {
     "지지": {"face": "#1F5FA8", "hatch": "", "text": "white"},
     "반증": {"face": "#B24A3E", "hatch": "xxx", "text": "white"},
@@ -41,6 +41,7 @@ VERDICT_STYLE: dict[str, dict[str, Any]] = {
     "구조상 결과": {"face": "#6B6B6B", "hatch": "...", "text": "white"},
     "기술 결과": {"face": "#DCDCDC", "hatch": "", "text": "#2B2B2B"},
     "읽기에 따라 갈림": {"face": "#8E5A9B", "hatch": "\\\\\\", "text": "white"},
+    "등록 결론 불충족": {"face": "#E3B7AF", "hatch": "", "text": "#5A2A24"},
     "대기": {"face": "white", "hatch": "", "text": "#6B6B6B", "dashed": True},
 }
 
@@ -380,10 +381,27 @@ def _panel_e5(ax: Any) -> None:
 
 
 def _panel_e6(ax: Any) -> None:
-    if load_summary("e6_personalization") is None:
+    summary = load_summary("e6_personalization")
+    if summary is None:
         _pending_panel(ax, "Q4 적응 (E6)", "대기\n(e6 결과 도착 후\n다시 만들면 채워짐)")
         return
-    _pending_panel(ax, "Q4 적응 (E6)", "결과 도착\nfigures.py 에\n패널을 추가")
+    pooled = summary["pooled"]
+    groups = [("폰 장면", "acc_help_imm"), ("모아보기 장면", "acc_help_tray")]
+    width = 0.34
+    for i, (arm, color, label) in enumerate(
+        [("main|explicit_only|B", NEUTRAL, "버튼만 있는 대안"), ("main|lr30|B", LIOT_BETTER, "LIOT 운영(학습 30%)")]
+    ):
+        vals = [pooled[arm]["d1_60"][key]["mean"] for _, key in groups]
+        xs = np.arange(len(groups)) + (i - 0.5) * width
+        ax.bar(xs, vals, width=width, color=color, label=label)
+        for x, v in zip(xs, vals, strict=True):
+            ax.text(x, v + 0.012, f"{v:.2f}", ha="center", fontsize=6.8, fontweight="bold")
+    ax.set_xticks(np.arange(len(groups)), [g[0] for g in groups])
+    ax.set_ylim(0, 0.86)
+    ax.set_ylabel("하루 수락된 도움 (건)")
+    ax.set_title("Q4 학습이 버튼에 더하는 것", loc="left", fontweight="bold")
+    ax.legend(loc="upper left", fontsize=6, handlelength=1.2)
+    ax.text(0.99, 0.98, "쓸데없는 알림 차이 0", transform=ax.transAxes, ha="right", va="top", fontsize=6.2, color="#555555")
 
 
 def _panel_e7(ax: Any) -> None:

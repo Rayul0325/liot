@@ -47,9 +47,9 @@ hypotheses:
   - {id: H3.1, q: Q3, cycle: 1, exp: e4_scoring, name: 방식별 성질(표·곱셈·단일·모델), verdict: 기술 결과, raw: 판정 대상 아님 — 관찰만, claims: [E4-01, E4-02, E4-03]}
   - {id: H3.3, q: Q3, cycle: 1, exp: e4_scoring, name: 모델 단독의 방향성, verdict: 기술 결과, raw: "관찰: 방향이 낮추는 쪽", claims: [E4-04]}
   # ---- Q4 (E6 pending)
-  - {id: H4.1, q: Q4, cycle: 1, exp: e6_personalization, name: 학습의 효과, verdict: 대기, raw: e6 진행 중, claims: [E6-00]}
-  - {id: H4.2 (P5), q: Q4, cycle: 1, exp: e6_personalization, name: 선호가 바뀌면 따라가나, verdict: 대기, raw: e6 진행 중, claims: [E6-00]}
-  - {id: H4.3, q: Q4, cycle: 1, exp: e6_personalization, name: 확인 방식과 수락, verdict: 대기, raw: e6 진행 중, claims: [E6-00]}
+  - {id: H4.1, q: Q4, cycle: 1, exp: e6_personalization, name: 학습의 효과, verdict: 기술 결과, raw: "기술 결과 — †(팔의 정의에서 나오는 구조상 결과) 표시: none 의 잘못 꺼진 도움 0, permanent 의 31일 이후 증가", claims: [E6-01, E6-04]}
+  - {id: H4.2 (P5), q: Q4, cycle: 1, exp: e6_personalization, name: 선호가 바뀌면 따라가나, verdict: 등록 결론 불충족, raw: "등록된 결론 조건 불충족 — 그 결론은 내리지 않는다 (재수락 형태는 사후 기준, 게이트가 10~12일 늦춘다는 서술은 기술 결과)", claims: [E6-02]}
+  - {id: H4.3, q: Q4, cycle: 1, exp: e6_personalization, name: 확인 방식과 수락, verdict: 기술 결과, raw: "기술 결과 (피로·수고 0 대조는 구조상 결과†)", claims: [E6-03]}
   # ---- Q5
   - {id: H5.1, q: Q5, cycle: 1, exp: e5_models, name: 운영 맥락에서 올림이 줄어드나, verdict: 구조상 결과, raw: "구조상 결과 (지지/반증 아님)", claims: [E5-01]}
   - {id: H5.2, q: Q5, cycle: 1, exp: e5_models, name: 클라우드가 주입에 강한가, verdict: 판정 불가, raw: 판정 불가(구간 겹침, luna 미접근), claims: [E5-02]}
@@ -57,7 +57,7 @@ hypotheses:
   - {id: ADD-5, q: Q5, cycle: 1, exp: e5_models, name: 문장을 보는 모델이 표보다 덜 놓치나, verdict: 기술 결과, raw: 관찰 — 문장 맥락에서만 표보다 덜 놓침, claims: [E5-04]}
   - {id: C2.5, q: Q5, cycle: 2, exp: e5_models, name: 관측값 두 개로 올림이 돌아오나, verdict: 반증, raw: "반증 (돌아온 몫 0.014 < 0.5)", claims: [E5-05]}
   - {id: C3.1, q: Q5, cycle: 3, exp: e5_models, name: 상황 종류 코드로 올림이 돌아오나, verdict: 반증, raw: "반증 (돌아온 몫 0.113 < 0.5; 규칙 조회가 모델과 같거나 나음)", claims: [E5-06]}
-  - {id: H5.4, q: Q5, cycle: 1, exp: e9_cloud, name: 실제 종단 실행에서 Jev 와 luna, verdict: 대기, raw: e9 진행 중, claims: [E9-00]}
+  - {id: H5.4, q: Q5, cycle: 1, exp: e9_cloud, name: 실제 종단 실행에서 Jev 와 luna, verdict: 판정 불가, raw: "판정 불가 — luna 요청 109건 전부 실패(크레딧 소진, HTTP 429). Jev 하한 일치 109/109 는 일부가 구조상 결과", claims: [E9-01, E9-02, E9-03]}
   # ---- Q6
   - {id: H6.1, q: Q6, cycle: 1, exp: e7_ladder, name: 사다리 명세 적합, verdict: 반증, raw: "반증(등록 문구대로 — 5초 틱 해상도)", claims: [E7-01]}
   - {id: H6.2, q: Q6, cycle: 1, exp: e7_ladder, name: 동시 대 순차 호출, verdict: 기술 결과, raw: 기술 결과(판정 없음), claims: [E7-02]}
