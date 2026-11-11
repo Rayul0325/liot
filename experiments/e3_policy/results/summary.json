@@ -3431,7 +3431,7 @@
           },
           "harm_diff": {
             "mean": -0.002121,
-            "median": -0.0,
+            "median": 0.0,
             "n": 400,
             "p10": -0.007598,
             "p25": -0.00354,
@@ -3455,7 +3455,9 @@
             "help_flat_ceiling": 0.323989,
             "help_liot_real": 0.448469
           },
-          "share_sets_liot_real_harm_higher_point": 0.2125,
+          "share_sets_liot_real_harm_higher_point": 0.1625,
+          "share_sets_liot_real_harm_lower_point": 0.48,
+          "share_sets_liot_real_harm_tie": 0.3575,
           "share_sets_liot_real_help_higher_point": 1.0
         }
       },
@@ -3820,7 +3822,7 @@
         },
         "liot_real_vs_flat_same_liot_ceiling": {
           "burden_diff": {
-            "mean": -2.399262,
+            "mean": -2.399263,
             "median": -2.154167,
             "n": 400,
             "p10": -4.186667,
@@ -3854,7 +3856,9 @@
             "help_flat_ceiling": 0.322646,
             "help_liot_real": 0.448048
           },
-          "share_sets_liot_real_harm_higher_point": 0.96,
+          "share_sets_liot_real_harm_higher_point": 0.9575,
+          "share_sets_liot_real_harm_lower_point": 0.035,
+          "share_sets_liot_real_harm_tie": 0.0075,
           "share_sets_liot_real_help_higher_point": 1.0
         }
       }
@@ -4243,7 +4247,7 @@
           },
           "harm_diff": {
             "mean": -0.001786,
-            "median": -0.0,
+            "median": 0.0,
             "n": 400,
             "p10": -0.0061,
             "p25": -0.003017,
@@ -4267,7 +4271,9 @@
             "help_flat_ceiling": 0.347413,
             "help_liot_real": 0.455821
           },
-          "share_sets_liot_real_harm_higher_point": 0.215,
+          "share_sets_liot_real_harm_higher_point": 0.155,
+          "share_sets_liot_real_harm_lower_point": 0.4575,
+          "share_sets_liot_real_harm_tie": 0.3875,
           "share_sets_liot_real_help_higher_point": 1.0
         }
       },
@@ -4632,7 +4638,7 @@
         },
         "liot_real_vs_flat_same_liot_ceiling": {
           "burden_diff": {
-            "mean": -2.399262,
+            "mean": -2.399263,
             "median": -2.154167,
             "n": 400,
             "p10": -4.186667,
@@ -4666,7 +4672,9 @@
             "help_flat_ceiling": 0.346282,
             "help_liot_real": 0.4555
           },
-          "share_sets_liot_real_harm_higher_point": 0.99,
+          "share_sets_liot_real_harm_higher_point": 0.985,
+          "share_sets_liot_real_harm_lower_point": 0.01,
+          "share_sets_liot_real_harm_tie": 0.005,
           "share_sets_liot_real_help_higher_point": 1.0
         }
       }
@@ -6141,16 +6149,16 @@
         "kappa": 0.0,
         "m": 0.0,
         "share_sets_dominating_incl_helpful_completion": {
-          "hi": 0.140062,
-          "lo": 0.0775,
+          "hi": 0.1525,
+          "lo": 0.0875,
           "n": 400,
-          "share": 0.11
+          "share": 0.12
         },
         "share_sets_dominating_liot_full": {
-          "hi": 0.1675,
-          "lo": 0.1,
+          "hi": 0.185,
+          "lo": 0.115,
           "n": 400,
-          "share": 0.1325
+          "share": 0.1475
         },
         "share_sets_dominating_liot_full_by_1pp_harm": {
           "hi": 0.07,
@@ -6166,16 +6174,16 @@
         "kappa": 0.1,
         "m": 0.0,
         "share_sets_dominating_incl_helpful_completion": {
-          "hi": 0.085,
-          "lo": 0.04,
+          "hi": 0.0925,
+          "lo": 0.045,
           "n": 400,
-          "share": 0.0625
+          "share": 0.0675
         },
         "share_sets_dominating_liot_full": {
-          "hi": 0.085,
-          "lo": 0.04,
+          "hi": 0.0925,
+          "lo": 0.045,
           "n": 400,
-          "share": 0.0625
+          "share": 0.0675
         },
         "share_sets_dominating_liot_full_by_1pp_harm": {
           "hi": 0.05,
@@ -6191,16 +6199,16 @@
         "kappa": 0.25,
         "m": 0.0,
         "share_sets_dominating_incl_helpful_completion": {
-          "hi": 0.0475,
+          "hi": 0.05,
           "lo": 0.015,
           "n": 400,
-          "share": 0.03
+          "share": 0.0325
         },
         "share_sets_dominating_liot_full": {
-          "hi": 0.0475,
+          "hi": 0.05,
           "lo": 0.015,
           "n": 400,
-          "share": 0.03
+          "share": 0.0325
         },
         "share_sets_dominating_liot_full_by_1pp_harm": {
           "hi": 0.035,
@@ -6391,16 +6399,16 @@
         "kappa": 0.1,
         "m": 0.1,
         "share_sets_dominating_incl_helpful_completion": {
-          "hi": 0.5425,
-          "lo": 0.4475,
+          "hi": 0.552562,
+          "lo": 0.455,
           "n": 400,
-          "share": 0.495
+          "share": 0.505
         },
         "share_sets_dominating_liot_full": {
-          "hi": 0.5425,
-          "lo": 0.4475,
+          "hi": 0.552562,
+          "lo": 0.455,
           "n": 400,
-          "share": 0.495
+          "share": 0.505
         },
         "share_sets_dominating_liot_full_by_1pp_harm": {
           "hi": 0.430062,
@@ -6416,22 +6424,22 @@
         "kappa": 0.25,
         "m": 0.1,
         "share_sets_dominating_incl_helpful_completion": {
-          "hi": 0.35,
-          "lo": 0.259937,
-          "n": 400,
-          "share": 0.3025
-        },
-        "share_sets_dominating_liot_full": {
-          "hi": 0.357562,
+          "hi": 0.36,
           "lo": 0.265,
           "n": 400,
           "share": 0.31
         },
-        "share_sets_dominating_liot_full_by_1pp_harm": {
-          "hi": 0.240062,
-          "lo": 0.165,
+        "share_sets_dominating_liot_full": {
+          "hi": 0.3675,
+          "lo": 0.27,
           "n": 400,
-          "share": 0.2025
+          "share": 0.3175
+        },
+        "share_sets_dominating_liot_full_by_1pp_harm": {
+          "hi": 0.245,
+          "lo": 0.1675,
+          "n": 400,
+          "share": 0.205
         }
       },
       {
@@ -6441,16 +6449,16 @@
         "kappa": 0.5,
         "m": 0.1,
         "share_sets_dominating_incl_helpful_completion": {
-          "hi": 0.19,
-          "lo": 0.122438,
-          "n": 400,
-          "share": 0.155
-        },
-        "share_sets_dominating_liot_full": {
           "hi": 0.1975,
           "lo": 0.13,
           "n": 400,
           "share": 0.1625
+        },
+        "share_sets_dominating_liot_full": {
+          "hi": 0.2075,
+          "lo": 0.135,
+          "n": 400,
+          "share": 0.17
         },
         "share_sets_dominating_liot_full_by_1pp_harm": {
           "hi": 0.1275,
@@ -6592,8 +6600,8 @@
         "share_sets_dominating_liot_full_by_1pp_harm": null
       },
       "m0.1": {
-        "share_sets_dominating_incl_helpful_completion": 0.814209,
-        "share_sets_dominating_liot_full": 0.814209,
+        "share_sets_dominating_incl_helpful_completion": 0.8135,
+        "share_sets_dominating_liot_full": 0.813486,
         "share_sets_dominating_liot_full_by_1pp_harm": null
       }
     }
@@ -6618,6 +6626,12 @@
                 "share": 1.0
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0,
                 "lo": 0.0,
                 "n": 400,
@@ -6660,10 +6674,16 @@
                 "share": 0.285
               },
               "ns": {
-                "hi": 0.5775,
-                "lo": 0.4825,
+                "hi": 0.525,
+                "lo": 0.43,
                 "n": 400,
-                "share": 0.53
+                "share": 0.4775
+              },
+              "tie": {
+                "hi": 0.075,
+                "lo": 0.0325,
+                "n": 400,
+                "share": 0.0525
               }
             },
             "by_f_bin": [
@@ -6673,7 +6693,8 @@
                 "higher": 0.18,
                 "lower": 0.32,
                 "n": 100,
-                "ns": 0.5
+                "ns": 0.46,
+                "tie": 0.04
               },
               {
                 "f_hi": 0.15,
@@ -6681,7 +6702,8 @@
                 "higher": 0.17,
                 "lower": 0.3,
                 "n": 100,
-                "ns": 0.53
+                "ns": 0.49,
+                "tie": 0.04
               },
               {
                 "f_hi": 0.225,
@@ -6689,7 +6711,8 @@
                 "higher": 0.22,
                 "lower": 0.25,
                 "n": 100,
-                "ns": 0.53
+                "ns": 0.45,
+                "tie": 0.08
               },
               {
                 "f_hi": 0.3,
@@ -6697,7 +6720,8 @@
                 "higher": 0.17,
                 "lower": 0.27,
                 "n": 100,
-                "ns": 0.56
+                "ns": 0.51,
+                "tie": 0.05
               }
             ],
             "map_f_by_r_mean_diff": [
@@ -6792,6 +6816,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -6830,6 +6860,12 @@
                 "share": 0.005
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0975,
                 "lo": 0.0475,
                 "n": 400,
@@ -6878,6 +6914,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -6920,6 +6962,12 @@
                 "lo": 0.0025,
                 "n": 400,
                 "share": 0.0125
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "by_f_bin": [
@@ -6929,7 +6977,8 @@
                 "higher": 0.0,
                 "lower": 1.0,
                 "n": 100,
-                "ns": 0.0
+                "ns": 0.0,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.15,
@@ -6937,7 +6986,8 @@
                 "higher": 0.0,
                 "lower": 0.98,
                 "n": 100,
-                "ns": 0.02
+                "ns": 0.02,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.225,
@@ -6945,7 +6995,8 @@
                 "higher": 0.0,
                 "lower": 0.98,
                 "n": 100,
-                "ns": 0.02
+                "ns": 0.02,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.3,
@@ -6953,7 +7004,8 @@
                 "higher": 0.0,
                 "lower": 0.99,
                 "n": 100,
-                "ns": 0.01
+                "ns": 0.01,
+                "tie": 0.0
               }
             ],
             "map_f_by_r_mean_diff": [
@@ -7048,6 +7100,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -7086,6 +7144,12 @@
                 "share": 0.01
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0175,
                 "lo": 0.0,
                 "n": 400,
@@ -7273,6 +7337,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -7315,6 +7385,12 @@
                 "lo": 0.2275,
                 "n": 400,
                 "share": 0.2675
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "by_f_bin": [
@@ -7324,7 +7400,8 @@
                 "higher": 0.72,
                 "lower": 0.05,
                 "n": 100,
-                "ns": 0.23
+                "ns": 0.23,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.15,
@@ -7332,7 +7409,8 @@
                 "higher": 0.63,
                 "lower": 0.05,
                 "n": 100,
-                "ns": 0.32
+                "ns": 0.32,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.225,
@@ -7340,7 +7418,8 @@
                 "higher": 0.67,
                 "lower": 0.05,
                 "n": 100,
-                "ns": 0.28
+                "ns": 0.28,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.3,
@@ -7348,7 +7427,8 @@
                 "higher": 0.72,
                 "lower": 0.04,
                 "n": 100,
-                "ns": 0.24
+                "ns": 0.24,
+                "tie": 0.0
               }
             ],
             "map_f_by_r_mean_diff": [
@@ -7443,6 +7523,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -7481,10 +7567,16 @@
                 "share": 0.0
               },
               "ns": {
-                "hi": 0.347562,
-                "lo": 0.2575,
+                "hi": 0.2875,
+                "lo": 0.2025,
                 "n": 400,
-                "share": 0.3025
+                "share": 0.245
+              },
+              "tie": {
+                "hi": 0.08,
+                "lo": 0.035,
+                "n": 400,
+                "share": 0.0575
               }
             },
             "pooled_diff_vs_flat": {
@@ -7525,6 +7617,12 @@
                 "share": 1.0
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0,
                 "lo": 0.0,
                 "n": 400,
@@ -7571,6 +7669,12 @@
                 "lo": 0.08,
                 "n": 400,
                 "share": 0.11
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "by_f_bin": [
@@ -7580,7 +7684,8 @@
                 "higher": 0.04,
                 "lower": 0.86,
                 "n": 100,
-                "ns": 0.1
+                "ns": 0.1,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.15,
@@ -7588,7 +7693,8 @@
                 "higher": 0.02,
                 "lower": 0.83,
                 "n": 100,
-                "ns": 0.15
+                "ns": 0.15,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.225,
@@ -7596,7 +7702,8 @@
                 "higher": 0.04,
                 "lower": 0.87,
                 "n": 100,
-                "ns": 0.09
+                "ns": 0.09,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.3,
@@ -7604,7 +7711,8 @@
                 "higher": 0.01,
                 "lower": 0.89,
                 "n": 100,
-                "ns": 0.1
+                "ns": 0.1,
+                "tie": 0.0
               }
             ],
             "map_f_by_r_mean_diff": [
@@ -7699,6 +7807,12 @@
                 "lo": 0.06,
                 "n": 400,
                 "share": 0.085
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -7737,10 +7851,16 @@
                 "share": 0.0025
               },
               "ns": {
-                "hi": 0.09,
-                "lo": 0.0425,
+                "hi": 0.08,
+                "lo": 0.035,
                 "n": 400,
-                "share": 0.065
+                "share": 0.0575
+              },
+              "tie": {
+                "hi": 0.0175,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0075
               }
             },
             "pooled_diff_vs_flat": {
@@ -7924,6 +8044,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -7966,6 +8092,12 @@
                 "lo": 0.0175,
                 "n": 400,
                 "share": 0.035
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "by_f_bin": [
@@ -7975,7 +8107,8 @@
                 "higher": 0.98,
                 "lower": 0.0,
                 "n": 100,
-                "ns": 0.02
+                "ns": 0.02,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.15,
@@ -7983,7 +8116,8 @@
                 "higher": 0.96,
                 "lower": 0.01,
                 "n": 100,
-                "ns": 0.03
+                "ns": 0.03,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.225,
@@ -7991,7 +8125,8 @@
                 "higher": 0.97,
                 "lower": 0.0,
                 "n": 100,
-                "ns": 0.03
+                "ns": 0.03,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.3,
@@ -7999,7 +8134,8 @@
                 "higher": 0.94,
                 "lower": 0.0,
                 "n": 100,
-                "ns": 0.06
+                "ns": 0.06,
+                "tie": 0.0
               }
             ],
             "map_f_by_r_mean_diff": [
@@ -8094,6 +8230,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -8132,6 +8274,12 @@
                 "share": 0.0075
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.085,
                 "lo": 0.0375,
                 "n": 400,
@@ -8180,6 +8328,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -8222,6 +8376,12 @@
                 "lo": 0.22,
                 "n": 400,
                 "share": 0.26
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "by_f_bin": [
@@ -8231,7 +8391,8 @@
                 "higher": 0.47,
                 "lower": 0.21,
                 "n": 100,
-                "ns": 0.32
+                "ns": 0.32,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.15,
@@ -8239,7 +8400,8 @@
                 "higher": 0.35,
                 "lower": 0.35,
                 "n": 100,
-                "ns": 0.3
+                "ns": 0.3,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.225,
@@ -8247,7 +8409,8 @@
                 "higher": 0.29,
                 "lower": 0.52,
                 "n": 100,
-                "ns": 0.19
+                "ns": 0.19,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.3,
@@ -8255,7 +8418,8 @@
                 "higher": 0.31,
                 "lower": 0.46,
                 "n": 100,
-                "ns": 0.23
+                "ns": 0.23,
+                "tie": 0.0
               }
             ],
             "map_f_by_r_mean_diff": [
@@ -8350,6 +8514,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -8388,6 +8558,12 @@
                 "share": 0.01
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0175,
                 "lo": 0.0,
                 "n": 400,
@@ -8577,6 +8753,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -8615,10 +8797,16 @@
                 "share": 0.2825
               },
               "ns": {
-                "hi": 0.6075,
-                "lo": 0.514938,
+                "hi": 0.5875,
+                "lo": 0.4925,
                 "n": 400,
-                "share": 0.56
+                "share": 0.5375
+              },
+              "tie": {
+                "hi": 0.0375,
+                "lo": 0.01,
+                "n": 400,
+                "share": 0.0225
               }
             },
             "by_f_bin": [
@@ -8628,7 +8816,8 @@
                 "higher": 0.19,
                 "lower": 0.26,
                 "n": 100,
-                "ns": 0.55
+                "ns": 0.52,
+                "tie": 0.03
               },
               {
                 "f_hi": 0.15,
@@ -8636,7 +8825,8 @@
                 "higher": 0.14,
                 "lower": 0.3,
                 "n": 100,
-                "ns": 0.56
+                "ns": 0.54,
+                "tie": 0.02
               },
               {
                 "f_hi": 0.225,
@@ -8644,7 +8834,8 @@
                 "higher": 0.18,
                 "lower": 0.24,
                 "n": 100,
-                "ns": 0.58
+                "ns": 0.56,
+                "tie": 0.02
               },
               {
                 "f_hi": 0.3,
@@ -8652,7 +8843,8 @@
                 "higher": 0.12,
                 "lower": 0.33,
                 "n": 100,
-                "ns": 0.55
+                "ns": 0.53,
+                "tie": 0.02
               }
             ],
             "map_f_by_r_mean_diff": [
@@ -8747,6 +8939,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -8785,6 +8983,12 @@
                 "share": 0.0025
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.115,
                 "lo": 0.0575,
                 "n": 400,
@@ -8833,6 +9037,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -8875,6 +9085,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.005
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "by_f_bin": [
@@ -8884,7 +9100,8 @@
                 "higher": 0.0,
                 "lower": 1.0,
                 "n": 100,
-                "ns": 0.0
+                "ns": 0.0,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.15,
@@ -8892,7 +9109,8 @@
                 "higher": 0.0,
                 "lower": 0.99,
                 "n": 100,
-                "ns": 0.01
+                "ns": 0.01,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.225,
@@ -8900,7 +9118,8 @@
                 "higher": 0.0,
                 "lower": 0.99,
                 "n": 100,
-                "ns": 0.01
+                "ns": 0.01,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.3,
@@ -8908,7 +9127,8 @@
                 "higher": 0.0,
                 "lower": 1.0,
                 "n": 100,
-                "ns": 0.0
+                "ns": 0.0,
+                "tie": 0.0
               }
             ],
             "map_f_by_r_mean_diff": [
@@ -9003,6 +9223,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -9041,6 +9267,12 @@
                 "share": 0.005
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.03,
                 "lo": 0.005,
                 "n": 400,
@@ -9228,6 +9460,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -9266,10 +9504,16 @@
                 "share": 0.015
               },
               "ns": {
-                "hi": 0.3325,
-                "lo": 0.2425,
+                "hi": 0.33,
+                "lo": 0.24,
                 "n": 400,
-                "share": 0.2875
+                "share": 0.285
+              },
+              "tie": {
+                "hi": 0.0075,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0025
               }
             },
             "by_f_bin": [
@@ -9279,7 +9523,8 @@
                 "higher": 0.76,
                 "lower": 0.01,
                 "n": 100,
-                "ns": 0.23
+                "ns": 0.22,
+                "tie": 0.01
               },
               {
                 "f_hi": 0.15,
@@ -9287,7 +9532,8 @@
                 "higher": 0.68,
                 "lower": 0.02,
                 "n": 100,
-                "ns": 0.3
+                "ns": 0.3,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.225,
@@ -9295,7 +9541,8 @@
                 "higher": 0.68,
                 "lower": 0.0,
                 "n": 100,
-                "ns": 0.32
+                "ns": 0.32,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.3,
@@ -9303,7 +9550,8 @@
                 "higher": 0.67,
                 "lower": 0.03,
                 "n": 100,
-                "ns": 0.3
+                "ns": 0.3,
+                "tie": 0.0
               }
             ],
             "map_f_by_r_mean_diff": [
@@ -9398,6 +9646,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -9436,10 +9690,16 @@
                 "share": 0.0
               },
               "ns": {
-                "hi": 0.3325,
-                "lo": 0.24,
+                "hi": 0.2575,
+                "lo": 0.1775,
                 "n": 400,
-                "share": 0.2875
+                "share": 0.2175
+              },
+              "tie": {
+                "hi": 0.0975,
+                "lo": 0.044938,
+                "n": 400,
+                "share": 0.07
               }
             },
             "pooled_diff_vs_flat": {
@@ -9480,6 +9740,12 @@
                 "share": 1.0
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0,
                 "lo": 0.0,
                 "n": 400,
@@ -9526,6 +9792,12 @@
                 "lo": 0.0775,
                 "n": 400,
                 "share": 0.105
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "by_f_bin": [
@@ -9535,7 +9807,8 @@
                 "higher": 0.03,
                 "lower": 0.86,
                 "n": 100,
-                "ns": 0.11
+                "ns": 0.11,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.15,
@@ -9543,7 +9816,8 @@
                 "higher": 0.02,
                 "lower": 0.83,
                 "n": 100,
-                "ns": 0.15
+                "ns": 0.15,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.225,
@@ -9551,7 +9825,8 @@
                 "higher": 0.03,
                 "lower": 0.9,
                 "n": 100,
-                "ns": 0.07
+                "ns": 0.07,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.3,
@@ -9559,7 +9834,8 @@
                 "higher": 0.01,
                 "lower": 0.9,
                 "n": 100,
-                "ns": 0.09
+                "ns": 0.09,
+                "tie": 0.0
               }
             ],
             "map_f_by_r_mean_diff": [
@@ -9654,6 +9930,12 @@
                 "lo": 0.055,
                 "n": 400,
                 "share": 0.0825
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -9692,10 +9974,16 @@
                 "share": 0.0
               },
               "ns": {
-                "hi": 0.095,
-                "lo": 0.047438,
+                "hi": 0.08,
+                "lo": 0.0375,
                 "n": 400,
-                "share": 0.07
+                "share": 0.0575
+              },
+              "tie": {
+                "hi": 0.025,
+                "lo": 0.0025,
+                "n": 400,
+                "share": 0.0125
               }
             },
             "pooled_diff_vs_flat": {
@@ -9879,6 +10167,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -9921,6 +10215,12 @@
                 "lo": 0.0125,
                 "n": 400,
                 "share": 0.025
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "by_f_bin": [
@@ -9930,7 +10230,8 @@
                 "higher": 0.98,
                 "lower": 0.0,
                 "n": 100,
-                "ns": 0.02
+                "ns": 0.02,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.15,
@@ -9938,7 +10239,8 @@
                 "higher": 0.98,
                 "lower": 0.0,
                 "n": 100,
-                "ns": 0.02
+                "ns": 0.02,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.225,
@@ -9946,7 +10248,8 @@
                 "higher": 0.99,
                 "lower": 0.0,
                 "n": 100,
-                "ns": 0.01
+                "ns": 0.01,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.3,
@@ -9954,7 +10257,8 @@
                 "higher": 0.95,
                 "lower": 0.0,
                 "n": 100,
-                "ns": 0.05
+                "ns": 0.05,
+                "tie": 0.0
               }
             ],
             "map_f_by_r_mean_diff": [
@@ -10049,6 +10353,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -10087,6 +10397,12 @@
                 "share": 0.0025
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.1,
                 "lo": 0.0475,
                 "n": 400,
@@ -10135,6 +10451,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_diff_vs_flat": {
@@ -10177,6 +10499,12 @@
                 "lo": 0.2375,
                 "n": 400,
                 "share": 0.28
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "by_f_bin": [
@@ -10186,7 +10514,8 @@
                 "higher": 0.51,
                 "lower": 0.13,
                 "n": 100,
-                "ns": 0.36
+                "ns": 0.36,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.15,
@@ -10194,7 +10523,8 @@
                 "higher": 0.36,
                 "lower": 0.31,
                 "n": 100,
-                "ns": 0.33
+                "ns": 0.33,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.225,
@@ -10202,7 +10532,8 @@
                 "higher": 0.33,
                 "lower": 0.48,
                 "n": 100,
-                "ns": 0.19
+                "ns": 0.19,
+                "tie": 0.0
               },
               {
                 "f_hi": 0.3,
@@ -10210,7 +10541,8 @@
                 "higher": 0.34,
                 "lower": 0.42,
                 "n": 100,
-                "ns": 0.24
+                "ns": 0.24,
+                "tie": 0.0
               }
             ],
             "map_f_by_r_mean_diff": [
@@ -10301,6 +10633,12 @@
                 "share": 0.645
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0125,
                 "lo": 0.0,
                 "n": 400,
@@ -10343,6 +10681,12 @@
                 "share": 0.005
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.03,
                 "lo": 0.005,
                 "n": 400,
@@ -10532,6 +10876,12 @@
             "lo": 0.0,
             "n": 400,
             "share": 0.0
+          },
+          "tie": {
+            "hi": 0.0,
+            "lo": 0.0,
+            "n": 400,
+            "share": 0.0
           }
         },
         "pooled_diff_vs_flat": {
@@ -10572,10 +10922,16 @@
             "share": 0.0
           },
           "ns": {
-            "hi": 0.9175,
-            "lo": 0.857438,
+            "hi": 0.195,
+            "lo": 0.125,
             "n": 400,
-            "share": 0.89
+            "share": 0.16
+          },
+          "tie": {
+            "hi": 0.770062,
+            "lo": 0.685,
+            "n": 400,
+            "share": 0.73
           }
         },
         "pooled_diff_vs_flat": {
@@ -10616,10 +10972,16 @@
             "share": 0.0
           },
           "ns": {
-            "hi": 0.8925,
-            "lo": 0.8225,
+            "hi": 0.225,
+            "lo": 0.15,
             "n": 400,
-            "share": 0.8575
+            "share": 0.1875
+          },
+          "tie": {
+            "hi": 0.715,
+            "lo": 0.6225,
+            "n": 400,
+            "share": 0.67
           }
         },
         "pooled_diff_vs_flat": {
@@ -10664,6 +11026,12 @@
             "lo": 0.01,
             "n": 400,
             "share": 0.0225
+          },
+          "tie": {
+            "hi": 0.0,
+            "lo": 0.0,
+            "n": 400,
+            "share": 0.0
           }
         },
         "pooled_diff_vs_flat": {
@@ -10706,6 +11074,12 @@
             "share": 0.0
           },
           "ns": {
+            "hi": 0.0,
+            "lo": 0.0,
+            "n": 400,
+            "share": 0.0
+          },
+          "tie": {
             "hi": 0.0,
             "lo": 0.0,
             "n": 400,
@@ -10754,6 +11128,12 @@
             "lo": 0.015,
             "n": 400,
             "share": 0.03
+          },
+          "tie": {
+            "hi": 0.0,
+            "lo": 0.0,
+            "n": 400,
+            "share": 0.0
           }
         },
         "pooled_diff_vs_flat": {
@@ -10798,6 +11178,12 @@
             "lo": 0.01,
             "n": 400,
             "share": 0.025
+          },
+          "tie": {
+            "hi": 0.0,
+            "lo": 0.0,
+            "n": 400,
+            "share": 0.0
           }
         },
         "pooled_diff_vs_flat": {
@@ -10842,6 +11228,12 @@
             "lo": 0.1875,
             "n": 400,
             "share": 0.23
+          },
+          "tie": {
+            "hi": 0.0,
+            "lo": 0.0,
+            "n": 400,
+            "share": 0.0
           }
         },
         "pooled_diff_vs_flat": {
@@ -11436,6 +11828,12 @@
             "lo": 0.0,
             "n": 400,
             "share": 0.0
+          },
+          "tie": {
+            "hi": 0.0,
+            "lo": 0.0,
+            "n": 400,
+            "share": 0.0
           }
         },
         "pooled_diff_vs_flat": {
@@ -11476,6 +11874,12 @@
             "share": 0.0
           },
           "ns": {
+            "hi": 0.0,
+            "lo": 0.0,
+            "n": 400,
+            "share": 0.0
+          },
+          "tie": {
             "hi": 1.0,
             "lo": 1.0,
             "n": 400,
@@ -11520,6 +11924,12 @@
             "share": 0.0
           },
           "ns": {
+            "hi": 0.0,
+            "lo": 0.0,
+            "n": 400,
+            "share": 0.0
+          },
+          "tie": {
             "hi": 1.0,
             "lo": 1.0,
             "n": 400,
@@ -11568,6 +11978,12 @@
             "lo": 0.01,
             "n": 400,
             "share": 0.0225
+          },
+          "tie": {
+            "hi": 0.0,
+            "lo": 0.0,
+            "n": 400,
+            "share": 0.0
           }
         },
         "pooled_diff_vs_flat": {
@@ -11610,6 +12026,12 @@
             "share": 0.0
           },
           "ns": {
+            "hi": 0.0,
+            "lo": 0.0,
+            "n": 400,
+            "share": 0.0
+          },
+          "tie": {
             "hi": 0.0,
             "lo": 0.0,
             "n": 400,
@@ -11658,6 +12080,12 @@
             "lo": 0.02,
             "n": 400,
             "share": 0.035
+          },
+          "tie": {
+            "hi": 0.0,
+            "lo": 0.0,
+            "n": 400,
+            "share": 0.0
           }
         },
         "pooled_diff_vs_flat": {
@@ -11702,6 +12130,12 @@
             "lo": 0.0175,
             "n": 400,
             "share": 0.035
+          },
+          "tie": {
+            "hi": 0.0,
+            "lo": 0.0,
+            "n": 400,
+            "share": 0.0
           }
         },
         "pooled_diff_vs_flat": {
@@ -11746,6 +12180,12 @@
             "lo": 0.175,
             "n": 400,
             "share": 0.2125
+          },
+          "tie": {
+            "hi": 0.0,
+            "lo": 0.0,
+            "n": 400,
+            "share": 0.0
           }
         },
         "pooled_diff_vs_flat": {
@@ -13890,6 +14330,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -13923,6 +14369,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -13952,6 +14404,12 @@
                 "share": 0.0
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0,
                 "lo": 0.0,
                 "n": 400,
@@ -13991,6 +14449,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14024,6 +14488,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14053,6 +14523,12 @@
                 "share": 0.0
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0,
                 "lo": 0.0,
                 "n": 400,
@@ -14101,6 +14577,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14130,10 +14612,16 @@
                 "share": 0.105
               },
               "ns": {
-                "hi": 0.5525,
-                "lo": 0.4525,
+                "hi": 0.5325,
+                "lo": 0.4325,
                 "n": 400,
-                "share": 0.5
+                "share": 0.4825
+              },
+              "tie": {
+                "hi": 0.0325,
+                "lo": 0.0075,
+                "n": 400,
+                "share": 0.0175
               }
             },
             "pooled_binary_minus_liot": {
@@ -14163,6 +14651,12 @@
                 "share": 0.3075
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0,
                 "lo": 0.0,
                 "n": 400,
@@ -14202,6 +14696,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14235,6 +14735,12 @@
                 "lo": 0.0025,
                 "n": 400,
                 "share": 0.01
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14264,6 +14770,12 @@
                 "share": 0.22
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0,
                 "lo": 0.0,
                 "n": 400,
@@ -14305,6 +14817,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14338,6 +14856,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14367,6 +14891,12 @@
                 "share": 0.0
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0,
                 "lo": 0.0,
                 "n": 400,
@@ -14406,6 +14936,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14439,6 +14975,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14468,6 +15010,12 @@
                 "share": 0.0
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0,
                 "lo": 0.0,
                 "n": 400,
@@ -14514,6 +15062,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14543,10 +15097,16 @@
                 "share": 0.095
               },
               "ns": {
-                "hi": 0.5725,
-                "lo": 0.4725,
+                "hi": 0.555,
+                "lo": 0.455,
                 "n": 400,
-                "share": 0.52
+                "share": 0.505
+              },
+              "tie": {
+                "hi": 0.0275,
+                "lo": 0.005,
+                "n": 400,
+                "share": 0.015
               }
             },
             "pooled_binary_minus_liot": {
@@ -14576,6 +15136,12 @@
                 "share": 0.2825
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0,
                 "lo": 0.0,
                 "n": 400,
@@ -14615,6 +15181,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14648,6 +15220,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.005
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14677,6 +15255,12 @@
                 "share": 0.1725
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0,
                 "lo": 0.0,
                 "n": 400,
@@ -14720,6 +15304,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14753,6 +15343,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14782,6 +15378,12 @@
                 "share": 0.0
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0,
                 "lo": 0.0,
                 "n": 400,
@@ -14821,6 +15423,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14854,6 +15462,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14883,6 +15497,12 @@
                 "share": 0.0
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0,
                 "lo": 0.0,
                 "n": 400,
@@ -14931,6 +15551,12 @@
                 "lo": 0.0075,
                 "n": 400,
                 "share": 0.02
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14964,6 +15590,12 @@
                 "lo": 0.494937,
                 "n": 400,
                 "share": 0.545
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -14997,6 +15629,12 @@
                 "lo": 0.0325,
                 "n": 400,
                 "share": 0.055
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -15032,6 +15670,12 @@
                 "lo": 0.0225,
                 "n": 400,
                 "share": 0.0425
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -15065,6 +15709,12 @@
                 "lo": 0.0125,
                 "n": 400,
                 "share": 0.0275
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -15098,6 +15748,12 @@
                 "lo": 0.0175,
                 "n": 400,
                 "share": 0.0325
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -15135,6 +15791,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -15168,6 +15830,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -15197,6 +15865,12 @@
                 "share": 0.0
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0,
                 "lo": 0.0,
                 "n": 400,
@@ -15236,6 +15910,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -15269,6 +15949,12 @@
                 "lo": 0.0,
                 "n": 400,
                 "share": 0.0
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -15298,6 +15984,12 @@
                 "share": 0.0
               },
               "ns": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
+              },
+              "tie": {
                 "hi": 0.0,
                 "lo": 0.0,
                 "n": 400,
@@ -15344,6 +16036,12 @@
                 "lo": 0.0025,
                 "n": 400,
                 "share": 0.01
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -15377,6 +16075,12 @@
                 "lo": 0.5075,
                 "n": 400,
                 "share": 0.56
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -15410,6 +16114,12 @@
                 "lo": 0.0275,
                 "n": 400,
                 "share": 0.0475
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -15445,6 +16155,12 @@
                 "lo": 0.015,
                 "n": 400,
                 "share": 0.0325
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -15478,6 +16194,12 @@
                 "lo": 0.0125,
                 "n": 400,
                 "share": 0.025
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -15511,6 +16233,12 @@
                 "lo": 0.04,
                 "n": 400,
                 "share": 0.0625
+              },
+              "tie": {
+                "hi": 0.0,
+                "lo": 0.0,
+                "n": 400,
+                "share": 0.0
               }
             },
             "pooled_binary_minus_liot": {
@@ -15549,6 +16277,12 @@
           "lo": 0.0025,
           "n": 400,
           "share": 0.0125
+        },
+        "tie": {
+          "hi": 0.0,
+          "lo": 0.0,
+          "n": 400,
+          "share": 0.0
         }
       },
       "areas_help_real_vs_full": {
@@ -15569,6 +16303,12 @@
           "lo": 0.03,
           "n": 400,
           "share": 0.05
+        },
+        "tie": {
+          "hi": 0.0,
+          "lo": 0.0,
+          "n": 400,
+          "share": 0.0
         }
       },
       "harmful_blocked_per_helpful_lost": {
@@ -15660,6 +16400,12 @@
           "lo": 0.0,
           "n": 400,
           "share": 0.005
+        },
+        "tie": {
+          "hi": 0.0,
+          "lo": 0.0,
+          "n": 400,
+          "share": 0.0
         }
       },
       "areas_help_real_vs_full": {
@@ -15680,6 +16426,12 @@
           "lo": 0.025,
           "n": 400,
           "share": 0.045
+        },
+        "tie": {
+          "hi": 0.0,
+          "lo": 0.0,
+          "n": 400,
+          "share": 0.0
         }
       },
       "harmful_blocked_per_helpful_lost": {
@@ -15945,6 +16697,12 @@
               "lo": 0.03,
               "n": 400,
               "share": 0.05
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16004,6 +16762,12 @@
               "lo": 0.0,
               "n": 400,
               "share": 0.0025
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16039,6 +16803,12 @@
               "lo": 0.0225,
               "n": 400,
               "share": 0.04
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16098,6 +16868,12 @@
               "lo": 0.005,
               "n": 400,
               "share": 0.0175
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16133,6 +16909,12 @@
               "lo": 0.0,
               "n": 400,
               "share": 0.005
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16192,6 +16974,12 @@
               "lo": 0.0,
               "n": 400,
               "share": 0.0
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16227,6 +17015,12 @@
               "lo": 0.045,
               "n": 400,
               "share": 0.065
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16286,6 +17080,12 @@
               "lo": 0.0,
               "n": 400,
               "share": 0.0025
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16321,6 +17121,12 @@
               "lo": 0.0425,
               "n": 400,
               "share": 0.0625
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16380,6 +17186,12 @@
               "lo": 0.0075,
               "n": 400,
               "share": 0.02
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16415,6 +17227,12 @@
               "lo": 0.0,
               "n": 400,
               "share": 0.005
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16474,6 +17292,12 @@
               "lo": 0.0,
               "n": 400,
               "share": 0.0
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16509,6 +17333,12 @@
               "lo": 0.0025,
               "n": 400,
               "share": 0.01
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16568,6 +17398,12 @@
               "lo": 0.0,
               "n": 400,
               "share": 0.0
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16603,6 +17439,12 @@
               "lo": 0.0075,
               "n": 400,
               "share": 0.0175
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16662,6 +17504,12 @@
               "lo": 0.0025,
               "n": 400,
               "share": 0.0125
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16693,6 +17541,12 @@
               "share": 0.0
             },
             "ns": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
+            },
+            "tie": {
               "hi": 0.0,
               "lo": 0.0,
               "n": 400,
@@ -16756,6 +17610,12 @@
               "lo": 0.0,
               "n": 400,
               "share": 0.0
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16793,6 +17653,12 @@
               "lo": 0.0325,
               "n": 400,
               "share": 0.0525
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16852,6 +17718,12 @@
               "lo": 0.0,
               "n": 400,
               "share": 0.0025
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16887,6 +17759,12 @@
               "lo": 0.03,
               "n": 400,
               "share": 0.05
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16946,6 +17824,12 @@
               "lo": 0.005,
               "n": 400,
               "share": 0.015
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -16981,6 +17865,12 @@
               "lo": 0.0,
               "n": 400,
               "share": 0.005
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -17040,6 +17930,12 @@
               "lo": 0.0,
               "n": 400,
               "share": 0.0
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -17075,6 +17971,12 @@
               "lo": 0.045,
               "n": 400,
               "share": 0.0675
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -17134,6 +18036,12 @@
               "lo": 0.0,
               "n": 400,
               "share": 0.0025
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -17169,6 +18077,12 @@
               "lo": 0.05,
               "n": 400,
               "share": 0.0725
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -17228,6 +18142,12 @@
               "lo": 0.005,
               "n": 400,
               "share": 0.0175
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -17263,6 +18183,12 @@
               "lo": 0.0,
               "n": 400,
               "share": 0.005
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -17322,6 +18248,12 @@
               "lo": 0.0,
               "n": 400,
               "share": 0.0
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -17357,6 +18289,12 @@
               "lo": 0.0025,
               "n": 400,
               "share": 0.01
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -17416,6 +18354,12 @@
               "lo": 0.0,
               "n": 400,
               "share": 0.0
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -17451,6 +18395,12 @@
               "lo": 0.005,
               "n": 400,
               "share": 0.0175
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -17510,6 +18460,12 @@
               "lo": 0.0025,
               "n": 400,
               "share": 0.0125
+            },
+            "tie": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
             }
           },
           "pooled_undo_minus_ref": {
@@ -17541,6 +18497,12 @@
               "share": 0.0
             },
             "ns": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
+            },
+            "tie": {
               "hi": 0.0,
               "lo": 0.0,
               "n": 400,
@@ -17600,6 +18562,12 @@
               "share": 0.0
             },
             "ns": {
+              "hi": 0.0,
+              "lo": 0.0,
+              "n": 400,
+              "share": 0.0
+            },
+            "tie": {
               "hi": 0.0,
               "lo": 0.0,
               "n": 400,
