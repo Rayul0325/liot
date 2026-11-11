@@ -24,18 +24,24 @@ from typing import Any
 from experiments.common.service_kit import HOME, SECRET, TOPIC, Kit
 from liot.app import StagedAlert
 from liot.core.contracts import Proposal
+from liot.core.severity import SeverityLevel
 from liot.service import DispatchResult, LiotService
 
 SHORT_WINDOWS = {"short_0.25": 0.25, "short_0.5": 0.5, "short_1.0": 1.0}
 ARMS = ("liot", "wait_for_model", *SHORT_WINDOWS)
+C27_ARMS = ("liot", "wait_for_model", "floor_aware")
 
 
 class ModelFirstService(LiotService):
     """First situation alert waits for the model (see module docstring)."""
 
-    def __init__(self, *args: Any, wait_s: float | None, **kw: Any) -> None:
+    def __init__(self, *args: Any, wait_s: float | None, skip_critical: bool = False,
+                 **kw: Any) -> None:
         super().__init__(*args, **kw)
         self._wait_s = wait_s  # None -> the phase-2 deadline
+        # C2.7 'floor_aware': a table floor that is already CRITICAL is sent at once (the model
+        # cannot raise it further); only WARNING-floor situations wait for the model.
+        self._skip_critical = skip_critical
         self._staged: dict[str, StagedAlert] = {}
         self._futs: dict[str, Future[Any]] = {}
         self._sync_done: set[str] = set()
@@ -64,6 +70,8 @@ class ModelFirstService(LiotService):
         if staged is None:
             return await super().dispatch(proposal)
         req = staged.deferred
+        if self._skip_critical and req.severity_floor >= SeverityLevel.CRITICAL:
+            return await super().dispatch(proposal)  # production path; phase 2 follows as usual
         wait = self._phase2_deadline()
         if self._wait_s is not None:
             wait = min(wait, self._wait_s)
@@ -93,9 +101,10 @@ async def make_arm(kit: Kit, arm: str, deadline_s: float) -> Kit:
     """Swap ``kit.svc`` for the service of ``arm`` (same app/db/clock/transport)."""
     if arm == "liot":
         return kit
-    wait_s = None if arm == "wait_for_model" else SHORT_WINDOWS[arm]
+    wait_s = None if arm in ("wait_for_model", "floor_aware") else SHORT_WINDOWS[arm]
     kit.svc = ModelFirstService(
         kit.app, kit.db, home_id=HOME, clock=kit.clock, transport=kit.transport,
         topic=TOPIC, secret=SECRET, phase2_deadline_s=deadline_s, wait_s=wait_s,
+        skip_critical=arm == "floor_aware",
     )
     return kit

@@ -221,12 +221,48 @@ def _summarize_h13(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
+def _summarize_c27(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """C2.7: floor-aware model-first arm vs LIOT and the always-waiting arm, per table floor."""
+    out: dict[str, Any] = {"by_floor": {}, "n_incidents": len({r["incident"] for r in rows})}
+    arms = ("liot", "wait_for_model", "floor_aware")
+    out["model_seconds"] = lat_summary([r["model_s"] for r in rows if r["arm"] == "liot"])
+    for fl in ("CRITICAL", "WARNING"):
+        blk: dict[str, Any] = {"cells": {}, "delta_vs_liot": {}}
+        by: dict[str, dict[int, dict[str, Any]]] = {a: {} for a in arms}
+        for r in rows:
+            if r["floor"] == fl:
+                by[r["arm"]][r["incident"]] = r
+        for a in arms:
+            rs = list(by[a].values())
+            if not rs:
+                continue
+            cell = lat_summary([r["latency_s"] for r in rs])
+            cell["pushes_mean"] = float(np.mean([r["pushes"] for r in rs]))
+            cell["mismatch_share"] = boot_prop([r["changed"] for r in rs])
+            blk["cells"][a] = cell
+        for a in arms[1:]:
+            la = {i: r["latency_s"] for i, r in by["liot"].items() if r["latency_s"] is not None}
+            lb = {i: r["latency_s"] for i, r in by[a].items() if r["latency_s"] is not None}
+            blk["delta_vs_liot"][a] = {"median": _paired_diff(la, lb, np.median),
+                                       "p95": _paired_diff(la, lb, p95)}
+            pa = {i: float(r["pushes"]) for i, r in by["liot"].items()}
+            pb = {i: float(r["pushes"]) for i, r in by[a].items()}
+            ids = sorted(set(pa) & set(pb))
+            blk["delta_vs_liot"][a]["pushes_mean_diff"] = (
+                float(np.mean([pb[i] - pa[i] for i in ids])) if ids else None)
+        out["by_floor"][fl] = blk
+    return out
+
+
 def summarize(raw_dir: Path) -> dict[str, Any]:
     raw_dir = Path(raw_dir)
     out: dict[str, Any] = {}
     main_rows = load_rows(raw_dir, "main_")
     if main_rows:
         out["main"] = _summarize_main(main_rows)
+    c27_rows = load_rows(raw_dir, "c27_")
+    if c27_rows:
+        out["c27"] = _summarize_c27(c27_rows)
     replay_rows = load_rows(raw_dir, "replay")
     if replay_rows:
         out["replay"] = _summarize_replay(replay_rows)

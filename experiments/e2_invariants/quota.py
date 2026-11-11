@@ -159,7 +159,7 @@ async def path_reject_reopen(rng: random.Random) -> dict[str, Any]:
         await kit.svc.drain_phase2()
         sits = await situations(kit.db)
         sid, floor = sits[-1]["situation_id"], sits[-1]["severity_floor"]
-        times = [t for t in await _situation_pushes(kit, sid)]
+        times = await _situation_pushes(kit, sid)
         immediate = any(t <= reopen_t + 1e-6 for t in times)
         dismissed = await kit.svc.proposals.recently_rejected_keys()
         known_key = any(k.endswith(f":{cat}") for k in dismissed)
