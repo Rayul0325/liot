@@ -171,7 +171,37 @@ async def probe_dismissal(cat: str, registered: bool) -> dict[str, Any]:
         await kit.close()
 
 
+async def probe_label(vuln: bool) -> dict[str, Any]:
+    """Inference leak: the severity label on a door-open alert reveals a registered vulnerable
+    resident (경고 for a plain home, 위험 for a home with one) to the resident AND the guardian."""
+    tr = TimedTransport()
+    kit = await build_service(backend=LowestBackend(), categories=fuzz.CATEGORIES, transport=tr)
+    svc = kit.svc
+    try:
+        rid = await svc.safety.add_resident(HOME, "R0")
+        gid, topic = await svc.safety.add_guardian(HOME, "G0")
+        await svc.safety.grant_consent(HOME, gid, rid)
+        if vuln:
+            await svc.safety.set_trait(rid, "age_75_plus", True, "resident")
+        eid, abn = fuzz.SENSORS["door"]
+        await svc.handle_reading(reading(eid, abn))
+        await svc.drain_phase2()
+        kit.clock.set_fixed(kit.t0 + timedelta(seconds=95))
+        await svc.ladder_tick()
+        res = [st[3].get("severity_label") for st in tr.stamps if st[2] != topic]
+        guard = [st[3].get("severity_label") for st in tr.stamps if st[2] == topic]
+        return {"registered_vulnerable": vuln, "resident_labels": res, "guardian_labels": guard,
+                "meta": io.run_meta()}
+    finally:
+        await kit.close()
+
+
 async def collect_probe(raw: Path) -> int:
+    lpath = raw / "leak_label.jsonl"
+    ldone = io.done_keys(lpath, ("registered_vulnerable",))
+    for v in (False, True):
+        if (v,) not in ldone:
+            io.append_jsonl(lpath, await probe_label(v))
     path = raw / "probe.jsonl"
     done = io.done_keys(path, ("category", "registered_vulnerable"))
     written = 0

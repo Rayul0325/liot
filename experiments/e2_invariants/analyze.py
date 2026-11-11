@@ -189,6 +189,13 @@ def summarize(raw_dir: Path) -> dict[str, Any]:
                 "floor": r["floor"], "second_first_alert_pushed": r["second_first_alert_pushed"]}
             for r in sorted(pr, key=lambda r: (r["category"], r["registered_vulnerable"]))
         }
+    ll = read_jsonl(raw_dir / "leak_label.jsonl")
+    if ll:
+        out["inference_leak_door_label"] = {
+            ("registered_vulnerable" if r["registered_vulnerable"] else "plain"): {
+                "resident_labels": r["resident_labels"], "guardian_labels": r["guardian_labels"]}
+            for r in sorted(ll, key=lambda r: r["registered_vulnerable"])
+        }
     sc = read_jsonl(raw_dir / "selfcheck.jsonl")
     if sc:
         out["selfcheck"] = {k: sc[0][k] for k in ("fired", "all_fire", "composer_mismatches")}
