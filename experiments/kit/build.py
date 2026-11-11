@@ -2,7 +2,7 @@
 
     PYTHONPATH=$PWD /Users/rayul/liot/.venv/bin/python -m experiments.kit.build
 
-Experiments that have not landed yet (no summary.json: e6/e9 today; e8 has landed) are tolerated: their
+Experiments that have not landed yet (none today: e6/e8/e9 have landed) are tolerated: their
 figure panels and claim blocks carry a visible 'pending' marker. When such a summary appears
 while the kit still says 대기, the build prints NEW-RESULT and exits 1 so nobody forgets to fill
 in claims.yaml / hypotheses.yaml.
@@ -18,7 +18,7 @@ from pathlib import Path
 from experiments.kit import check_numbers, figures, render
 from experiments.kit.check_numbers import EXP_DIR, load_summary
 
-PENDING_EXPERIMENTS = ("e6_personalization", "e9_cloud")
+PENDING_EXPERIMENTS: tuple[str, ...] = ()  # e6/e8/e9 have all landed; add a name here for a future experiment
 
 
 def main() -> int:

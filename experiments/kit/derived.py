@@ -106,7 +106,14 @@ def e8_modules_below(summary: dict[str, Any], block: str, key: str, threshold: f
     return float(sum(1 for module in summary["modules"].values() if module[block][key] < threshold))
 
 
+def e9_upward_possible(summary: dict[str, Any]) -> float:
+    """E9 judge steps whose floor leaves room above (ambient + breath); ember cannot go up."""
+    by_floor = summary["jev_vs_floor"]["by_floor"]
+    return float(by_floor["ambient"]["n"] + by_floor["breath"]["n"])
+
+
 FUNCS: dict[str, Callable[..., float]] = {
+    "e9_upward_possible": e9_upward_possible,
     "e8_modules_below": e8_modules_below,
     "h15b_auc08_over2_share": h15b_auc08_over2_share,
     "h15b_auc08_cells": h15b_auc08_cells,

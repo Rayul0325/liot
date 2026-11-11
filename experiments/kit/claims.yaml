@@ -55,6 +55,12 @@ limits:
     Jev API 한 판정자의 0.54 는 결과를 본 뒤 눈에 띈 사후 관찰이고 표본이 13건이라 단독으로 결론을 세우지 않는다.
   L-E8: >-
     측정 대상은 U1/U3 변경 전 코드다(변경 뒤에는 다시 돌려야 한다). 변이기는 AST 로 직접 만든 것이고 한 번에 한 곳만 바꾸며 상용 도구와 점수를 비교할 수 없다. 동치·안전 관련 분류는 한 사람이 코드를 읽고 한 판단이고, 변이가 같은 줄에 뭉쳐 있어 구간은 실제보다 좁다. 줄 커버리지만 쟀다(분기 아님).
+  L-E6: >-
+    거주자는 확률 모델이고 알아챔·지연·피로·수고·잘못 누름의 값은 모두 정한 값이며 사람 자료가 아니다. 성향은 3종뿐이고 선호 변화는 15일째 한 번뿐이다. 모아보기 열람 80%도 가정이며, 실제 데몬은 모아보기를 전달하지 못한다(tray0). 잘못 꺼진 도움을 세는 집계는 모아보기 항목도 '내놓음'으로 세므로 tray0 의 '모든 장면' 값은 실제보다 적게 센 값이다.
+  L-E6-POST: >-
+    회복 지표의 '바뀐 장면의 재수락'과 '정적 시스템 대비 회복'은 결과를 본 뒤 추가한 사후 기준이다. 등록된 형태(문자 그대로)는 변하지 않는 장면의 수락에 가려 새 장면을 보지 못한다. 사후 기준에서 게이트가 약 10~12일 늦춘다는 서술은 기술 결과이며 등록된 판정 근거가 아니다.
+  L-E9: >-
+    luna 호출 109건이 전부 실패해 H5.4 의 핵심 질문(두 모델이 갈리는가)에는 답이 없다. 장면이 편의 제안 4종과 안전 1건으로 좁아 Jev 가 하한을 벗어나는 어려운 장면이 없었고, 하한은 Jev 입력의 일부다. 씨앗은 대본의 시각·값만 바꿔 실행 사이 호출 수가 거의 같고, 비용은 표 가격 기준 추정이며, 실제 모델 응답은 시점에 따라 달라 재현이 보장되지 않는다.
   L-PENDING: >-
     이 실험은 아직 끝나지 않아 숫자가 없다. 보고서에는 '진행 중'이라고만 쓰고 추정 숫자를 넣지 않는다.
 
@@ -150,6 +156,26 @@ claims:
       - {label: 변이 수(전수), path: [overall, all, n], expected: 742, round: 0, fmt: "{:,.0f}", unit: " 개"}
       - {label: 핵심 연산자 변이, path: [overall, core, n], expected: 450, round: 0, fmt: "{:,.0f}", unit: " 개"}
       - {label: 대상 모듈, path: [modules], agg: len, expected: 10, round: 0, fmt: "{:,.0f}", unit: " 개"}
+
+  - id: M-08
+    group: III
+    exp: e6_personalization
+    text: E6 은 진짜 서비스로 하루 시뮬레이션을 60일씩 1,080회 돌렸다(거주자 성향 3종 × 학습 방식 8종 × 확인 방식 2 × 씨앗 10 등의 변형).
+    limit: L-E6
+    items:
+      - {label: 실행 수, path: [runs], expected: 1080, round: 0, fmt: "{:,.0f}", unit: " 회"}
+      - {label: 기간, path: [design, days], expected: 60, round: 0, fmt: "{:,.0f}", unit: " 일"}
+      - {label: 선호가 바뀌는 날, path: [design, flip_day], expected: 15, round: 0, fmt: "{:,.0f}", unit: " 일째"}
+      - {label: 씨앗 수, path: [design, seeds], agg: len, expected: 10, round: 0, fmt: "{:,.0f}", unit: " 개"}
+  - id: M-09
+    group: III
+    exp: e9_cloud
+    text: E9 는 실제 모델(Jev·Haiku·memgineering)로 씨앗마다 3일씩 총 30 시뮬레이션일을 돌렸다.
+    limit: L-E9
+    items:
+      - {label: 씨앗 수, path: [runs], expected: 10, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: 씨앗마다 일수, path: [days_per_run], expected: 3, round: 0, fmt: "{:,.0f}", unit: " 일"}
+      - {label: 총 시뮬레이션 일, path: [safety, days_total], expected: 30, round: 0, fmt: "{:,.0f}", unit: " 일"}
 
   # ------------------------------------------------------------------ IV. Q1 안전 · E1
   - id: E1-01
@@ -725,14 +751,75 @@ claims:
       - {label: 코더 간 일치 κ(abnormal_for), path: [coder_agreement, abnormal_for, cohen_kappa], expected: 0.61, round: 2, fmt: "{:.2f}", md: "0.61"}
 
   # ------------------------------------------------------------------ 진행 중 실험(자리표시)
-  - id: E6-00
+  - id: E6-01
     group: IV.Q4
-    kind: pending
-    pending_exp: e6_personalization
-    hyp: H4.1 · H4.2 (= P5) · H4.3
-    verdict: 대기
-    text: 개인화(학습·선호 변화·30일 거절 게이트) 실험은 아직 끝나지 않았다. 숫자 자리는 비워 둔다.
-    limit: L-PENDING
+    exp: e6_personalization
+    hyp: H4.1
+    verdict: 기술 결과(†는 팔의 정의에서 나오는 구조상 결과)
+    text: 학습의 효과(조건 B, 성향 3종 합침, 60일 하루 평균). 쓸데없는 알림을 줄이는 것은 학습이 아니라 [그만해] 버튼과 30일 쉬기다 — 운영 학습(lr30)과 버튼만 있는 대안(explicit_only)의 쓸데없는 알림 차이는 0 이다. 학습이 버튼에 더하는 것은 폰 장면에는 없고 모아보기 장면에 있다. 폰 장면에서 잘못 꺼진 도움의 차이는 사실상 0 이고 폰으로 수락된 도움도 같다. 비용은 모아보기에서 나온다 — 수락된 도움이 0.550 에서 0.422 로 준다. 학습률 60%는 도움 제안까지 거의 다 꺼 버린다. 학습 없음(none)의 잘못 꺼진 도움 0 은 정의상 값(†)이다.
+    fig: e6_personalization/figures/accepted_helpful_timeline.png
+    limit: L-E6
+    items:
+      - {label: lr30 빼기 explicit_only — 수락된 도움(하루), path: [contrasts, "main|pooled|B|lr30-explicit_only", d1_60, acc_help, mean], expected: -0.13, round: 2, fmt: "{:+.2f}", unit: " 건", md: "-0.13"}
+      - {label: 같은 차이 — 잘못 꺼진 도움(폰 장면), path: [contrasts, "main|pooled|B|lr30-explicit_only", d1_60, ws_help_phone, mean], expected: 0.00, round: 2, fmt: "{:+.2f}", unit: " 건", md: "+0.00"}
+      - {label: 같은 차이 — 잘못 꺼진 도움(모든 장면), path: [contrasts, "main|pooled|B|lr30-explicit_only", d1_60, ws_help, mean], expected: 0.38, round: 2, fmt: "{:+.2f}", unit: " 건", md: "+0.38"}
+      - {label: 같은 차이 — 쓸데없는 알림, path: [contrasts, "main|pooled|B|lr30-explicit_only", d1_60, offered_unhelp_imm, mean], expected: 0.00, round: 2, fmt: "{:+.2f}", unit: " 건", md: "0.00"}
+      - {label: 폰으로 수락된 도움 — explicit_only, path: [pooled, "main|explicit_only|B", d1_60, acc_help_imm, mean], expected: 0.292, round: 3, fmt: "{:.3f}", unit: " 건", md: "0.292"}
+      - {label: 폰으로 수락된 도움 — lr30, path: [pooled, "main|lr30|B", d1_60, acc_help_imm, mean], expected: 0.291, round: 3, fmt: "{:.3f}", unit: " 건", md: "0.291"}
+      - {label: 모아보기로 수락된 도움 — explicit_only, path: [pooled, "main|explicit_only|B", d1_60, acc_help_tray, mean], expected: 0.550, round: 3, fmt: "{:.3f}", unit: " 건", md: "0.550"}
+      - {label: 모아보기로 수락된 도움 — lr30, path: [pooled, "main|lr30|B", d1_60, acc_help_tray, mean], expected: 0.422, round: 3, fmt: "{:.3f}", unit: " 건", md: "0.422"}
+      - {label: lr30 빼기 none — 쓸데없는 알림, path: [contrasts, "main|pooled|B|lr30-none", d1_60, offered_unhelp_imm, mean], expected: -0.13, round: 2, fmt: "{:+.2f}", unit: " 건", md: "-0.13"}
+      - {label: lr30 빼기 none — 수락된 도움, path: [contrasts, "main|pooled|B|lr30-none", d1_60, acc_help, mean], expected: -0.42, round: 2, fmt: "{:+.2f}", unit: " 건", md: "-0.42"}
+      - {label: lr60 — 15~30일 수락된 도움(하루), path: [pooled, "main|lr60|B", d15_30, acc_help, mean], expected: 0.14, round: 2, fmt: "{:.2f}", unit: " 건", md: "0.14"}
+      - {label: 모아보기를 아무도 안 열 때(tray0) lr30 31~60일 수락된 도움, path: [pooled, "tray0|lr30|B", d31_60, acc_help, mean], expected: 0.37, round: 2, fmt: "{:.2f}", unit: " 건", md: "0.37"}
+      - {label: 모아보기를 80% 여는 경우(main) lr30 31~60일, path: [pooled, "main|lr30|B", d31_60, acc_help, mean], expected: 0.72, round: 2, fmt: "{:.2f}", unit: " 건", md: "0.72"}
+  - id: E6-02
+    group: IV.Q4
+    exp: e6_personalization
+    hyp: H4.2 (= P5)
+    verdict: 등록 결론 불충족(그 결론은 내리지 않음) — 재수락 형태는 사후 기준
+    text: 등록한 결론은 '30일 게이트가 있는 모든 변형이 회복에 실패하고 게이트 없는 변형만 회복하면 회복을 막는 것은 학습률이 아니라 30일 게이트'였다. 이 강한 형태는 충족되지 않았다. 등록된 형태(문자 그대로)에서는 게이트가 있는 변형 대부분이 하한 6일에 회복한다(lr60 만 12일, 53%가 회복) — 단 이 형태는 변하지 않는 장면의 수락에 가려 새 장면을 보지 못한다. 결과를 본 뒤 추가한 사후 기준(바뀐 장면의 재수락)에서도 게이트가 있는 팔은 45일 안에 대부분 다시 수락한다(97%). 게이트가 중앙값을 약 10~12일 늦춘다는 서술은 사후 기준의 기술 결과이며 등록 근거가 없다. 영구 차단(permanent)의 재수락 0.30 은 정의상 값(†)이다. '약한 형태는 지지'라는 판정은 쓰지 않는다.
+    fig: e6_personalization/figures/reaccept_fraction.png
+    limit: L-E6-POST
+    items:
+      - {label: 등록 형태 회복 중앙값 — lr30(운영), path: [pooled, "main|lr30|B", recovery, median_days], expected: 6, round: 0, fmt: "{:,.0f}", unit: " 일", md: "6"}
+      - {label: 등록 형태 회복 중앙값 — lr60, path: [pooled, "main|lr60|B", recovery, median_days], expected: 12, round: 0, fmt: "{:,.0f}", unit: " 일", md: "12"}
+      - {label: 등록 형태 회복 중앙값 — permanent †, path: [pooled, "main|permanent|B", recovery, median_days], expected: 6, round: 0, fmt: "{:,.0f}", unit: " 일", md: "6"}
+      - {label: 등록 형태 회복 중앙값 — no_gate(게이트 없음), path: [pooled, "main|no_gate|B", recovery, median_days], expected: 6, round: 0, fmt: "{:,.0f}", unit: " 일", md: "6"}
+      - {label: 등록 형태에서 회복한 씨앗 비율 — lr30, path: [pooled, "main|lr30|B", recovery, fraction], expected: 93, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "0.93"}
+      - {label: 같은 비율 — lr60, path: [pooled, "main|lr60|B", recovery, fraction], expected: 53, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "0.53"}
+      - {label: 사후 기준 다시 수락 비율 — lr30, path: [pooled, "main|lr30|B", re_accept, fraction], expected: 97, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "0.97"}
+      - {label: 사후 기준 다시 수락 중앙 일수 — lr30, path: [pooled, "main|lr30|B", re_accept, median_days], expected: 17, round: 0, fmt: "{:,.0f}", unit: " 일", md: "17"}
+      - {label: 사후 기준 다시 수락 중앙 일수 — no_gate, path: [pooled, "main|no_gate|B", re_accept, median_days], expected: 6, round: 0, fmt: "{:,.0f}", unit: " 일", md: "6"}
+      - {label: 사후 기준 다시 수락 비율 — lr60, path: [pooled, "main|lr60|B", re_accept, fraction], expected: 67, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "0.67"}
+      - {label: 사후 기준 다시 수락 비율 — permanent †, path: [pooled, "main|permanent|B", re_accept, fraction], expected: 30, round: 0, scale: 100, fmt: "{:.0f}", unit: "%", md: "0.30"}
+      - {label: 사후 기준 도달 가능한 (변형·성향) 칸, path: [reachability, "*", reference_reachable], agg: count_true, expected: 12, round: 0, fmt: "{:,.0f}", unit: "/12 칸"}
+  - id: E6-03
+    group: IV.Q4
+    exp: e6_personalization
+    hyp: H4.3
+    verdict: 기술 결과(피로·수고 0 대조는 구조상 결과†)
+    text: 확인 방식 A(모든 제안에 명시 확인)가 B(위험도별 확인)보다 수락이 5~11%p 낮게 나왔다. 이 차이는 거주자 모델이 확인이 셀수록 덜 누른다(수고 계수)고 정해 놓은 데서 나온 값이라 A·B 의 우열이 아니라 차이의 크기가 거주자 가정의 크기에 비례한다는 것만 알려 준다. 피로·수고를 모두 0 으로 둔 대조의 차이 0.000 은 코드 경로상 반드시 나오는 구조상 결과(†)다. 등록된 H4.3 에는 판정 기준이 없다(분모 규칙뿐).
+    fig: e6_personalization/figures/ab_acceptance_diff.png
+    limit: L-E6
+    items:
+      - {label: 수락률 A 빼기 B — 거부형, path: [h43, "main|hater|lr30", diff_A_minus_B_per_seed, mean], expected: -0.099, round: 3, fmt: "{:+.3f}", md: "-0.099"}
+      - {label: 같은 값 — 무시형, path: [h43, "main|ignorer|lr30", diff_A_minus_B_per_seed, mean], expected: -0.107, round: 3, fmt: "{:+.3f}", md: "-0.107"}
+      - {label: 같은 값 — 뒤바뀜형, path: [h43, "main|swap|lr30", diff_A_minus_B_per_seed, mean], expected: -0.052, round: 3, fmt: "{:+.3f}", md: "-0.052"}
+      - {label: 수고만 켠 경우 — 거부형, path: [h43, "effonly|hater|lr30", diff_A_minus_B_per_seed, mean], expected: -0.095, round: 3, fmt: "{:+.3f}", md: "-0.095"}
+      - {label: 피로·수고 모두 0 대조 † — 거부형, path: [h43, "zerofat|hater|lr30", diff_A_minus_B_per_seed, mean], expected: 0.000, round: 3, fmt: "{:+.3f}", md: "0.000"}
+  - id: E6-04
+    group: IV.Q4
+    exp: e6_personalization
+    hyp: 안전 경로 점검(E6)
+    verdict: 기술 결과
+    text: 1,080회 × 60일 동안 안전 첫 알림이 모두 즉시 전송됐다. 센서 값 입력부터 전송까지의 최댓값은 기계 부하가 높을 때(25~121)를 포함한 값이라 기준 값이 아니다.
+    limit: L-E6
+    items:
+      - {label: 안전 첫 알림 건수, path: [design, first_alerts_total], expected: 64800, round: 0, fmt: "{:,.0f}", unit: " 건", md: "64,800"}
+      - {label: 모두 즉시 전송, path: [design, safety_ok_all], expected: true}
+      - {label: 입력부터 전송까지 최댓값, path: [design, max_first_alert_ms], expected: 286.8, round: 1, fmt: "{:.1f}", unit: " ms", md: "286.8"}
+      - {label: 실행 수, path: [runs], expected: 1080, round: 0, fmt: "{:,.0f}", unit: " 회", md: "1,080"}
   - id: E8-01
     group: IV.Q6
     exp: e8_mutation
@@ -771,7 +858,7 @@ claims:
     exp: e8_mutation
     hyp: H6.3 (살아남은 변이의 분류)
     verdict: 지지 — 안전 관련 빈틈 15곳(후속 테스트 대상)
-    text: 전체 테스트로도 안 잡힌 살아남은 변이 95개를 사람이 읽고 나누면 동치 35, 테스트 없는 동작 45, 안전 관련 빈틈 15이다. 안전 관련 빈틈 15는 '그 줄이 지금 사고를 낸다'는 뜻이 아니라 '틀려져도 테스트가 알려 주지 못한다'는 뜻이다(egress_gate 6·severity 6·llm_judge 1·executor 1·notifier 1). 진짜 하드 게이트 위반은 이 실험에서 관찰되지 않았다. 이 15곳에 대한 테스트는 다른 가지에서 쓰는 중이라 이 자료집의 숫자는 테스트 추가 전 상태다.
+    text: 전체 테스트로도 안 잡힌 살아남은 변이 95개를 사람이 읽고 나누면 동치 35, 테스트 없는 동작 45, 안전 관련 빈틈 15이다. 안전 관련 빈틈 15는 '그 줄이 지금 사고를 낸다'는 뜻이 아니라 '틀려져도 테스트가 알려 주지 못한다'는 뜻이다(egress_gate 6·severity 6·llm_judge 1·executor 1·notifier 1). 진짜 하드 게이트 위반은 이 실험에서 관찰되지 않았다. 이 15곳의 테스트는 이후 보강되어 병합됐고(연구 일지 04:15) 이 자료집의 숫자는 보강 전 측정이며 재측정은 하지 않았다.
     limit: L-E8
     items:
       - {label: 전체 테스트로도 살아남은 변이, path: [survivors_after_full_suite], expected: 95, round: 0, fmt: "{:,.0f}", unit: " 개", md: "95"}
@@ -781,11 +868,45 @@ claims:
       - {label: 하네스 점검 운영 코드가 변이 전후 동일한가, path: [validation, integrity_all_equal], expected: true}
       - {label: 부하로 120초에 걸린 시험 중 재판정에서 살아남은 것, path: [timeouts, recheck_outcomes, survived], expected: 6, round: 0, fmt: "{:,.0f}", unit: "/9 건", md: "6"}
 
-  - id: E9-00
+  - id: E9-01
     group: IV.Q5
-    kind: pending
-    pending_exp: e9_cloud
+    exp: e9_cloud
     hyp: H5.4
-    verdict: 대기
-    text: 클라우드 모델의 실제 종단 실행(Jev 와 luna 비교)은 아직 끝나지 않았다. 숫자 자리는 비워 둔다.
-    limit: L-PENDING
+    verdict: 판정 불가(luna 요청 전부 실패, HTTP 429)
+    text: Jev 와 luna 의 원시 답 일치는 판정할 수 없다. luna 요청 109건이 전부 실패해(OpenAI 크레딧 소진, 별도 탐침 요청의 응답에서 읽은 사실) 일치율의 분모가 0 이고, 사전 등록 조건(둘 중 하나라도 하한을 벗어난 단계에서만 일치를 본다)을 만족시킬 데이터가 없다. 일치는 정확도가 아니다.
+    limit: L-E9
+    items:
+      - {label: luna 요청 실패, path: [h54, luna_unavailable], expected: 109, round: 0, fmt: "{:,.0f}", unit: " 건", md: "109"}
+      - {label: Jev 가 판정한 단계(luna 와 같은 수), path: [estimated_calls], expected: 109, round: 0, fmt: "{:,.0f}", unit: " 건", md: "109"}
+      - {label: 일치율 분모(둘 중 하나라도 하한을 벗어난 단계), path: [h54, agree_where_one_departs, den], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 건"}
+      - {label: Jev 가 하한을 벗어난 단계, path: [h54, jev_departs], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 건"}
+  - id: E9-02
+    group: IV.Q5
+    exp: e9_cloud
+    hyp: H5.4 (Jev 만 본 하한 일치)
+    verdict: 기술 결과 — 일부는 구조상 결과
+    text: Jev 의 원시 답은 109단계 모두 하한과 같은 칸이었다(하한보다 올림 0, 내림 0). 이 숫자를 Jev 의 판단력 증거로 읽으면 안 된다. (1) 하한이 불씨(가장 높은 칸)인 30단계는 구조상 위로 벗어날 수 없고, 하한이 잔잔인 59단계는 아래로 벗어날 수 없다(구조상 결과). 위로 벗어날 수 있었던 단계는 하한이 잔잔·숨인 79단계뿐이다. (2) 하한은 Jev 입력의 일부라 입력에 적힌 하한을 따라 답했을 가능성을 이 데이터로는 가를 수 없다. 이 장면은 대부분 답이 뻔한 편의 제안이라 'Jev 가 항상 하한을 따른다'는 일반 결론이 아니다.
+    limit: L-E9
+    items:
+      - {label: 하한과 같은 칸으로 답한 단계, path: [jev_vs_floor, at_floor], expected: 109, round: 0, fmt: "{:,.0f}", unit: " 단계", md: "109"}
+      - {label: 판정한 전체 단계, path: [jev_vs_floor, judged_steps], expected: 109, round: 0, fmt: "{:,.0f}", unit: " 단계", md: "109"}
+      - {label: 하한보다 올림, path: [jev_vs_floor, above_floor], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 단계"}
+      - {label: 하한보다 내림, path: [jev_vs_floor, below_floor], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 단계"}
+      - {label: 구조상 위로 못 벗어나는 단계(하한 불씨) †, path: [jev_vs_floor, by_floor, ember, n], expected: 30, round: 0, fmt: "{:,.0f}", unit: " 단계", md: "30"}
+      - {label: 구조상 아래로 못 벗어나는 단계(하한 잔잔) †, path: [jev_vs_floor, by_floor, ambient, n], expected: 59, round: 0, fmt: "{:,.0f}", unit: " 단계", md: "59"}
+      - {label: 위로 벗어날 수 있었던 단계(하한 잔잔·숨), fn: e9_upward_possible, path: [jev_vs_floor, by_floor], expected: 79, round: 0, fmt: "{:,.0f}", unit: " 단계", md: "79", note: 파생값 — 잔잔 59 + 숨 20}
+  - id: E9-03
+    group: IV.Q5
+    exp: e9_cloud
+    hyp: H5.4 (실제 모델 종단 실행 — 안전 경로·호출)
+    verdict: 기술 결과
+    text: 실제 모델(판정 Jev, 이유 문장·가상 거주자 Haiku, 기억 memgineering)을 켠 상태의 30시뮬레이션일에서 안전 첫 알림 30건이 모두 즉시 전송됐고 판정·기억 호출을 기다리지 않았다. 이유 문장과 거주자 결정은 79건 모두 모델이 썼다. 총 추정 비용은 약 0.011달러다. 기준은 등록돼 있지 않다.
+    limit: L-E9
+    items:
+      - {label: 안전 첫 알림, path: [safety, first_alerts], expected: 30, round: 0, fmt: "{:,.0f}", unit: " 건", md: "30"}
+      - {label: 그중 즉시 전송, path: [safety, first_alerts_immediate], expected: 30, round: 0, fmt: "{:,.0f}", unit: " 건", md: "30"}
+      - {label: 입력부터 전송까지 최댓값, path: [safety, first_alert_ms_max], expected: 46.3, round: 1, fmt: "{:.1f}", unit: " ms", md: "46.3"}
+      - {label: 이유 문장을 모델이 쓴 건, path: [reason_writing_model_rate, num], expected: 79, round: 0, fmt: "{:,.0f}", unit: "/79 건", md: "79"}
+      - {label: 거주자 결정을 모델이 고른 건, path: [resident_model_rate, num], expected: 79, round: 0, fmt: "{:,.0f}", unit: "/79 건", md: "79"}
+      - {label: 추정 비용(합계), path: [usd_total_estimated], expected: 0.0113, round: 4, fmt: "{:.4f}", unit: " 달러", md: "0.0113"}
+      - {label: 판정 Jev 호출당 평균 시간, path: [stage_latency, judge, mean_s_per_call], expected: 0.211, round: 3, fmt: "{:.3f}", unit: " 초", md: "0.211"}
