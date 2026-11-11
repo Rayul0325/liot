@@ -359,7 +359,7 @@ async def test_ack_landing_while_evaluating_unsent_alert_prevents_the_resend() -
             assert await svc._ack_situation(sid, "resident")  # 평가 도중 확인이 도착
             return found
 
-        svc._first_alert_unsent = _ack_during_evaluation  # type: ignore[method-assign]
+        svc._first_alert_unsent = _ack_during_evaluation
         await _advance(svc, clock, RETRY_S)
         assert transport.attempts == 1 and _to(transport, TOPIC) == []
         ladder = await svc.safety.get_ladder(sid)
