@@ -322,7 +322,11 @@ async def test_situation_opening_during_tick_dispatch_is_not_missed(
     """
     category = CATS[entity]
     held_seen = unheld_seen = 0
-    for k in range(15, 90):
+    # 기계마다 한 번의 양보에 진행되는 일이 달라(CI 리눅스는 더 빠르다) 고정 구간 대신
+    # 두 순서가 모두 관측될 때까지 k 를 넓힌다. 불변식은 모든 k 에서 확인한다.
+    for k in [*range(0, 90), *range(90, 1200, 7)]:
+        if held_seen and unheld_seen and k >= 90:
+            break
         events, tick_res, nonces = await _race_once(tmp_path, entity, k)
         assert tick_res is not None
         pid = tick_res.proposal.proposal_id
