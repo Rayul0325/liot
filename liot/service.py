@@ -652,14 +652,17 @@ class LiotService:
         마지막은 모두 _arm_ladder 다: 송신이 실패했으면 그 안에서 30초 재시도가 잡힌다.
         """
         if situation_id in self._opening:
-            return False  # 이 프로세스가 지금 여는 중 — 고아가 아니다
-        if await self.safety.get_ladder(situation_id) is not None:
-            return False
-        info = await escalation.load_situation(self._db, situation_id)
-        if info is None or info.closed_at is not None or info.home_id != self.home_id:
-            return False
+            return False  # 이 프로세스가 지금 여는 중이거나 이미 복구 중 — 고아가 아니다
+        # 표식은 첫 await 전에 세운다 — 조회 사이에 끼어든 두 번째 복구가 같은 상황을 또 잡지 않게.
         self._opening.add(situation_id)
         try:
+            if await self.safety.get_ladder(situation_id) is not None:
+                return False
+            info = await escalation.load_situation(self._db, situation_id)
+            # 목록을 읽은 뒤 정상 신호로 닫혔을 수 있다(닫힌 상황에 낡은 경보 금지). 집 조건은
+            # load_situation 에 없어(상황 id 조회) 여기서 다시 비교한다.
+            if info is None or info.closed_at is not None or info.home_id != self.home_id:
+                return False
             # 알림이 기록된 제안은 반드시 제안 행이 있으므로 'pid 없음' = 알림 기록 없음이다. 제안이
             # 있으면 _first_alert_unsent 가 알림 기록·게이트(사용자가 정한 침묵)를 함께 본다.
             pid = await escalation.latest_alert_proposal_id(self._db, self.home_id, situation_id)

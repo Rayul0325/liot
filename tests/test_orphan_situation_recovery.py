@@ -115,12 +115,16 @@ async def _kill_during(
     kill_on_send: bool = False,
     prefs: dict[str, Any] | None = None,
     guardian: bool = False,
+    skip_start: bool = False,
 ) -> dict[str, Any]:
     """파일 DB 에서 이상 신호 하나를 처리하다 죽는다. 죽은 프로세스가 남긴 것을 돌려준다."""
     raw = await init_db(path)
     kdb = _KillableDB(raw, kill_on, after)
     transport = _SendKillsTransport(kdb) if kill_on_send else FakeNtfyTransport()
     svc, _, _, _ = await _make(db=kdb, transport=transport, clock=clock)
+    if skip_start:
+        # 이 프로세스는 시작 복구를 건너뛴다 — 앞선 고아를 건드리지 않고 두 번째 고아를 만든다.
+        svc._started = True
     gtopic = None
     if guardian:
         _, _, gtopic = await _guardian(svc)
@@ -496,6 +500,98 @@ async def test_healthy_open_situation_is_not_touched_by_recovery(tmp_path: Path)
         assert await svc2._recover_open_situations() == 0
     finally:
         await db2.close()
+
+
+# ==========================================================================
+# 복구 가드 하나하나(없애면 정확히 그 시험이 빨개진다)
+# ==========================================================================
+async def test_one_failing_recovery_does_not_block_start_the_others_or_its_own_retry(
+    tmp_path: Path,
+) -> None:
+    path = str(tmp_path / "liot.db")
+    clock = Clock(fixed=T0)
+    await _kill_during(path, clock, GAS, **NO_PROPOSAL)
+    await _kill_during(path, clock, DOOR, skip_start=True, **NO_PROPOSAL)
+    svc, db, transport = await _restart(path, clock, start=False)
+    real_rebuild = svc._rebuild_first_alert
+    broken = {"on": True}
+
+    async def flaky(info: Any, reading: Any) -> None:
+        if broken["on"] and info.category == "gas":
+            raise RuntimeError("forced recovery failure")
+        await real_rebuild(info, reading)
+
+    svc._rebuild_first_alert = flaky
+    try:
+        await svc.start()  # 한 상황의 복구 실패가 기동을 막지 않는다
+        sits = {s.category: s for s in await svc.safety.list_open_situations(HOME)}
+        assert set(sits) == {"gas", "door"}
+        # 다른 고아는 알림을 받고 사다리가 선다.
+        labels = [p["severity_label"] for p in _to(transport, TOPIC)]
+        assert labels == [SeverityLevel.WARNING.label_ko]
+        assert await svc.safety.get_ladder(sits["door"].situation_id) is not None
+        # 실패한 쪽은 사다리 없이 남지만 다음 이상 신호가 같은 복구를 다시 건다.
+        assert await svc.safety.get_ladder(sits["gas"].situation_id) is None
+        assert svc._opening == set()  # 실패해도 표식이 남지 않는다
+        broken["on"] = False
+        await svc.handle_reading(_reading(GAS, "on"))
+        await svc.drain_phase2()
+        labels = [p["severity_label"] for p in _to(transport, TOPIC)]
+        assert labels == [SeverityLevel.WARNING.label_ko, SeverityLevel.CRITICAL.label_ko]
+        assert await svc.safety.get_ladder(sits["gas"].situation_id) is not None
+    finally:
+        await db.close()
+
+
+async def test_concurrent_recoveries_of_one_orphan_alert_once(tmp_path: Path) -> None:
+    # 복구가 시작한 상황은 끝나기 전까지 다른 복구가 건드리지 못한다(_opening). 표식이 없으면
+    # 둘 다 '알림도 사다리도 없다'고 보고 첫 알림을 두 번 보낸다.
+    path = str(tmp_path / "liot.db")
+    clock = Clock(fixed=T0)
+    await _kill_during(path, clock, GAS, **PROPOSAL_ONLY)
+    svc, db, transport = await _restart(path, clock, start=False)
+    try:
+        sit = await _only_open_situation(svc)
+        results = await asyncio.gather(
+            svc._recover_situation(sit.situation_id, None),
+            svc._recover_situation(sit.situation_id, None),
+        )
+        assert sorted(results) == [False, True]
+        assert len(_to(transport, TOPIC)) == 1
+    finally:
+        await db.close()
+
+
+async def test_recovery_ignores_a_situation_that_closed_in_the_meantime(tmp_path: Path) -> None:
+    # 시작 복구가 목록을 읽은 뒤 같은 상황이 정상 신호로 닫힐 수 있다 — 닫힌 상황에 낡은 경보를
+    # 보내거나 사다리를 세우면 안 된다.
+    path = str(tmp_path / "liot.db")
+    clock = Clock(fixed=T0)
+    await _kill_during(path, clock, GAS, **PROPOSAL_ONLY)
+    svc, db, transport = await _restart(path, clock, start=False)
+    try:
+        sit = await _only_open_situation(svc)
+        assert await svc.safety.close_situation(sit.situation_id, clock.now_utc())
+        assert await svc._recover_situation(sit.situation_id, None) is False
+        assert transport.sent == []
+        assert await svc.safety.get_ladder(sit.situation_id) is None
+    finally:
+        await db.close()
+
+
+async def test_recovery_ignores_another_homes_situation(tmp_path: Path) -> None:
+    db = await init_db(str(tmp_path / "liot.db"))
+    svc, _, transport, _ = await _make(db=db)
+    try:
+        sid, _ = await svc.safety.open_or_get_situation(
+            "other", "gas", GAS, SeverityLevel.CRITICAL, T0
+        )
+        assert await svc._recover_situation(sid, None) is False
+        assert transport.sent == []
+        assert await svc.safety.get_ladder(sid) is None
+        assert len(await _rows(db, "SELECT 1 FROM proposals")) == 0
+    finally:
+        await db.close()
 
 
 async def test_list_open_situations_is_scoped_to_the_home_and_to_open_episodes(
