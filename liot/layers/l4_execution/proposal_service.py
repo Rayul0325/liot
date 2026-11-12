@@ -245,6 +245,10 @@ class ProposalService:
 
         notifier.gate_pipeline 의 recently_rejected_keys 로 그대로 넘긴다.
         ``days <= 0`` 이면 쉬는 창이 없다(빈 집합) — 연구용 재정의이며 기본(30)은 그대로다.
+
+        상황 알림 제안(``situation_id`` 가 있는 행)은 넣지 않는다. 상황 알림의 '거절'은 그
+        상황의 사다리만 멈추고, 같은 엔티티의 다음 상황 첫 알림을 30일 막지 않는다
+        (결정 0015). 30일 조용히 하려면 음소거를 쓴다.
         """
         if days <= 0:
             return frozenset()
@@ -253,7 +257,7 @@ class ProposalService:
             self._db,
             "proposals",
             columns="action_json, risk_tier",
-            extra_where="state = ? AND created_at >= ?",
+            extra_where="state = ? AND created_at >= ? AND situation_id IS NULL",
             extra_params=("dismissed", cutoff),
         )
         keys: set[str] = set()

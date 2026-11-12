@@ -14,4 +14,9 @@
 | [0010](0010-control-room-shares-db-no-login.md) | 관제실은 데몬 DB 공유, 로그인 없음, 입력자 표시로만 구분 | 채택(로그인은 이후 범위) |
 | [0011](0011-119-guidance-only.md) | 119 는 안내만, 자동 신고 없음 | 채택 |
 | [0012](0012-ha-unavailable-is-unmonitorable.md) | HA 읽기 불가는 위험이 아니라 감시 불가 — 거주자에게만 한 번 | 채택 |
+| [0013](0013-charter-off-keeps-guardian-forward.md) | 헌장 전면 OFF 는 거주자 알림만 끈다. 동의한 보호자 전달·119 안내는 막지 않는다 | 채택 |
+| [0015](0015-situation-reject-stops-ladder-only.md) | 상황 알림의 '거절'은 그 상황의 사다리만 멈춘다. 30일 거절 이력에 넣지 않는다 | 채택 |
+| [0016](0016-comfort-held-during-situation.md) | 열린 안전 상황 동안 편의 제안은 자동 실행하지 않고, 하한 위험 상황 동안은 폰 발송도 보류한다 | 채택 |
 | [0017](0017-recovered-first-alert-anchor.md) | 복구가 오래 묵은 상황의 첫 알림을 지금 보내면 사다리 기준 시각을 그 송신 시각으로 옮긴다(거주자 먼저 90초 보존) | 채택 |
+| [0018](0018-digest-expiry-learning-deferred.md) | 모아보기 만료를 비선호 학습에서 빼는 고침은 단독 적용하지 않는다(E13: 폰 도움 −0.070) | 채택 |
+| [0019](0019-duplicate-over-missing-after-kill.md) | 강제 종료 직후 중복 알림·중복 보호자 전달은 받아들이고 누락은 받아들이지 않는다 | 채택 |
