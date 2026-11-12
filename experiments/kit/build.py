@@ -37,9 +37,12 @@ def main() -> int:
         failed = True
 
     for name, fn in (
-        ("a 가설 판정 지도", figures.make_verdict_map),
-        ("b LIOT 대 대안", figures.make_overview),
-        ("c 연구 사이클", figures.make_timeline),
+        ("a 가설 판정 지도(사이클 1~3)", figures.make_verdict_map),
+        ("a2 가설 판정 지도(사이클 4)", lambda: figures.make_verdict_map((4,), "a2_verdict_map_cycle4", "사이클 4 (탐색) — 가설별 판정", False)),
+        ("b LIOT 대 대안(사이클 1~3)", figures.make_overview),
+        ("b2 LIOT 대 대안(사이클 4)", figures.make_overview_cycle4),
+        ("c 연구 사이클(0~3)", figures.make_timeline),
+        ("c2 연구 사이클(4, git 시각)", lambda: figures.make_timeline(cycle4=True)),
     ):
         try:
             path = Path(fn())

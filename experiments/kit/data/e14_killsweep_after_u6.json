@@ -1,0 +1,59 @@
+{
+ "command": "python -m experiments.e14_guardian_latency.killsweep --category gas door",
+ "exit_code": 0,
+ "git_head": "8c88e90",
+ "records": 102,
+ "source": "kit re-run of experiments.e14_guardian_latency.killsweep after U6 (not an experiment summary)",
+ "windows": [
+  {
+   "alerted_but_no_ladder_kill_points": [],
+   "category": "door",
+   "nothing_durable_kill_points": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "silent_kill_points": [],
+   "statements": 24,
+   "vulnerable": false
+  },
+  {
+   "alerted_but_no_ladder_kill_points": [],
+   "category": "door",
+   "nothing_durable_kill_points": [
+    1,
+    2,
+    3
+   ],
+   "silent_kill_points": [],
+   "statements": 23,
+   "vulnerable": true
+  },
+  {
+   "alerted_but_no_ladder_kill_points": [],
+   "category": "gas",
+   "nothing_durable_kill_points": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "silent_kill_points": [],
+   "statements": 24,
+   "vulnerable": false
+  },
+  {
+   "alerted_but_no_ladder_kill_points": [],
+   "category": "gas",
+   "nothing_durable_kill_points": [
+    1,
+    2,
+    3
+   ],
+   "silent_kill_points": [],
+   "statements": 23,
+   "vulnerable": true
+  }
+ ]
+}
