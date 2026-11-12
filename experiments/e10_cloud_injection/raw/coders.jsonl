@@ -1,0 +1,3 @@
+{"judge": "gemini", "id": "amb-light-dim", "occupied": "yes", "abnormal_for": "unknown", "subtype": "light_low_occupied", "error": null, "seconds": 1.53, "input_tokens": 1310, "output_tokens": 25}
+{"judge": "gemini", "id": "amb-music", "occupied": "yes", "abnormal_for": "unknown", "subtype": "media_playing_occupied", "error": null, "seconds": 3.677, "input_tokens": 1309, "output_tokens": 108}
+{"judge": "gemini", "id": "bre-aircon", "occupied": "yes", "abnormal_for": "unknown", "subtype": "indoor_hot_occupied", "error": null, "seconds": 1.589, "input_tokens": 1315, "output_tokens": 25}
