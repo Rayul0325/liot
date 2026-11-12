@@ -218,6 +218,29 @@ def _weighted_rows(blk: Blk, sev: dict[str, Any], rng: np.random.Generator) -> d
     return out
 
 
+def _context_numbers(blk: Blk) -> dict[str, Any]:
+    """Help and burden of the matched-ceiling pair (E3 C2.2 N1 comparison), per shape and m."""
+    out: dict[str, Any] = {}
+    for sh in SHAPES:
+        for m in MS:
+            kr, kc = key("liot_real", sh, m), key("flat_explicit", sh, m, True)
+            mk = blk.mask
+            hr = blk.lane(kr, "xp").sum(1) / np.maximum(blk.n_help.sum(1), 1)
+            hc = blk.lane(kc, "xp").sum(1) / np.maximum(blk.n_help.sum(1), 1)
+            br = blk.total(kr, "nc") / (blk.n_seeds * blk.days)
+            bc = blk.total(kc, "nc") / (blk.n_seeds * blk.days)
+            xr = blk.lane(kr, "xh").sum(1) / np.maximum(blk.n_harm.sum(1), 1)
+            xc = blk.lane(kc, "xh").sum(1) / np.maximum(blk.n_harm.sum(1), 1)
+            out[f"{sh}|m{m:.1f}"] = {
+                "harm_liot_real": float(xr[mk].mean()), "harm_flat_ceiling": float(xc[mk].mean()),
+                "help_liot_real": float(hr[mk].mean()), "help_flat_ceiling": float(hc[mk].mean()),
+                "help_diff": float((hr - hc)[mk].mean()),
+                "confirmations_per_day_liot_real": float(br[mk].mean()),
+                "confirmations_per_day_flat_ceiling": float(bc[mk].mean()),
+            }
+    return out
+
+
 def _severity_units(blk: Blk, sev: dict[str, Any]) -> dict[str, Any]:
     """Severity-units per day (coder weights, unnormalised) for the compared arms, exp, m=0.1."""
     w = sev["_weights"]["coder"]
@@ -317,7 +340,7 @@ def _h21_matched(blk: Blk, rng: np.random.Generator) -> dict[str, Any]:
             kr = key("liot_real", sh, m)
             row = {"vs_flat_explicit(registered form, unmatched)": _sig_row(blk, kr, key("flat_explicit", sh, m), rng),
                    "vs_flat_explicit_same_ceiling(사후, matched)": _sig_row(blk, kr, key("flat_explicit", sh, m, True), rng)}
-            for k, v in row.items():
+            for v in row.values():
                 v["h2_1_falsifier_met_(policy_sig_higher_share_gt_0.5)"] = bool(v["share_policy_sig_higher"] > 0.5)
             out[f"{sh}|m{m:.1f}"] = row
     return out
@@ -357,6 +380,7 @@ def summarize(raw: Path) -> dict[str, Any]:
                                                "per_template_mean_tier": {generator.NAME[t]: tier[t] for t in ts},
                                                "circular_if_gt_0.8": circular},
             "weighted_deficit": _weighted_rows(a, sev, rng),
+            "matched_ceiling_context": _context_numbers(a),
             "severity_units_per_day_coder_weights_exp_m0.1": _severity_units(a, sev),
             "h2_1_matched_posthoc": _h21_matched(a, rng),
             "harmful_proposal_share_by_template": {

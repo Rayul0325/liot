@@ -11,8 +11,8 @@ Registered form (HYPOTHESES.md "사이클 4 지표 적대 검토 반영", commit
       construction (structural).  The unrestricted counts are reported as the mechanism check.
 
 Two floor shapes (decided before the full run, reported side by side):
-  floor_safety8 : floor = the production table level at the 16 safety-category inputs only (8 categories x
-                  {plain, vulnerable}); every other input keeps its multiplicative level.  This is the shape
+  floor_safety8 : floor = the production table level at the 8 distinct U24 inputs that the 8 safety categories
+                  occupy (plain and vulnerable residents); every other input keeps its multiplicative level.  This is the shape
                   production has (floors exist only for safety categories).
   floor_all24   : floor = the production table level at all 24 inputs.
 final level = max(multiplicative level, floor).
@@ -118,6 +118,7 @@ class _Acc:
         self.n = 0
         self.ties: list[np.ndarray] = []
         self.c = dict.fromkeys(self.FIELDS[1:], 0)
+        self.has_floor = False
 
     def add(self, lv: np.ndarray, ctx: dict[str, Any], floor_mask: np.ndarray | None = None,
             floor_vals: np.ndarray | None = None) -> None:
@@ -131,6 +132,7 @@ class _Acc:
         self.c["any_cat_below_table"] += int((lc < ctx["ref_cat"][None, :]).any(axis=1).sum())
         self.c["any_cat_above_table"] += int((lc > ctx["ref_cat"][None, :]).any(axis=1).sum())
         if floor_mask is not None and floor_vals is not None:
+            self.has_floor = True
             self.c["floor_viol"] += int((lv[:, floor_mask] < floor_vals[None, :]).any(axis=1).sum())
 
     def row(self) -> dict[str, Any]:
@@ -150,7 +152,7 @@ class _Acc:
             "settings_with_a_safety_category_below_table": self.c["any_cat_below_table"],
             "settings_with_a_safety_category_above_table": self.c["any_cat_above_table"],
         }
-        if "floor_viol" in self.c:
+        if self.has_floor:
             out["settings_with_floor_violation"] = self.c["floor_viol"]
         return out
 
