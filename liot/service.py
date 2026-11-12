@@ -650,6 +650,8 @@ class LiotService:
           (c) 이미 알림이 나갔는데 사다리만 없음(알림 직후·사다리 생성 전에 죽음) → 첫 알림은
               다시 보내지 않고 사다리만 세운다. 시각은 상황이 열린 때 기준 그대로다.
         마지막은 모두 _arm_ladder 다: 송신이 실패했으면 그 안에서 30초 재시도가 잡힌다.
+        (a)·(b) 에서 첫 알림을 지금 처음 보냈고 상황이 열린 지 90초를 넘겼으면 사다리 기준
+        시각은 지금(anchor_at)이다 — 거주자 → 90초 → 보호자 순서 보존(결정 0017).
         """
         if situation_id in self._opening:
             return False  # 이 프로세스가 지금 여는 중이거나 이미 복구 중 — 고아가 아니다
@@ -666,13 +668,29 @@ class LiotService:
             # 알림이 기록된 제안은 반드시 제안 행이 있으므로 'pid 없음' = 알림 기록 없음이다. 제안이
             # 있으면 _first_alert_unsent 가 알림 기록·게이트(사용자가 정한 침묵)를 함께 본다.
             pid = await escalation.latest_alert_proposal_id(self._db, self.home_id, situation_id)
+            notified_before = await escalation.situation_notified(
+                self._db, self.home_id, situation_id
+            )
             if pid is None:
                 await self._rebuild_first_alert(info, reading)
             else:
                 unsent = await self._first_alert_unsent(info)
                 if unsent is not None:
                     await self._resend_first_alert(unsent)
-            await self._arm_ladder(situation_id)
+            # 결정 0017: 이 복구가 거주자의 '첫 알림'을 지금 처음 보냈고 그 상황이 이미 90초(거주자
+            # 우선 창)보다 오래 열려 있었다면, 사다리 기준 시각을 지금으로 옮긴다 — 안 그러면
+            # 재알림·보호자 전달·119 가 옛 열린 시각 기준으로 이미 지나 있어 첫 알림 직후 몰려
+            # 나간다. 알림이 이미 나갔던 상황((c))·못 보낸 상황은 열린 시각 그대로다.
+            anchor_at: str | None = None
+            now_dt = self.clock.now_dt()
+            if (
+                not notified_before
+                and await escalation.situation_notified(self._db, self.home_id, situation_id)
+                and now_dt - escalation.parse_iso(info.opened_at)
+                > escalation.GUARDIAN_FORWARD_AFTER
+            ):
+                anchor_at = escalation.to_iso(now_dt)
+            await self._arm_ladder(situation_id, anchor_at=anchor_at)
         finally:
             self._opening.discard(situation_id)
         return True
@@ -986,13 +1004,14 @@ class LiotService:
         info: escalation.SituationInfo,
         final: SeverityLevel,
         *,
+        anchor: datetime,
         stage: int,
         guidance_sent: bool,
         retry: bool = False,
     ) -> str | None:
         return escalation.to_iso(
             escalation.next_fire_at(
-                opened=escalation.parse_iso(info.opened_at),
+                opened=anchor,
                 final=final,
                 floor=info.severity_floor,
                 realerts_sent=stage,
@@ -1003,10 +1022,19 @@ class LiotService:
             )
         )
 
-    async def _arm_ladder(self, situation_id: str) -> None:
+    @staticmethod
+    def _ladder_anchor(info: escalation.SituationInfo, ladder: Ladder | None) -> datetime:
+        """사다리 시각(재알림·보호자 전달·119)의 기준 = 사다리의 anchor_at, 없으면 열린 시각."""
+        if ladder is not None and ladder.anchor_at is not None:
+            return escalation.parse_iso(ladder.anchor_at)
+        return escalation.parse_iso(info.opened_at)
+
+    async def _arm_ladder(self, situation_id: str, *, anchor_at: str | None = None) -> None:
         """사다리를 만들거나(없으면) 다음 발화 시각을 다시 잡는다. 여기서는 보내지 않는다.
 
         RECORD·NOTICE(재알림 없음, 하한도 CRITICAL 아님)는 사다리를 만들지 않는다.
+        anchor_at 은 사다리를 새로 만들 때만 쓴다(복구 — 결정 0017). 이미 있는 사다리의 기준은
+        바꾸지 않는다.
         """
         info = await escalation.load_situation(self._db, situation_id)
         if info is None or info.closed_at is not None:
@@ -1020,16 +1048,22 @@ class LiotService:
         # 재무장해도 유지된다.
         first_retry = await self._first_alert_unsent(info) is not None
         if ladder is None:
-            nxt = await self._plan_next(
-                info, final, stage=0, guidance_sent=False, retry=first_retry
+            anchor = (
+                escalation.parse_iso(anchor_at)
+                if anchor_at is not None
+                else escalation.parse_iso(info.opened_at)
             )
-            await self.safety.create_ladder(situation_id, 0, nxt)
+            nxt = await self._plan_next(
+                info, final, anchor=anchor, stage=0, guidance_sent=False, retry=first_retry
+            )
+            await self.safety.create_ladder(situation_id, 0, nxt, anchor_at)
             return
         if not self._ladder_open(ladder):
             return
         nxt = await self._plan_next(
             info,
             final,
+            anchor=self._ladder_anchor(info, ladder),
             stage=ladder.stage,
             guidance_sent=ladder.guidance_119_sent,
             retry=first_retry,
@@ -1133,11 +1167,13 @@ class LiotService:
             await self._on_situation_closed(situation_id)
             return
         now_dt = self.clock.now_dt()
-        opened = escalation.parse_iso(info.opened_at)
+        # 기준 시각: 보통 열린 시각, 복구가 옮겼으면 ladder.anchor_at(결정 0017). 보호자·119 메시지의
+        # at 은 이 값이 아니라 info.opened_at(사실)이다.
+        anchor = self._ladder_anchor(info, ladder)
         final = await self._final_severity(info)
 
         stage = ladder.stage
-        due = escalation.realerts_due(opened, final, now_dt)
+        due = escalation.realerts_due(anchor, final, now_dt)
         realert_attempted = False
         if due > stage:
             # 공유 연결에서 닫힘이 끼어들었을 수 있다 — 해소 뒤 낡은 재알림 금지.
@@ -1160,7 +1196,7 @@ class LiotService:
                 retry = not await self._resend_first_alert(unsent)
         # 보호자 전달·119 안내: 상황 하한(표+거주자)이 CRITICAL 일 때만.
         if escalation.guardian_path(info.severity_floor):
-            if now_dt >= escalation.forward_due_at(opened) and await self._ladder_still_open(
+            if now_dt >= escalation.forward_due_at(anchor) and await self._ladder_still_open(
                 situation_id
             ):
                 newly, failed = await self._forward_to_guardians(info, final, notified)
@@ -1168,13 +1204,13 @@ class LiotService:
                 retry = retry or failed
             if not guidance_sent:
                 due_119 = escalation.guidance_due_at(
-                    opened, await self._first_forward_at(situation_id)
+                    anchor, await self._first_forward_at(situation_id)
                 )
                 if now_dt >= due_119 and await self._ladder_still_open(situation_id):
                     guidance_sent = await self._send_guidance_119(info, final, notified)
 
         nxt = await self._plan_next(
-            info, final, stage=stage, guidance_sent=guidance_sent, retry=retry
+            info, final, anchor=anchor, stage=stage, guidance_sent=guidance_sent, retry=retry
         )
         await self.safety.update_ladder(
             situation_id,

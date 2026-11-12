@@ -3,7 +3,7 @@
 ## Scope
 
 - `schema.sql` — version-1 baseline schema (preferences, sensor_readings, context_snapshots, judgments, proposals, feedback, notifications, audit_log, llm_cache, trust_state).
-- `migrations.py` — forward-only `_MIGRATIONS` list; `LATEST_VERSION` is 3. Version 2 adds `candidate_evaluations`; version 3 adds residents, resident_traits, home_settings, guardians, consent_events (append-only triggers), situations (one open episode per home/category/entity via partial unique index), escalation_ladders, guardian_forwards, and severity/situation columns on judgments and proposals.
+- `migrations.py` — forward-only `_MIGRATIONS` list; `LATEST_VERSION` is 4. Version 2 adds `candidate_evaluations`; version 4 adds the nullable `escalation_ladders.anchor_at` (NULL = ladder timing anchored to `situations.opened_at`, exactly the old behaviour; set only by restart recovery, decision 0017); version 3 adds residents, resident_traits, home_settings, guardians, consent_events (append-only triggers), situations (one open episode per home/category/entity via partial unique index), escalation_ladders, guardian_forwards, and severity/situation columns on judgments and proposals.
 - `database.py` — `connect` (WAL, foreign keys, synchronous FULL when durable) and `init_db` (connect + migrate).
 - `safety_repo.py` — `SafetyRepo`: residents and traits, home settings, guardians, consent, situations, ladders, forwards, and `save_judgment` / `get_judgment`.
 
@@ -27,6 +27,7 @@ Not this module's scope: proposal persistence and feedback state transitions (`l
 - `open_or_get_situation` returns `(id, opened_new)`; when an episode is already open it raises `severity_floor` with `MAX(...)` and never lowers it.
 - `Guardian.topic` is `repr=False`; topics are generated with `secrets.token_urlsafe(32)` and returned only by `add_guardian`.
 - `record_forward`: `guidance_119` rows have `guardian_id = NULL`; `forward` / `resolved` require a guardian of that home.
+- `Ladder.anchor_at` is written once by `create_ladder(..., anchor_at=...)` and never by `update_ladder`; `None` means "anchored to `opened_at`". Old rows read as `None`.
 - `update_ladder` accepts only the whitelisted field names; unknown fields are `ValueError`, unknown ladders `LookupError`.
 
 ## Patterns

@@ -14,3 +14,4 @@
 | [0010](0010-control-room-shares-db-no-login.md) | 관제실은 데몬 DB 공유, 로그인 없음, 입력자 표시로만 구분 | 채택(로그인은 이후 범위) |
 | [0011](0011-119-guidance-only.md) | 119 는 안내만, 자동 신고 없음 | 채택 |
 | [0012](0012-ha-unavailable-is-unmonitorable.md) | HA 읽기 불가는 위험이 아니라 감시 불가 — 거주자에게만 한 번 | 채택 |
+| [0017](0017-recovered-first-alert-anchor.md) | 복구가 오래 묵은 상황의 첫 알림을 지금 보내면 사다리 기준 시각을 그 송신 시각으로 옮긴다(거주자 먼저 90초 보존) | 채택 |

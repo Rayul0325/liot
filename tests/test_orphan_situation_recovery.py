@@ -612,3 +612,205 @@ async def test_list_open_situations_is_scoped_to_the_home_and_to_open_episodes(
         assert [s.situation_id for s in listed] == [sid_a]
     finally:
         await db.close()
+
+
+# ==========================================================================
+# D5(결정 0017): 오래 묵은 고아 상황의 첫 알림을 복구가 지금 처음 보내면 사다리 기준이 그 시각이다
+# ==========================================================================
+THREE_DAYS = 3 * 24 * 3600
+
+
+async def _anchor_of(svc: LiotService) -> Any:
+    sit = await _only_open_situation(svc)
+    ladder = await svc.safety.get_ladder(sit.situation_id)
+    assert ladder is not None
+    return sit, ladder
+
+
+@pytest.mark.parametrize("kill", [PROPOSAL_ONLY, NO_PROPOSAL], ids=["path_a", "path_b"])
+async def test_three_day_old_gas_orphan_keeps_resident_first_for_90s_after_recovery(
+    tmp_path: Path, kill: dict[str, Any]
+) -> None:
+    path = str(tmp_path / "liot.db")
+    clock = Clock(fixed=T0)
+    died = await _kill_during(path, clock, GAS, guardian=True, **kill)
+    gtopic = died["guardian_topic"]
+    clock.set_fixed(_at(THREE_DAYS))  # 3일 뒤 재시작
+    svc, db, transport = await _restart(path, clock)
+    try:
+        sit, ladder = await _anchor_of(svc)
+        # 거주자 첫 알림은 지금(복구 시각) 나간다.
+        assert len(_to(transport, TOPIC)) == 1
+        # 사다리 기준은 복구 시각: 재알림 now+60 (옛 기준이면 이미 밀려 지금 바로 발화한다).
+        assert ladder.anchor_at == _at(THREE_DAYS)
+        assert ladder.next_fire_at == _at(THREE_DAYS + 60)
+        # 지금은 보호자에게 아무것도 가지 않는다(옛 기준이면 ~5초 뒤 바로 나간다).
+        await svc.ladder_tick()
+        assert _to(transport, gtopic) == [] and await _forwards(svc) == []
+        await _advance(svc, clock, THREE_DAYS + 5)
+        assert _to(transport, gtopic) == []
+        await _advance(svc, clock, THREE_DAYS + 60)
+        assert len(_to(transport, TOPIC)) == 2  # 첫 알림 + 재알림 1회(밀린 재알림 폭주 없음)
+        await _advance(svc, clock, THREE_DAYS + 89)
+        assert _to(transport, gtopic) == []
+        # 보호자 전달은 복구 첫 알림 + 90초.
+        await _advance(svc, clock, THREE_DAYS + 90)
+        assert [kind for _, kind in await _forwards(svc)] == ["forward"]
+        assert len(_to(transport, gtopic)) == 1
+        # 보호자 메시지의 '언제'는 사실 그대로 상황이 열린 시각이다(숨기지 않는다).
+        assert _to(transport, gtopic)[0]["at"] == sit.opened_at == T0
+        # 119 안내는 복구 첫 알림 + 390초(90초 + 5분).
+        await _advance(svc, clock, THREE_DAYS + 389)
+        assert (None, "guidance_119") not in await _forwards(svc)
+        await _advance(svc, clock, THREE_DAYS + 390)
+        assert [kind for _, kind in await _forwards(svc)] == ["forward", "guidance_119"]
+    finally:
+        await db.close()
+
+
+async def test_second_restart_keeps_the_recovery_anchor(tmp_path: Path) -> None:
+    # 기준은 사다리 행에 영속한다: 복구 30초 뒤 다시 죽었다 살아나도 보호자 전달은 첫 알림 + 90초.
+    path = str(tmp_path / "liot.db")
+    clock = Clock(fixed=T0)
+    died = await _kill_during(path, clock, GAS, guardian=True, **NO_PROPOSAL)
+    gtopic = died["guardian_topic"]
+    clock.set_fixed(_at(THREE_DAYS))
+    _, db, _ = await _restart(path, clock)
+    await db.close()
+    clock.set_fixed(_at(THREE_DAYS + 30))
+    svc2, db2, transport2 = await _restart(path, clock)
+    try:
+        _, ladder = await _anchor_of(svc2)
+        assert ladder.anchor_at == _at(THREE_DAYS)  # 바뀌지 않았다
+        assert ladder.next_fire_at == _at(THREE_DAYS + 60)
+        await svc2.ladder_tick()
+        assert _to(transport2, gtopic) == []
+        await _advance(svc2, clock, THREE_DAYS + 90)
+        assert len(_to(transport2, gtopic)) == 1
+    finally:
+        await db2.close()
+
+
+async def test_warning_orphan_recovered_late_realerts_relative_to_the_recovery(
+    tmp_path: Path,
+) -> None:
+    path = str(tmp_path / "liot.db")
+    clock = Clock(fixed=T0)
+    await _kill_during(path, clock, DOOR, **NO_PROPOSAL)
+    clock.set_fixed(_at(THREE_DAYS))
+    svc, db, transport = await _restart(path, clock)
+    try:
+        _, ladder = await _anchor_of(svc)
+        assert len(_to(transport, TOPIC)) == 1
+        assert ladder.anchor_at == _at(THREE_DAYS)
+        assert ladder.next_fire_at == _at(THREE_DAYS + 600)  # 옛 기준이면 지금 바로 밀린 재알림
+    finally:
+        await db.close()
+
+
+@pytest.mark.parametrize("kill", [PROPOSAL_ONLY, NO_PROPOSAL], ids=["path_a", "path_b"])
+async def test_orphan_recovered_within_90s_keeps_the_open_time_anchor(
+    tmp_path: Path, kill: dict[str, Any]
+) -> None:
+    path = str(tmp_path / "liot.db")
+    clock = Clock(fixed=T0)
+    died = await _kill_during(path, clock, GAS, guardian=True, **kill)
+    gtopic = died["guardian_topic"]
+    clock.set_fixed(_at(30))  # 열린 뒤 30초(≤ 90초) 만에 복구
+    svc, db, transport = await _restart(path, clock)
+    try:
+        _, ladder = await _anchor_of(svc)
+        assert len(_to(transport, TOPIC)) == 1
+        assert ladder.anchor_at is None  # 거주자 우선 창 안이라 옮기지 않는다
+        assert ladder.next_fire_at == _at(60)  # 열린 시각 기준 그대로
+        await _advance(svc, clock, 89)
+        assert _to(transport, gtopic) == []
+        await _advance(svc, clock, 90)  # 열린 시각 + 90초(복구 후 60초)
+        assert len(_to(transport, gtopic)) == 1
+    finally:
+        await db.close()
+
+
+@pytest.mark.parametrize(("elapsed", "anchored"), [(90, False), (91, True)])
+async def test_the_anchor_moves_only_when_the_orphan_is_older_than_90s(
+    tmp_path: Path, elapsed: int, anchored: bool
+) -> None:
+    # 경계: 정확히 90초는 옮기지 않고(> 90초), 91초는 옮긴다.
+    path = str(tmp_path / "liot.db")
+    clock = Clock(fixed=T0)
+    await _kill_during(path, clock, GAS, **NO_PROPOSAL)
+    clock.set_fixed(_at(elapsed))
+    svc, db, _ = await _restart(path, clock)
+    try:
+        _, ladder = await _anchor_of(svc)
+        assert ladder.anchor_at == (_at(elapsed) if anchored else None)
+    finally:
+        await db.close()
+
+
+async def test_notified_orphan_without_ladder_stays_anchored_to_the_open_time_even_when_old(
+    tmp_path: Path,
+) -> None:
+    # (c) 경로: 첫 알림은 이미 나갔다. 오래됐어도 기준은 열린 시각 그대로(보호자 전달은 이미 밀려 있음).
+    path = str(tmp_path / "liot.db")
+    clock = Clock(fixed=T0)
+    died = await _kill_during(path, clock, GAS, guardian=True, **NOTIFIED_NO_LADDER)
+    clock.set_fixed(_at(THREE_DAYS))
+    svc, db, transport = await _restart(path, clock)
+    try:
+        _, ladder = await _anchor_of(svc)
+        assert _to(transport, TOPIC) == []
+        assert ladder.anchor_at is None
+        assert ladder.next_fire_at is not None and ladder.next_fire_at <= _at(THREE_DAYS)
+        await svc.ladder_tick()
+        assert [kind for _, kind in await _forwards(svc)] == ["forward"]
+        assert len(_to(transport, died["guardian_topic"])) == 1
+    finally:
+        await db.close()
+
+
+async def test_charter_off_old_orphan_is_not_re_anchored_so_the_guardian_is_not_delayed(
+    tmp_path: Path,
+) -> None:
+    # 헌장 OFF 면 복구가 거주자 알림을 보내지 않는다. 거주자 우선 창이 성립하지 않으므로 기준을 옮기지
+    # 않는다 — 동의한 보호자 전달이 유일한 안전망이라 90초 더 미루지 않는다(결정 0013).
+    path = str(tmp_path / "liot.db")
+    clock = Clock(fixed=T0)
+    died = await _kill_during(
+        path, clock, GAS, guardian=True, prefs={"charter_enabled": False}, **NO_PROPOSAL
+    )
+    clock.set_fixed(_at(THREE_DAYS))
+    svc, db, transport = await _restart(path, clock)
+    try:
+        _, ladder = await _anchor_of(svc)
+        assert _to(transport, TOPIC) == []
+        assert ladder.anchor_at is None
+        await svc.ladder_tick()
+        assert [kind for _, kind in await _forwards(svc)] == ["forward"]
+        assert len(_to(transport, died["guardian_topic"])) == 1
+    finally:
+        await db.close()
+
+
+async def test_recovery_from_a_live_reading_also_anchors_a_three_day_old_orphan(
+    tmp_path: Path,
+) -> None:
+    # 시작 복구를 거치지 않은 프로세스에서 이어지는 이상 신호가 같은 복구를 건다(재무장 없이도 다음 발화
+    # 시각이 복구 시각 기준으로 잡혀야 한다).
+    path = str(tmp_path / "liot.db")
+    clock = Clock(fixed=T0)
+    died = await _kill_during(path, clock, GAS, guardian=True, **NO_PROPOSAL)
+    clock.set_fixed(_at(THREE_DAYS))
+    svc, db, transport = await _restart(path, clock, start=False)
+    svc._started = True
+    try:
+        await svc.handle_reading(_reading(GAS, "on"))
+        await svc.drain_phase2()
+        _, ladder = await _anchor_of(svc)
+        assert len(_to(transport, TOPIC)) == 1
+        assert ladder.anchor_at == _at(THREE_DAYS)
+        assert ladder.next_fire_at == _at(THREE_DAYS + 60)
+        await svc.ladder_tick()
+        assert _to(transport, died["guardian_topic"]) == []
+    finally:
+        await db.close()
