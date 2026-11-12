@@ -282,9 +282,13 @@ async def run_scenario(sc: Scenario, driver: str) -> dict[str, Any]:
         iters = 0
         while now < sc.horizon and iters < 20000:
             iters += 1
-            if driver.startswith("tick5"):
-                phase = float(driver.split("_p")[1]) if "_p" in driver else 0.0
-                nxt = phase if now < phase and now == 0.0 and phase > 0.0 else now + STEP5
+            if driver.startswith("tick"):
+                # ``tick<step>`` or ``tick<step>_p<phase>``; tick5 = the daemon's real 5 s
+                # resolution (E7), tick1 = the C4.10 (c) 1 s experiment-side tick
+                step_txt, _, phase_txt = driver[4:].partition("_p")
+                step = float(step_txt)
+                phase = float(phase_txt) if phase_txt else 0.0
+                nxt = phase if now < phase and now == 0.0 and phase > 0.0 else now + step
             else:
                 due = await _next_due(kit)
                 cands = [c for c in (due, pending[0][0] if pending else None) if c is not None]
