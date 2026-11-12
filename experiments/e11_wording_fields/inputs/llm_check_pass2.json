@@ -1,0 +1,806 @@
+{
+ "r01": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r02": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 3,
+   "note": ""
+  }
+ },
+ "r03": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r04": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  }
+ },
+ "r05": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 3,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r06": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  }
+ },
+ "r07": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  }
+ },
+ "r08": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  }
+ },
+ "r10": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r11": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r12": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  }
+ },
+ "r13": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 2,
+   "note": ""
+  }
+ },
+ "r14": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r15": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 2,
+   "note": ""
+  }
+ },
+ "r16": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  }
+ },
+ "r17": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r18": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r19": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 2,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  }
+ },
+ "r20": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r21": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 3,
+   "note": ""
+  }
+ },
+ "r22": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r23": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r24": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 2,
+   "note": ""
+  }
+ },
+ "r26": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  }
+ },
+ "r27": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 2,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  }
+ },
+ "r28": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r29": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r30": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    false,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": "Says drops are present at the hose rather than coming from it, weakening the source relation."
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  }
+ },
+ "r31": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r32": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r33": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r34": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 1,
+   "note": ""
+  }
+ },
+ "r35": {
+  "v1": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 4,
+   "note": ""
+  },
+  "v2": {
+   "facts_present": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "added": [],
+   "tone": 2,
+   "note": ""
+  }
+ }
+}
