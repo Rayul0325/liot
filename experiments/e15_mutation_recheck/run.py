@@ -48,6 +48,12 @@ e8.EXP_DIR = EXP_DIR  # redirect E8's output root; E8's own raw/ stays untouched
 OLD_REF = "1e83525"  # the commit E8 measured (source sha256 of all 10 targets verified in identity)
 FRESH_SEED = 20261201
 FRESH_PER_MODULE = 30
+# Time cut (decided while running, before any fresh outcome was analysed; recorded as 미수행 in RESULTS):
+# the full-suite-heavy modules need > 75 s per mutant under the machine load (load1 ~ 55); `risk` runs
+# 37 test files in ~128 s, longer than the 120 s mutant timeout, so its unmutated tests already time
+# out. Fresh sample size per module after the cut:
+FRESH_CAP = {"liot/core/risk.py": 0, "liot/core/severity.py": 10,
+             "liot/layers/l3_judgment/guardrail.py": 10}
 STATE = EXP_DIR / "raw"
 
 
@@ -166,6 +172,21 @@ def fresh_plan(raw: Path, originals: dict[str, bytes]) -> list[dict[str, Any]]:
     return io.read_jsonl(path)
 
 
+def fresh_subset(raw: Path, plan: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The cut sample actually run (seeded sub-sample of the drawn plan); recorded once."""
+    path = raw / "fresh_subset.jsonl"
+    rows = io.read_jsonl(path)
+    if rows:
+        return rows
+    rng = random.Random(FRESH_SEED + 1)
+    for rel in e8.TARGETS:
+        mine = [r for r in plan if r["module"] == rel]
+        k = min(FRESH_CAP.get(rel, FRESH_PER_MODULE), len(mine))
+        for r in sorted(rng.sample(mine, k), key=lambda r: r["mutant_id"]):
+            io.append_jsonl(path, {"mutant_id": r["mutant_id"], "module": rel})
+    return io.read_jsonl(path)
+
+
 def old_tests_dir(scratch: Path) -> Path:
     """Extract the E8-time ``tests/`` (commit OLD_REF) into scratch once; returns the parent dir."""
     dest = scratch / "old_tests_ref"
@@ -195,6 +216,8 @@ def phase_fresh(a: argparse.Namespace, which: str) -> None:
     raw = EXP_DIR / "raw" / f"fresh_{which}"
     originals = {rel: e8.git_head_blob(rel) for rel in e8.TARGETS}
     plan = fresh_plan(EXP_DIR / "raw", originals)
+    keep = {r["mutant_id"] for r in fresh_subset(EXP_DIR / "raw", plan)}
+    plan = [r for r in plan if r["mutant_id"] in keep]
     n_workers = min(a.workers, 4)
     workers = e8.prepare_workers(scratch / f"fresh_{which}", n_workers, originals)
     if which == "old":

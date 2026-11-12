@@ -1,0 +1,1357 @@
+{
+  "a": {
+    "collateral": {
+      "A_all_matched_core_incl_gaps": {
+        "changed_mutants": [
+          {
+            "code_line": "if set(rows) != set(DAMAGE_TYPES) or len(rows) != len(raw):",
+            "direction": "gained",
+            "e8_class": "safety_gap",
+            "killed_by_file": "tests/test_severity_loader_gaps.py",
+            "old_id": "liot/core/severity.py:394:7:bool_swap:d388f8ee",
+            "variant": "or->and"
+          },
+          {
+            "code_line": "raise SeverityConfigError(",
+            "direction": "gained",
+            "e8_class": "safety_gap",
+            "killed_by_file": "tests/test_severity_loader_gaps.py",
+            "old_id": "liot/core/severity.py:395:8:guard_removal:9d4e1e23",
+            "variant": "body(raise)->pass"
+          },
+          {
+            "code_line": "if set(cols) != set(TIMES_TO_HARM) or len(cols) != len(row):",
+            "direction": "gained",
+            "e8_class": "safety_gap",
+            "killed_by_file": "tests/test_severity_loader_gaps.py",
+            "old_id": "liot/core/severity.py:404:11:bool_swap:283a2fc1",
+            "variant": "or->and"
+          },
+          {
+            "code_line": "raise SeverityConfigError(",
+            "direction": "gained",
+            "e8_class": "safety_gap",
+            "killed_by_file": "tests/test_severity_loader_gaps.py",
+            "old_id": "liot/core/severity.py:405:12:guard_removal:9d4e1e23",
+            "variant": "body(raise)->pass"
+          },
+          {
+            "code_line": "isinstance(threshold, bool)",
+            "direction": "gained",
+            "e8_class": "safety_gap",
+            "killed_by_file": "tests/test_severity_loader_gaps.py",
+            "old_id": "liot/core/severity.py:421:12:bool_swap:362a7c1a",
+            "variant": "or->and"
+          },
+          {
+            "code_line": "raise SeverityConfigError(f\"{where}.abnormal_when.above must be a finite number\"",
+            "direction": "gained",
+            "e8_class": "safety_gap",
+            "killed_by_file": "tests/test_severity_loader_gaps.py",
+            "old_id": "liot/core/severity.py:425:12:guard_removal:9d4e1e23",
+            "variant": "body(raise)->pass"
+          },
+          {
+            "code_line": "return hit",
+            "direction": "gained",
+            "e8_class": "safety_gap",
+            "killed_by_file": "tests/test_egress_gate_gaps.py",
+            "old_id": "liot/core/egress_gate.py:116:20:guard_removal:9d4e1e23",
+            "variant": "body(return)->pass"
+          },
+          {
+            "code_line": "return hit",
+            "direction": "gained",
+            "e8_class": "safety_gap",
+            "killed_by_file": "tests/test_egress_gate_gaps.py",
+            "old_id": "liot/core/egress_gate.py:116:27:return_const:6eef6648",
+            "variant": "return None"
+          },
+          {
+            "code_line": "return tuple(pseudonymize_recursive(v, alias) for v in payload)",
+            "direction": "gained",
+            "e8_class": "safety_gap",
+            "killed_by_file": "tests/test_egress_gate_gaps.py",
+            "old_id": "liot/core/egress_gate.py:208:8:guard_removal:9d4e1e23",
+            "variant": "body(return)->pass"
+          },
+          {
+            "code_line": "return [_generalize_coords(v) for v in payload]",
+            "direction": "gained",
+            "e8_class": "safety_gap",
+            "killed_by_file": "tests/test_egress_gate_gaps.py",
+            "old_id": "liot/core/egress_gate.py:234:8:guard_removal:9d4e1e23",
+            "variant": "body(return)->pass"
+          },
+          {
+            "code_line": "raise EgressViolation(f\"destination not allowed: {dest.value}\")",
+            "direction": "gained",
+            "e8_class": "safety_gap",
+            "killed_by_file": "tests/test_egress_gate_gaps.py",
+            "old_id": "liot/core/egress_gate.py:315:8:guard_removal:9d4e1e23",
+            "variant": "body(raise)->pass"
+          },
+          {
+            "code_line": "is_safety = gate1.safety_critical or is_safety_category(candidate.category)",
+            "direction": "gained",
+            "e8_class": "safety_gap",
+            "killed_by_file": "tests/test_llm_judge_degraded_safety_signals.py",
+            "old_id": "liot/layers/l3_judgment/llm_judge.py:257:20:bool_swap:9eacca29",
+            "variant": "or->and"
+          },
+          {
+            "code_line": "bumped = RiskTier(min(int(gate1_floor) + 1, int(RiskTier.EMBER)))",
+            "direction": "gained",
+            "e8_class": null,
+            "killed_by_file": "tests/test_llm_judge_degraded_safety_signals.py",
+            "old_id": "liot/layers/l3_judgment/llm_judge.py:291:34:max_min:0706025b",
+            "variant": "min->max"
+          },
+          {
+            "code_line": "if situation_id and guardian_id",
+            "direction": "gained",
+            "e8_class": "safety_gap",
+            "killed_by_file": "tests/test_notifier_guardian_link_rule.py",
+            "old_id": "liot/layers/l4_execution/notifier.py:378:15:bool_swap:e424d13c",
+            "variant": "and->or"
+          },
+          {
+            "code_line": "LADDER_RETRY: Final[timedelta] = timedelta(seconds=30)",
+            "direction": "gained",
+            "e8_class": "untested",
+            "killed_by_file": "tests/test_first_alert_retry.py",
+            "old_id": "liot/layers/l4_execution/escalation.py:76:51:num_const:7719a1c7",
+            "variant": "-1"
+          },
+          {
+            "code_line": "raise ExecutionDenied(f\"unmapped capability: {cap!r}\")",
+            "direction": "gained",
+            "e8_class": "safety_gap",
+            "killed_by_file": "tests/test_executor_unmapped_capability.py",
+            "old_id": "liot/layers/l4_execution/executor.py:303:12:guard_removal:9d4e1e23",
+            "variant": "body(raise)->pass"
+          }
+        ],
+        "delta_ci95_pp": [
+          1.868918,
+          5.479452
+        ],
+        "delta_pp": 3.555556,
+        "gained": 16,
+        "lost": 0,
+        "n": 450,
+        "n_clusters": 283,
+        "score_new": 0.835556,
+        "score_old": 0.8,
+        "verdict_rule": "판정 불가"
+      },
+      "A_excl_15_ids": {
+        "changed_mutants": [
+          {
+            "code_line": "bumped = RiskTier(min(int(gate1_floor) + 1, int(RiskTier.EMBER)))",
+            "direction": "gained",
+            "e8_class": null,
+            "killed_by_file": "tests/test_llm_judge_degraded_safety_signals.py",
+            "old_id": "liot/layers/l3_judgment/llm_judge.py:291:34:max_min:0706025b",
+            "variant": "min->max"
+          },
+          {
+            "code_line": "LADDER_RETRY: Final[timedelta] = timedelta(seconds=30)",
+            "direction": "gained",
+            "e8_class": "untested",
+            "killed_by_file": "tests/test_first_alert_retry.py",
+            "old_id": "liot/layers/l4_execution/escalation.py:76:51:num_const:7719a1c7",
+            "variant": "-1"
+          }
+        ],
+        "delta_ci95_pp": [
+          0.0,
+          1.179245
+        ],
+        "delta_pp": 0.458716,
+        "gained": 2,
+        "lost": 0,
+        "n": 436,
+        "n_clusters": 272,
+        "score_new": 0.830275,
+        "score_old": 0.825688,
+        "verdict_rule": "반증"
+      },
+      "A_excl_15_ids_full_suite_view": {
+        "changed_mutants": [
+          {
+            "code_line": "LADDER_RETRY: Final[timedelta] = timedelta(seconds=30)",
+            "direction": "gained",
+            "e8_class": "untested",
+            "killed_by_file": "tests/test_first_alert_retry.py",
+            "old_id": "liot/layers/l4_execution/escalation.py:76:51:num_const:7719a1c7",
+            "variant": "-1"
+          }
+        ],
+        "delta_ci95_pp": [
+          0.0,
+          0.724638
+        ],
+        "delta_pp": 0.229358,
+        "gained": 1,
+        "lost": 0,
+        "n": 436,
+        "n_clusters": 272,
+        "score_new": 0.837156,
+        "score_old": 0.834862,
+        "verdict_rule": "반증"
+      },
+      "A_excl_gap_lines": {
+        "changed_mutants": [
+          {
+            "code_line": "bumped = RiskTier(min(int(gate1_floor) + 1, int(RiskTier.EMBER)))",
+            "direction": "gained",
+            "e8_class": null,
+            "killed_by_file": "tests/test_llm_judge_degraded_safety_signals.py",
+            "old_id": "liot/layers/l3_judgment/llm_judge.py:291:34:max_min:0706025b",
+            "variant": "min->max"
+          },
+          {
+            "code_line": "LADDER_RETRY: Final[timedelta] = timedelta(seconds=30)",
+            "direction": "gained",
+            "e8_class": "untested",
+            "killed_by_file": "tests/test_first_alert_retry.py",
+            "old_id": "liot/layers/l4_execution/escalation.py:76:51:num_const:7719a1c7",
+            "variant": "-1"
+          }
+        ],
+        "delta_ci95_pp": [
+          0.0,
+          1.168224
+        ],
+        "delta_pp": 0.462963,
+        "gained": 2,
+        "lost": 0,
+        "n": 432,
+        "n_clusters": 270,
+        "score_new": 0.828704,
+        "score_old": 0.824074,
+        "verdict_rule": "반증"
+      },
+      "A_excl_gap_lines_pm5": {
+        "changed_mutants": [
+          {
+            "code_line": "bumped = RiskTier(min(int(gate1_floor) + 1, int(RiskTier.EMBER)))",
+            "direction": "gained",
+            "e8_class": null,
+            "killed_by_file": "tests/test_llm_judge_degraded_safety_signals.py",
+            "old_id": "liot/layers/l3_judgment/llm_judge.py:291:34:max_min:0706025b",
+            "variant": "min->max"
+          },
+          {
+            "code_line": "LADDER_RETRY: Final[timedelta] = timedelta(seconds=30)",
+            "direction": "gained",
+            "e8_class": "untested",
+            "killed_by_file": "tests/test_first_alert_retry.py",
+            "old_id": "liot/layers/l4_execution/escalation.py:76:51:num_const:7719a1c7",
+            "variant": "-1"
+          }
+        ],
+        "delta_ci95_pp": [
+          0.0,
+          1.259525
+        ],
+        "delta_pp": 0.496278,
+        "gained": 2,
+        "lost": 0,
+        "n": 403,
+        "n_clusters": 251,
+        "score_new": 0.828784,
+        "score_old": 0.823821,
+        "verdict_rule": "반증"
+      },
+      "A_notifier_excl_15_ids": {
+        "changed_mutants": [],
+        "delta_ci95_pp": [
+          0.0,
+          0.0
+        ],
+        "delta_pp": 0.0,
+        "gained": 0,
+        "lost": 0,
+        "n": 47,
+        "n_clusters": 27,
+        "score_new": 0.574468,
+        "score_old": 0.574468,
+        "verdict_rule": "반증"
+      },
+      "A_per_module": {
+        "liot/core/egress_gate.py": {
+          "changed_mutants": [],
+          "delta_ci95_pp": [
+            0.0,
+            0.0
+          ],
+          "delta_pp": 0.0,
+          "gained": 0,
+          "lost": 0,
+          "n": 43,
+          "n_clusters": 29,
+          "score_new": 0.883721,
+          "score_old": 0.883721,
+          "verdict_rule": "반증"
+        },
+        "liot/core/risk.py": {
+          "changed_mutants": [],
+          "delta_ci95_pp": [
+            0.0,
+            0.0
+          ],
+          "delta_pp": 0.0,
+          "gained": 0,
+          "lost": 0,
+          "n": 18,
+          "n_clusters": 10,
+          "score_new": 0.888889,
+          "score_old": 0.888889,
+          "verdict_rule": "반증"
+        },
+        "liot/core/severity.py": {
+          "changed_mutants": [],
+          "delta_ci95_pp": [
+            0.0,
+            0.0
+          ],
+          "delta_pp": 0.0,
+          "gained": 0,
+          "lost": 0,
+          "n": 92,
+          "n_clusters": 63,
+          "score_new": 0.880435,
+          "score_old": 0.880435,
+          "verdict_rule": "반증"
+        },
+        "liot/layers/l3_judgment/guardrail.py": {
+          "changed_mutants": [],
+          "delta_ci95_pp": [
+            0.0,
+            0.0
+          ],
+          "delta_pp": 0.0,
+          "gained": 0,
+          "lost": 0,
+          "n": 12,
+          "n_clusters": 10,
+          "score_new": 1.0,
+          "score_old": 1.0,
+          "verdict_rule": "반증"
+        },
+        "liot/layers/l3_judgment/llm_judge.py": {
+          "changed_mutants": [
+            {
+              "code_line": "bumped = RiskTier(min(int(gate1_floor) + 1, int(RiskTier.EMBER)))",
+              "direction": "gained",
+              "e8_class": null,
+              "killed_by_file": "tests/test_llm_judge_degraded_safety_signals.py",
+              "old_id": "liot/layers/l3_judgment/llm_judge.py:291:34:max_min:0706025b",
+              "variant": "min->max"
+            }
+          ],
+          "delta_ci95_pp": [
+            0.0,
+            8.108108
+          ],
+          "delta_pp": 2.439024,
+          "gained": 1,
+          "lost": 0,
+          "n": 41,
+          "n_clusters": 26,
+          "score_new": 0.609756,
+          "score_old": 0.585366,
+          "verdict_rule": "판정 불가"
+        },
+        "liot/layers/l4_execution/escalation.py": {
+          "changed_mutants": [
+            {
+              "code_line": "LADDER_RETRY: Final[timedelta] = timedelta(seconds=30)",
+              "direction": "gained",
+              "e8_class": "untested",
+              "killed_by_file": "tests/test_first_alert_retry.py",
+              "old_id": "liot/layers/l4_execution/escalation.py:76:51:num_const:7719a1c7",
+              "variant": "-1"
+            }
+          ],
+          "delta_ci95_pp": [
+            0.0,
+            2.941176
+          ],
+          "delta_pp": 0.925926,
+          "gained": 1,
+          "lost": 0,
+          "n": 108,
+          "n_clusters": 53,
+          "score_new": 0.87963,
+          "score_old": 0.87037,
+          "verdict_rule": "반증"
+        },
+        "liot/layers/l4_execution/executor.py": {
+          "changed_mutants": [],
+          "delta_ci95_pp": [
+            0.0,
+            0.0
+          ],
+          "delta_pp": 0.0,
+          "gained": 0,
+          "lost": 0,
+          "n": 39,
+          "n_clusters": 29,
+          "score_new": 1.0,
+          "score_old": 1.0,
+          "verdict_rule": "반증"
+        },
+        "liot/layers/l4_execution/feedback_gateway.py": {
+          "changed_mutants": [],
+          "delta_ci95_pp": [
+            0.0,
+            0.0
+          ],
+          "delta_pp": 0.0,
+          "gained": 0,
+          "lost": 0,
+          "n": 19,
+          "n_clusters": 14,
+          "score_new": 0.947368,
+          "score_old": 0.947368,
+          "verdict_rule": "반증"
+        },
+        "liot/layers/l4_execution/intervention.py": {
+          "changed_mutants": [],
+          "delta_ci95_pp": [
+            0.0,
+            0.0
+          ],
+          "delta_pp": 0.0,
+          "gained": 0,
+          "lost": 0,
+          "n": 17,
+          "n_clusters": 11,
+          "score_new": 0.647059,
+          "score_old": 0.647059,
+          "verdict_rule": "반증"
+        },
+        "liot/layers/l4_execution/notifier.py": {
+          "changed_mutants": [],
+          "delta_ci95_pp": [
+            0.0,
+            0.0
+          ],
+          "delta_pp": 0.0,
+          "gained": 0,
+          "lost": 0,
+          "n": 47,
+          "n_clusters": 27,
+          "score_new": 0.574468,
+          "score_old": 0.574468,
+          "verdict_rule": "반증"
+        }
+      },
+      "n_gap_mutants_excluded_same_line": 23,
+      "n_gap_mutants_excluded_window": 71
+    },
+    "fresh": {
+      "baseline_excluded_new": [],
+      "baseline_excluded_old": [],
+      "n_both": 223,
+      "n_both_incl_timeouts": 223,
+      "n_new_run": 223,
+      "n_old_run": 223,
+      "paired": {
+        "delta_ci95_pp": [
+          0.0,
+          2.272727
+        ],
+        "delta_pp": 0.896861,
+        "gained": 2,
+        "lost": 0,
+        "n": 223,
+        "n_clusters": 197,
+        "score_new": 0.618834,
+        "score_old": 0.609865,
+        "verdict_rule": "반증"
+      },
+      "paired_timeouts_as_kills": {
+        "delta_ci95_pp": [
+          0.0,
+          2.272727
+        ],
+        "delta_pp": 0.896861,
+        "gained": 2,
+        "lost": 0,
+        "n": 223,
+        "n_clusters": 197,
+        "score_new": 0.618834,
+        "score_old": 0.609865
+      },
+      "per_module": {
+        "liot/core/egress_gate.py": {
+          "n": 30,
+          "new": 0.733333,
+          "old": 0.666667
+        },
+        "liot/core/severity.py": {
+          "n": 10,
+          "new": 0.7,
+          "old": 0.7
+        },
+        "liot/layers/l3_judgment/guardrail.py": {
+          "n": 10,
+          "new": 0.4,
+          "old": 0.4
+        },
+        "liot/layers/l3_judgment/llm_judge.py": {
+          "n": 30,
+          "new": 0.666667,
+          "old": 0.666667
+        },
+        "liot/layers/l4_execution/escalation.py": {
+          "n": 30,
+          "new": 0.5,
+          "old": 0.5
+        },
+        "liot/layers/l4_execution/executor.py": {
+          "n": 30,
+          "new": 0.533333,
+          "old": 0.533333
+        },
+        "liot/layers/l4_execution/feedback_gateway.py": {
+          "n": 30,
+          "new": 0.466667,
+          "old": 0.466667
+        },
+        "liot/layers/l4_execution/intervention.py": {
+          "n": 23,
+          "new": 0.782609,
+          "old": 0.782609
+        },
+        "liot/layers/l4_execution/notifier.py": {
+          "n": 30,
+          "new": 0.733333,
+          "old": 0.733333
+        }
+      },
+      "per_operator": {
+        "fr_bool_drop": {
+          "n": 30,
+          "new": 0.6,
+          "old": 0.6
+        },
+        "fr_call_drop": {
+          "n": 6,
+          "new": 0.5,
+          "old": 0.5
+        },
+        "fr_cmp_rev": {
+          "n": 7,
+          "new": 1.0,
+          "old": 1.0
+        },
+        "fr_ret_none": {
+          "n": 46,
+          "new": 0.956522,
+          "old": 0.913043
+        },
+        "fr_str": {
+          "n": 134,
+          "new": 0.492537,
+          "old": 0.492537
+        }
+      },
+      "planned": 293,
+      "seed": 20261201,
+      "subset_after_time_cut": 223,
+      "subset_per_module": {
+        "liot/core/egress_gate.py": 30,
+        "liot/core/severity.py": 10,
+        "liot/layers/l3_judgment/guardrail.py": 10,
+        "liot/layers/l3_judgment/llm_judge.py": 30,
+        "liot/layers/l4_execution/escalation.py": 30,
+        "liot/layers/l4_execution/executor.py": 30,
+        "liot/layers/l4_execution/feedback_gateway.py": 30,
+        "liot/layers/l4_execution/intervention.py": 23,
+        "liot/layers/l4_execution/notifier.py": 30
+      },
+      "timeouts_new": 0,
+      "timeouts_old": 0
+    },
+    "gap15": {
+      "killed_now": 15,
+      "n": 15,
+      "table": [
+        {
+          "code_line": "if hit:",
+          "identity": "identical_id",
+          "killed_now": true,
+          "module": "liot/core/egress_gate.py",
+          "new_covered": true,
+          "new_full_outcome": null,
+          "new_killed_by": "tests/test_egress_gate_gaps.py::test_entity_shaped_id_inside_list_or_tuple_is_refused[container0-LLM]",
+          "new_line": 115,
+          "new_outcome": "killed",
+          "old_id": "liot/core/egress_gate.py:115:19:cond_negate:0254aae6",
+          "old_line": 115,
+          "variant": "test->not test"
+        },
+        {
+          "code_line": "return hit",
+          "identity": "identical_id",
+          "killed_now": true,
+          "module": "liot/core/egress_gate.py",
+          "new_covered": true,
+          "new_full_outcome": null,
+          "new_killed_by": "tests/test_egress_gate_gaps.py::test_entity_shaped_id_inside_list_or_tuple_is_refused[container0-LLM]",
+          "new_line": 116,
+          "new_outcome": "killed",
+          "old_id": "liot/core/egress_gate.py:116:20:guard_removal:9d4e1e23",
+          "old_line": 116,
+          "variant": "body(return)->pass"
+        },
+        {
+          "code_line": "return hit",
+          "identity": "identical_id",
+          "killed_now": true,
+          "module": "liot/core/egress_gate.py",
+          "new_covered": true,
+          "new_full_outcome": null,
+          "new_killed_by": "tests/test_egress_gate_gaps.py::test_entity_shaped_id_inside_list_or_tuple_is_refused[container0-LLM]",
+          "new_line": 116,
+          "new_outcome": "killed",
+          "old_id": "liot/core/egress_gate.py:116:27:return_const:6eef6648",
+          "old_line": 116,
+          "variant": "return None"
+        },
+        {
+          "code_line": "return tuple(pseudonymize_recursive(v, alias) for v in payload)",
+          "identity": "identical_id",
+          "killed_now": true,
+          "module": "liot/core/egress_gate.py",
+          "new_covered": true,
+          "new_full_outcome": null,
+          "new_killed_by": "tests/test_egress_gate_gaps.py::test_pseudonymize_recursive_rewrites_names_inside_tuple_and_keeps_type",
+          "new_line": 208,
+          "new_outcome": "killed",
+          "old_id": "liot/core/egress_gate.py:208:8:guard_removal:9d4e1e23",
+          "old_line": 208,
+          "variant": "body(return)->pass"
+        },
+        {
+          "code_line": "return [_generalize_coords(v) for v in payload]",
+          "identity": "identical_id",
+          "killed_now": true,
+          "module": "liot/core/egress_gate.py",
+          "new_covered": true,
+          "new_full_outcome": null,
+          "new_killed_by": "tests/test_egress_gate_gaps.py::test_kma_generalizes_coordinates_inside_list",
+          "new_line": 234,
+          "new_outcome": "killed",
+          "old_id": "liot/core/egress_gate.py:234:8:guard_removal:9d4e1e23",
+          "old_line": 234,
+          "variant": "body(return)->pass"
+        },
+        {
+          "code_line": "raise EgressViolation(f\"destination not allowed: {dest.value}\")",
+          "identity": "identical_id",
+          "killed_now": true,
+          "module": "liot/core/egress_gate.py",
+          "new_covered": true,
+          "new_full_outcome": null,
+          "new_killed_by": "tests/test_egress_gate_gaps.py::test_destination_outside_allowlist_is_refused",
+          "new_line": 315,
+          "new_outcome": "killed",
+          "old_id": "liot/core/egress_gate.py:315:8:guard_removal:9d4e1e23",
+          "old_line": 315,
+          "variant": "body(raise)->pass"
+        },
+        {
+          "code_line": "if set(rows) != set(DAMAGE_TYPES) or len(rows) != len(raw):",
+          "identity": "identical_id",
+          "killed_now": true,
+          "module": "liot/core/severity.py",
+          "new_covered": true,
+          "new_full_outcome": null,
+          "new_killed_by": "tests/test_severity_loader_gaps.py::test_extra_or_duplicate_table_row_is_refused[",
+          "new_line": 394,
+          "new_outcome": "killed",
+          "old_id": "liot/core/severity.py:394:7:bool_swap:d388f8ee",
+          "old_line": 394,
+          "variant": "or->and"
+        },
+        {
+          "code_line": "raise SeverityConfigError(",
+          "identity": "identical_id",
+          "killed_now": true,
+          "module": "liot/core/severity.py",
+          "new_covered": true,
+          "new_full_outcome": null,
+          "new_killed_by": "tests/test_severity_loader_gaps.py::test_extra_or_duplicate_table_row_is_refused[",
+          "new_line": 395,
+          "new_outcome": "killed",
+          "old_id": "liot/core/severity.py:395:8:guard_removal:9d4e1e23",
+          "old_line": 395,
+          "variant": "body(raise)->pass"
+        },
+        {
+          "code_line": "if set(cols) != set(TIMES_TO_HARM) or len(cols) != len(row):",
+          "identity": "identical_id",
+          "killed_now": true,
+          "module": "liot/core/severity.py",
+          "new_covered": true,
+          "new_full_outcome": null,
+          "new_killed_by": "tests/test_severity_loader_gaps.py::test_extra_or_duplicate_table_column_is_refused[{",
+          "new_line": 404,
+          "new_outcome": "killed",
+          "old_id": "liot/core/severity.py:404:11:bool_swap:283a2fc1",
+          "old_line": 404,
+          "variant": "or->and"
+        },
+        {
+          "code_line": "raise SeverityConfigError(",
+          "identity": "identical_id",
+          "killed_now": true,
+          "module": "liot/core/severity.py",
+          "new_covered": true,
+          "new_full_outcome": null,
+          "new_killed_by": "tests/test_severity_loader_gaps.py::test_extra_or_duplicate_table_column_is_refused[{",
+          "new_line": 405,
+          "new_outcome": "killed",
+          "old_id": "liot/core/severity.py:405:12:guard_removal:9d4e1e23",
+          "old_line": 405,
+          "variant": "body(raise)->pass"
+        },
+        {
+          "code_line": "isinstance(threshold, bool)",
+          "identity": "identical_id",
+          "killed_now": true,
+          "module": "liot/core/severity.py",
+          "new_covered": true,
+          "new_full_outcome": null,
+          "new_killed_by": "tests/test_severity_loader_gaps.py::test_non_finite_or_non_numeric_threshold_is_refused[.inf]",
+          "new_line": 421,
+          "new_outcome": "killed",
+          "old_id": "liot/core/severity.py:421:12:bool_swap:362a7c1a",
+          "old_line": 421,
+          "variant": "or->and"
+        },
+        {
+          "code_line": "raise SeverityConfigError(f\"{where}.abnormal_when.above must be a finite number\")",
+          "identity": "identical_id",
+          "killed_now": true,
+          "module": "liot/core/severity.py",
+          "new_covered": true,
+          "new_full_outcome": null,
+          "new_killed_by": "tests/test_severity_loader_gaps.py::test_non_finite_or_non_numeric_threshold_is_refused[.inf]",
+          "new_line": 425,
+          "new_outcome": "killed",
+          "old_id": "liot/core/severity.py:425:12:guard_removal:9d4e1e23",
+          "old_line": 425,
+          "variant": "body(raise)->pass"
+        },
+        {
+          "code_line": "is_safety = gate1.safety_critical or is_safety_category(candidate.category)",
+          "identity": "identical_id",
+          "killed_now": true,
+          "module": "liot/layers/l3_judgment/llm_judge.py",
+          "new_covered": true,
+          "new_full_outcome": null,
+          "new_killed_by": "tests/test_llm_judge_degraded_safety_signals.py::test_degraded_keeps_ember_when_either_safety_signal_is_true[light-True]",
+          "new_line": 257,
+          "new_outcome": "killed",
+          "old_id": "liot/layers/l3_judgment/llm_judge.py:257:20:bool_swap:9eacca29",
+          "old_line": 257,
+          "variant": "or->and"
+        },
+        {
+          "code_line": "raise ExecutionDenied(f\"unmapped capability: {cap!r}\")",
+          "identity": "identical_id",
+          "killed_now": true,
+          "module": "liot/layers/l4_execution/executor.py",
+          "new_covered": true,
+          "new_full_outcome": null,
+          "new_killed_by": "tests/test_executor_unmapped_capability.py::test_allowlisted_but_unmapped_capability_is_denied_before_any_call",
+          "new_line": 303,
+          "new_outcome": "killed",
+          "old_id": "liot/layers/l4_execution/executor.py:303:12:guard_removal:9d4e1e23",
+          "old_line": 303,
+          "variant": "body(raise)->pass"
+        },
+        {
+          "code_line": "if situation_id and guardian_id",
+          "identity": "identical_id",
+          "killed_now": true,
+          "module": "liot/layers/l4_execution/notifier.py",
+          "new_covered": true,
+          "new_full_outcome": null,
+          "new_killed_by": "tests/test_notifier_guardian_link_rule.py::test_missing_either_id_gives_no_link[sit-1-None]",
+          "new_line": 378,
+          "new_outcome": "killed",
+          "old_id": "liot/layers/l4_execution/notifier.py:378:15:bool_swap:e424d13c",
+          "old_line": 378,
+          "variant": "and->or"
+        }
+      ]
+    },
+    "headline_structural": {
+      "all_new": 0.890374,
+      "all_old": 0.865229,
+      "core_full_new": 0.843267,
+      "core_full_old": 0.808889,
+      "core_new": 0.836645,
+      "core_old": 0.8,
+      "delta_pp": 3.664459,
+      "label": "구조상 결과",
+      "n_new_core": 453,
+      "n_old_core": 450
+    },
+    "identity_status": {
+      "identical_context": 161,
+      "identical_id": 581,
+      "new_only": 6
+    },
+    "identity_status_by_module": {
+      "liot/core/egress_gate.py": {
+        "identical_id": 102
+      },
+      "liot/core/risk.py": {
+        "identical_id": 25
+      },
+      "liot/core/severity.py": {
+        "identical_context": 2,
+        "identical_id": 144,
+        "new_only": 3
+      },
+      "liot/layers/l3_judgment/guardrail.py": {
+        "identical_id": 38
+      },
+      "liot/layers/l3_judgment/llm_judge.py": {
+        "identical_id": 75
+      },
+      "liot/layers/l4_execution/escalation.py": {
+        "identical_context": 159,
+        "new_only": 3
+      },
+      "liot/layers/l4_execution/executor.py": {
+        "identical_id": 76
+      },
+      "liot/layers/l4_execution/feedback_gateway.py": {
+        "identical_id": 25
+      },
+      "liot/layers/l4_execution/intervention.py": {
+        "identical_id": 20
+      },
+      "liot/layers/l4_execution/notifier.py": {
+        "identical_id": 76
+      }
+    },
+    "notifier_prediction_met": false,
+    "per_module": {
+      "liot/core/egress_gate.py": {
+        "core_full_new": 0.916667,
+        "core_full_old": 0.8125,
+        "core_new": 0.895833,
+        "core_old": 0.791667,
+        "n_new": 48,
+        "n_old": 48
+      },
+      "liot/core/risk.py": {
+        "core_full_new": 0.888889,
+        "core_full_old": 0.888889,
+        "core_new": 0.888889,
+        "core_old": 0.888889,
+        "n_new": 18,
+        "n_old": 18
+      },
+      "liot/core/severity.py": {
+        "core_full_new": 0.888889,
+        "core_full_old": 0.826531,
+        "core_new": 0.888889,
+        "core_old": 0.826531,
+        "n_new": 99,
+        "n_old": 98
+      },
+      "liot/layers/l3_judgment/guardrail.py": {
+        "core_full_new": 1.0,
+        "core_full_old": 1.0,
+        "core_new": 1.0,
+        "core_old": 1.0,
+        "n_new": 12,
+        "n_old": 12
+      },
+      "liot/layers/l3_judgment/llm_judge.py": {
+        "core_full_new": 0.642857,
+        "core_full_old": 0.619048,
+        "core_new": 0.619048,
+        "core_old": 0.571429,
+        "n_new": 42,
+        "n_old": 42
+      },
+      "liot/layers/l4_execution/escalation.py": {
+        "core_full_new": 0.890909,
+        "core_full_old": 0.87963,
+        "core_new": 0.881818,
+        "core_old": 0.87037,
+        "n_new": 110,
+        "n_old": 108
+      },
+      "liot/layers/l4_execution/executor.py": {
+        "core_full_new": 1.0,
+        "core_full_old": 0.975,
+        "core_new": 1.0,
+        "core_old": 0.975,
+        "n_new": 40,
+        "n_old": 40
+      },
+      "liot/layers/l4_execution/feedback_gateway.py": {
+        "core_full_new": 0.947368,
+        "core_full_old": 0.947368,
+        "core_new": 0.947368,
+        "core_old": 0.947368,
+        "n_new": 19,
+        "n_old": 19
+      },
+      "liot/layers/l4_execution/intervention.py": {
+        "core_full_new": 0.647059,
+        "core_full_old": 0.647059,
+        "core_new": 0.647059,
+        "core_old": 0.647059,
+        "n_new": 17,
+        "n_old": 17
+      },
+      "liot/layers/l4_execution/notifier.py": {
+        "core_full_new": 0.583333,
+        "core_full_old": 0.5625,
+        "core_new": 0.583333,
+        "core_old": 0.5625,
+        "n_new": 48,
+        "n_old": 48
+      }
+    },
+    "verdict": "반증",
+    "verdict_measure_A": "반증",
+    "verdict_measure_B": "반증"
+  },
+  "b": {
+    "auc_assertion_load": 0.641624,
+    "auc_assertions_only": 0.640002,
+    "auc_executed": 0.527027,
+    "auc_load_rank_within_module": 0.622959,
+    "auc_n_tests": 0.643372,
+    "covered_only": {
+      "auc_assertion_load": {
+        "ci95": [
+          0.502927,
+          0.731566
+        ],
+        "point": 0.625971,
+        "valid_reps": 4000
+      },
+      "auc_load_rank_within_module": {
+        "ci95": [
+          0.49798,
+          0.70222
+        ],
+        "point": 0.6049,
+        "valid_reps": 4000
+      },
+      "auc_n_tests": {
+        "ci95": [
+          0.502381,
+          0.735244
+        ],
+        "point": 0.627139,
+        "valid_reps": 4000
+      },
+      "n": 449
+    },
+    "diff_auc": {
+      "ci95": [
+        0.000872,
+        0.217466
+      ],
+      "point": 0.114597,
+      "valid_reps": 4000
+    },
+    "diff_auc_robustness": {
+      "interval_excludes_0_in": 14,
+      "reps_each": 1000,
+      "seeds": 20
+    },
+    "diff_spearman": {
+      "ci95": [
+        -0.217702,
+        0.151028
+      ],
+      "point": -0.031399,
+      "valid_reps": 3922
+    },
+    "module_level_descriptive": {
+      "coverage_range_pct": [
+        97.183099,
+        100.0
+      ],
+      "diff": -0.458586,
+      "diff_ci95": [
+        -1.238893,
+        0.810407
+      ],
+      "label": "기술 결과",
+      "n_modules": 10,
+      "per_module": {
+        "liot/core/egress_gate.py": {
+          "coverage": 98.630137,
+          "density": 2.984252,
+          "score": 0.895833
+        },
+        "liot/core/risk.py": {
+          "coverage": 100.0,
+          "density": 3.215343,
+          "score": 0.888889
+        },
+        "liot/core/severity.py": {
+          "coverage": 100.0,
+          "density": 3.61959,
+          "score": 0.888889
+        },
+        "liot/layers/l3_judgment/guardrail.py": {
+          "coverage": 98.850575,
+          "density": 2.993827,
+          "score": 1.0
+        },
+        "liot/layers/l3_judgment/llm_judge.py": {
+          "coverage": 97.183099,
+          "density": 3.6,
+          "score": 0.619048
+        },
+        "liot/layers/l4_execution/escalation.py": {
+          "coverage": 99.24812,
+          "density": 4.245455,
+          "score": 0.881818
+        },
+        "liot/layers/l4_execution/executor.py": {
+          "coverage": 98.684211,
+          "density": 2.433824,
+          "score": 1.0
+        },
+        "liot/layers/l4_execution/feedback_gateway.py": {
+          "coverage": 100.0,
+          "density": 3.78125,
+          "score": 0.947368
+        },
+        "liot/layers/l4_execution/intervention.py": {
+          "coverage": 100.0,
+          "density": 2.302326,
+          "score": 0.647059
+        },
+        "liot/layers/l4_execution/notifier.py": {
+          "coverage": 98.290598,
+          "density": 3.37931,
+          "score": 0.583333
+        }
+      },
+      "rho_coverage": 0.239069,
+      "rho_density": -0.219516,
+      "valid_reps": 3998
+    },
+    "n_clusters": 285,
+    "n_executed": 449,
+    "n_killed": 379,
+    "n_load_positive": 360,
+    "n_mutants": 453,
+    "uncovered_driven": false,
+    "verdict": "지지",
+    "verdict_rule": "지지"
+  },
+  "c": {
+    "agreement_by_module": {
+      "liot/core/egress_gate.py": [
+        9,
+        10
+      ],
+      "liot/core/risk.py": [
+        1,
+        2
+      ],
+      "liot/core/severity.py": [
+        12,
+        17
+      ],
+      "liot/layers/l3_judgment/guardrail.py": [
+        2,
+        2
+      ],
+      "liot/layers/l3_judgment/llm_judge.py": [
+        17,
+        17
+      ],
+      "liot/layers/l4_execution/escalation.py": [
+        11,
+        15
+      ],
+      "liot/layers/l4_execution/executor.py": [
+        1,
+        1
+      ],
+      "liot/layers/l4_execution/feedback_gateway.py": [
+        1,
+        2
+      ],
+      "liot/layers/l4_execution/intervention.py": [
+        3,
+        6
+      ],
+      "liot/layers/l4_execution/notifier.py": [
+        5,
+        22
+      ]
+    },
+    "binary_safety_gap": {
+      "agreement": 0.819149,
+      "gwet_ac1": 0.730545,
+      "kappa": 0.45757
+    },
+    "boundary": [
+      {
+        "e8_class": "untested",
+        "gemini_class": "safety_gap",
+        "line": 237,
+        "module": "liot/layers/l4_execution/escalation.py",
+        "mutant_id": "liot/layers/l4_execution/escalation.py:237:66:arith_swap:3bc15c8a"
+      },
+      {
+        "e8_class": "untested",
+        "gemini_class": "safety_gap",
+        "line": 336,
+        "module": "liot/layers/l4_execution/notifier.py",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:336:12:guard_removal:9d4e1e23"
+      },
+      {
+        "e8_class": "untested",
+        "gemini_class": "untested",
+        "line": 291,
+        "module": "liot/layers/l3_judgment/llm_judge.py",
+        "mutant_id": "liot/layers/l3_judgment/llm_judge.py:291:57:num_const:b6589fc6"
+      },
+      {
+        "e8_class": "untested",
+        "gemini_class": "untested",
+        "line": 237,
+        "module": "liot/layers/l4_execution/escalation.py",
+        "mutant_id": "liot/layers/l4_execution/escalation.py:237:51:cmp_boundary:6c22e68f"
+      }
+    ],
+    "boundary_agreement": 0.5,
+    "confusion": {
+      "equivalent|equivalent": 14,
+      "equivalent|safety_gap": 7,
+      "equivalent|untested": 14,
+      "safety_gap|equivalent": 0,
+      "safety_gap|safety_gap": 11,
+      "safety_gap|untested": 4,
+      "untested|equivalent": 1,
+      "untested|safety_gap": 6,
+      "untested|untested": 37
+    },
+    "disagreements": [
+      {
+        "e8_class": "untested",
+        "gemini_class": "safety_gap",
+        "mutant_id": "liot/layers/l4_execution/escalation.py:237:66:arith_swap:3bc15c8a"
+      },
+      {
+        "e8_class": "untested",
+        "gemini_class": "safety_gap",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:336:12:guard_removal:9d4e1e23"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "safety_gap",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:62:20:num_const:1b645389"
+      },
+      {
+        "e8_class": "safety_gap",
+        "gemini_class": "untested",
+        "mutant_id": "liot/core/severity.py:394:7:bool_swap:d388f8ee"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "untested",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:62:24:num_const:5a5b0f9b"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "untested",
+        "mutant_id": "liot/layers/l4_execution/intervention.py:40:12:num_const:eb883130"
+      },
+      {
+        "e8_class": "safety_gap",
+        "gemini_class": "untested",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:378:15:bool_swap:e424d13c"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "safety_gap",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:62:20:num_const:77de68da"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "untested",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:62:20:num_const:356a192b"
+      },
+      {
+        "e8_class": "safety_gap",
+        "gemini_class": "untested",
+        "mutant_id": "liot/core/severity.py:395:8:guard_removal:9d4e1e23"
+      },
+      {
+        "e8_class": "untested",
+        "gemini_class": "safety_gap",
+        "mutant_id": "liot/layers/l4_execution/escalation.py:302:24:num_const:b6589fc6"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "safety_gap",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:333:14:bool_swap:15451b4b"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "untested",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:62:29:num_const:6c1e671f"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "untested",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:288:14:bool_swap:15451b4b"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "untested",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:62:29:num_const:5a5b0f9b"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "safety_gap",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:62:29:num_const:775bc5c3"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "safety_gap",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:62:24:num_const:775bc5c3"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "untested",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:62:24:num_const:6c1e671f"
+      },
+      {
+        "e8_class": "untested",
+        "gemini_class": "safety_gap",
+        "mutant_id": "liot/core/severity.py:418:7:bool_swap:311d17b7"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "untested",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:63:22:num_const:7719a1c7"
+      },
+      {
+        "e8_class": "untested",
+        "gemini_class": "safety_gap",
+        "mutant_id": "liot/core/egress_gate.py:318:8:guard_removal:9d4e1e23"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "untested",
+        "mutant_id": "liot/layers/l4_execution/escalation.py:32:3:cond_negate:d0093ae0"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "untested",
+        "mutant_id": "liot/layers/l4_execution/feedback_gateway.py:20:3:cond_negate:d0093ae0"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "untested",
+        "mutant_id": "liot/core/risk.py:44:12:guard_removal:9d4e1e23"
+      },
+      {
+        "e8_class": "untested",
+        "gemini_class": "equivalent",
+        "mutant_id": "liot/layers/l4_execution/escalation.py:324:26:num_const:eb883130"
+      },
+      {
+        "e8_class": "untested",
+        "gemini_class": "safety_gap",
+        "mutant_id": "liot/core/severity.py:325:15:return_const:6eef6648"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "safety_gap",
+        "mutant_id": "liot/layers/l4_execution/intervention.py:43:14:num_const:da4b9237"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "safety_gap",
+        "mutant_id": "liot/layers/l4_execution/intervention.py:42:16:num_const:77de68da"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "untested",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:63:22:num_const:63266754"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "untested",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:42:3:cond_negate:d0093ae0"
+      },
+      {
+        "e8_class": "equivalent",
+        "gemini_class": "untested",
+        "mutant_id": "liot/layers/l4_execution/notifier.py:63:22:num_const:e6c3dd63"
+      },
+      {
+        "e8_class": "safety_gap",
+        "gemini_class": "untested",
+        "mutant_id": "liot/core/severity.py:405:12:guard_removal:9d4e1e23"
+      }
+    ],
+    "errors": {
+      "egress_blocked": 1
+    },
+    "kappa_ci95": [
+      0.312943,
+      0.5914
+    ],
+    "label": "기술 결과",
+    "n_error": 1,
+    "n_requested": 95,
+    "n_valid": 94,
+    "prevalence_e8_gap": 0.159574,
+    "prevalence_gemini_gap": 0.255319,
+    "three_class": {
+      "agreement": 0.659574,
+      "gwet_ac1": 0.510556,
+      "kappa": 0.456156
+    },
+    "usd_estimate": 0.09304
+  },
+  "validity": {
+    "baseline_n": 10,
+    "baseline_ok": 10,
+    "canary_all_killed": true,
+    "canary_n": 43,
+    "git_shas": [
+      "c96392f47736a7e9866efe8288b8108c4a58ddec"
+    ],
+    "integrity_all_equal_fresh": {
+      "fresh_new": true,
+      "fresh_old": true
+    },
+    "integrity_all_equal_main": true,
+    "integrity_checks_main": 3,
+    "load1_max_during_sweep": 60.050781,
+    "load1_mean_during_sweep": 50.397806,
+    "n_timeouts_120s_rechecked": 6
+  }
+}

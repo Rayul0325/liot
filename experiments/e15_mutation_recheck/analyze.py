@@ -45,6 +45,8 @@ from experiments.common.io import read_jsonl
 
 BOOT_REPS = 4000
 BOOT_SEED = 15011
+ROBUST_SEEDS = 20
+ROBUST_REPS = 1000
 THR_SUPPORT_PP = 5.0
 THR_FALSIFY_PP = 2.0
 NOTIFIER_PP = 10.0
@@ -139,12 +141,13 @@ def _spearman(x: np.ndarray, y: np.ndarray) -> float:
     return float(np.corrcoef(stats.rankdata(x), stats.rankdata(y))[0, 1])
 
 
-def boot_stat(fn: Any, arrays: list[np.ndarray], keys: list[Any]) -> dict[str, Any]:
+def boot_stat(fn: Any, arrays: list[np.ndarray], keys: list[Any], seed: int = BOOT_SEED,
+              reps: int = BOOT_REPS) -> dict[str, Any]:
     """point estimate and 95% cluster-bootstrap interval of ``fn(*arrays)``."""
     cl = cluster_index(keys)
-    rng = np.random.RandomState(BOOT_SEED)
+    rng = np.random.RandomState(seed)
     vals: list[float] = []
-    for _ in range(BOOT_REPS):
+    for _ in range(reps):
         pick = rng.randint(0, len(cl), size=len(cl))
         ix = np.concatenate([cl[i] for i in pick])
         v = fn(*[a[ix] for a in arrays])
@@ -180,6 +183,7 @@ def part_a(raw_dir: Path) -> dict[str, Any]:
     classes_path = Path(__file__).resolve().parents[1] / "e8_mutation" / "survivor_classes.json"
     classes = json.loads(classes_path.read_text(encoding="utf-8"))
     gap_ids = [c["mutant_id"] for c in classes if c["class"] == "safety_gap"]
+    cls_by_id = {c["mutant_id"]: c["class"] for c in classes}
 
     def score(rows: dict[str, dict[str, Any]], tier: str, key: str, module: str | None = None
               ) -> float | None:
@@ -236,8 +240,10 @@ def part_a(raw_dir: Path) -> dict[str, Any]:
         })
     gap_killed = sum(1 for g in gap_table if g["killed_now"])
 
-    def collateral(exclude: set[str], module: str | None = None) -> dict[str, Any]:
+    def collateral(exclude: set[str], module: str | None = None, key: str = "killed_t"
+                   ) -> dict[str, Any]:
         o_arr, n_arr, keys = [], [], []
+        detail: list[dict[str, Any]] = []
         for i in ident:
             if i["status"] not in ("identical_id", "identical_context"):
                 continue
@@ -247,10 +253,18 @@ def part_a(raw_dir: Path) -> dict[str, Any]:
                 continue
             if i["old_id"] in exclude or (module and o["module"] != module):
                 continue
-            o_arr.append(o["killed_t"])
-            n_arr.append(n["killed_t"])
+            o_arr.append(o[key])
+            n_arr.append(n[key])
             keys.append((o["module"], o["line"]))
+            if o[key] != n[key]:
+                detail.append({
+                    "old_id": i["old_id"], "variant": o["variant"], "code_line": o["code_line"][:80],
+                    "direction": "gained" if n[key] else "lost",
+                    "killed_by_file": (n.get("killed_by") or "").split("::")[0] or None,
+                    "e8_class": cls_by_id.get(i["old_id"]),
+                })
         res = boot_delta(np.array(o_arr), np.array(n_arr), keys)
+        res["changed_mutants"] = detail
         if res.get("n"):
             lo, hi = res["delta_ci95_pp"]
             res["verdict_rule"] = verdict_rise(res["delta_pp"], lo, hi)
@@ -267,6 +281,7 @@ def part_a(raw_dir: Path) -> dict[str, Any]:
         "A_excl_15_ids": col_a,
         "A_excl_gap_lines": collateral(same_line),
         f"A_excl_gap_lines_pm{GAP_WINDOW}": collateral(near),
+        "A_excl_15_ids_full_suite_view": collateral(set(gap_ids), None, "killed_f"),
         "A_notifier_excl_15_ids": col_a_notifier,
         "A_all_matched_core_incl_gaps": collateral(set()),
         "A_per_module": {m: collateral(set(gap_ids), m) for m in mods},
@@ -275,11 +290,17 @@ def part_a(raw_dir: Path) -> dict[str, Any]:
     }
 
     # B: fresh sample, same mutants scored against E8-time tests and current tests
+    keep = {r["mutant_id"] for r in read_jsonl(raw_dir / "fresh_subset.jsonl")}
     fr_old = {r["mutant_id"]: r for r in read_jsonl(raw_dir / "fresh_old" / "mutants.jsonl")
-              if r["outcome"] != "error"}
+              if r["outcome"] != "error" and r["mutant_id"] in keep}
     fr_new = {r["mutant_id"]: r for r in read_jsonl(raw_dir / "fresh_new" / "mutants.jsonl")
-              if r["outcome"] != "error"}
-    both = sorted(set(fr_old) & set(fr_new))
+              if r["outcome"] != "error" and r["mutant_id"] in keep}
+    # READING (fixed before any fresh outcome was analysed): a 120 s timeout under machine load is not
+    # evidence of a kill; a mutant with a timeout in either run leaves the paired comparison. The
+    # sensitivity that counts timeouts as kills is reported next to it.
+    both_all = sorted(set(fr_old) & set(fr_new))
+    both = [m for m in both_all
+            if fr_old[m]["outcome"] != "timeout" and fr_new[m]["outcome"] != "timeout"]
     kt = lambda r: int(r["outcome"] in ("killed", "timeout"))  # noqa: E731
     b_res = boot_delta(
         np.array([kt(fr_old[m]) for m in both]), np.array([kt(fr_new[m]) for m in both]),
@@ -301,10 +322,19 @@ def part_a(raw_dir: Path) -> dict[str, Any]:
         ids = [x for x in both if fr_new[x]["operator"] == op]
         b_ops[op] = {"n": len(ids), "old": sum(kt(fr_old[x]) for x in ids) / len(ids),
                      "new": sum(kt(fr_new[x]) for x in ids) / len(ids)}
+    sens = boot_delta(
+        np.array([kt(fr_old[m]) for m in both_all]), np.array([kt(fr_new[m]) for m in both_all]),
+        [(fr_new[m]["module"], fr_new[m]["line"]) for m in both_all],
+    )
     fresh = {
         "seed": 20261201,
         "planned": len(read_jsonl(raw_dir / "fresh_plan.jsonl")),
-        "n_old_run": len(fr_old), "n_new_run": len(fr_new), "n_both": len(both),
+        "subset_after_time_cut": len(keep),
+        "subset_per_module": dict(sorted(Counter(r["module"] for r in read_jsonl(
+            raw_dir / "fresh_subset.jsonl")).items())),
+        "n_old_run": len(fr_old), "n_new_run": len(fr_new), "n_both_incl_timeouts": len(both_all),
+        "n_both": len(both),
+        "paired_timeouts_as_kills": sens,
         "timeouts_old": sum(1 for r in fr_old.values() if r["outcome"] == "timeout"),
         "timeouts_new": sum(1 for r in fr_new.values() if r["outcome"] == "timeout"),
         "baseline_excluded_old": sorted(
@@ -369,6 +399,11 @@ def part_b(raw_dir: Path) -> dict[str, Any]:
         verdict = "판정 불가"
     else:
         verdict = "지지" if main["point"] > 0 else "반증"
+    # how often the interval excludes 0 over other bootstrap seeds (the main interval is near 0)
+    excl = 0
+    for sd in range(1, ROBUST_SEEDS + 1):
+        r = boot_stat(d_auc, [y, ex, a_sum], keys, seed=BOOT_SEED + sd, reps=ROBUST_REPS)
+        excl += int(r["ci95"][0] > 0 or r["ci95"][1] < 0)
     cov_ix = np.where(ex == 1)[0]
     ck = [keys[i] for i in cov_ix]
     cov_only = boot_stat(lambda yy, a: auc(a, yy), [y[cov_ix], a_sum[cov_ix]], ck)
@@ -414,6 +449,8 @@ def part_b(raw_dir: Path) -> dict[str, Any]:
         "auc_n_tests": auc(n_tests, y),
         "auc_load_rank_within_module": auc(a_rank, y),
         "diff_auc": main,
+        "diff_auc_robustness": {"seeds": ROBUST_SEEDS, "reps_each": ROBUST_REPS,
+                                "interval_excludes_0_in": excl},
         "diff_spearman": boot_stat(d_rho, [y, ex, a_sum], keys),
         "covered_only": {
             "n": int(len(cov_ix)), "auc_assertion_load": cov_only,
