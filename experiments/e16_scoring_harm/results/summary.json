@@ -1938,7 +1938,7 @@
             "q25": -0.18713,
             "q75": -0.070159
           },
-          "rule": "지지(이점 ≤1%p)",
+          "rule": "지지(이점 ≤1%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.005
         },
         "liot_real_help_diff_vs_flat_explicit_mean": -0.016142,
@@ -1983,7 +1983,7 @@
             "q25": -0.0,
             "q75": 0.040253
           },
-          "rule": "반증(이점 ≥2%p)",
+          "rule": "반증(이점 ≥2%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.715
         },
         "silenced_harm_share_liot_real": 0.49872
@@ -2035,7 +2035,7 @@
             "q25": -0.198766,
             "q75": -0.106875
           },
-          "rule": "지지(이점 ≤1%p)",
+          "rule": "지지(이점 ≤1%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.0
         },
         "liot_real_help_diff_vs_flat_explicit_mean": -0.016318,
@@ -2080,7 +2080,7 @@
             "q25": -0.042947,
             "q75": 0.009919
           },
-          "rule": "지지(이점 ≤1%p)",
+          "rule": "지지(이점 ≤1%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.3025
         },
         "silenced_harm_share_liot_real": 0.448816
@@ -2132,7 +2132,7 @@
             "q25": -0.114424,
             "q75": -0.040908
           },
-          "rule": "지지(이점 ≤1%p)",
+          "rule": "지지(이점 ≤1%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.0
         },
         "liot_real_help_diff_vs_flat_explicit_mean": -0.365053,
@@ -2177,7 +2177,7 @@
             "q25": -0.0,
             "q75": 0.0
           },
-          "rule": "지지(이점 ≤1%p)",
+          "rule": "지지(이점 ≤1%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.0
         },
         "silenced_harm_share_liot_real": 0.49872
@@ -2229,7 +2229,7 @@
             "q25": -0.142279,
             "q75": -0.082089
           },
-          "rule": "지지(이점 ≤1%p)",
+          "rule": "지지(이점 ≤1%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.0
         },
         "liot_real_help_diff_vs_flat_explicit_mean": -0.365053,
@@ -2274,7 +2274,7 @@
             "q25": -0.048739,
             "q75": -0.035707
           },
-          "rule": "지지(이점 ≤1%p)",
+          "rule": "지지(이점 ≤1%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.0
         },
         "silenced_harm_share_liot_real": 0.448816
@@ -2326,7 +2326,7 @@
             "q25": -0.1092,
             "q75": -0.035004
           },
-          "rule": "지지(이점 ≤1%p)",
+          "rule": "지지(이점 ≤1%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.0025
         },
         "liot_real_help_diff_vs_flat_explicit_mean": -0.312677,
@@ -2371,7 +2371,7 @@
             "q25": -0.0,
             "q75": 0.0
           },
-          "rule": "지지(이점 ≤1%p)",
+          "rule": "지지(이점 ≤1%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.0
         },
         "silenced_harm_share_liot_real": 0.49872
@@ -2423,7 +2423,7 @@
             "q25": -0.136267,
             "q75": -0.079178
           },
-          "rule": "지지(이점 ≤1%p)",
+          "rule": "지지(이점 ≤1%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.0
         },
         "liot_real_help_diff_vs_flat_explicit_mean": -0.312758,
@@ -2468,7 +2468,7 @@
             "q25": -0.050079,
             "q75": -0.037091
           },
-          "rule": "지지(이점 ≤1%p)",
+          "rule": "지지(이점 ≤1%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.0
         },
         "silenced_harm_share_liot_real": 0.448816
@@ -2520,7 +2520,7 @@
             "q25": -0.200879,
             "q75": -0.075691
           },
-          "rule": "지지(이점 ≤1%p)",
+          "rule": "지지(이점 ≤1%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.0
         },
         "liot_real_help_diff_vs_flat_explicit_mean": -0.042659,
@@ -2565,7 +2565,7 @@
             "q25": -0.0,
             "q75": 0.043933
           },
-          "rule": "반증(이점 ≥2%p)",
+          "rule": "반증(이점 ≥2%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.7375
         },
         "silenced_harm_share_liot_real": 0.49872
@@ -2617,7 +2617,7 @@
             "q25": -0.216072,
             "q75": -0.112298
           },
-          "rule": "지지(이점 ≤1%p)",
+          "rule": "지지(이점 ≤1%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.0
         },
         "liot_real_help_diff_vs_flat_explicit_mean": -0.042796,
@@ -2662,7 +2662,7 @@
             "q25": -0.04111,
             "q75": 0.015549
           },
-          "rule": "지지(이점 ≤1%p)",
+          "rule": "지지(이점 ≤1%p) [사후 기준: R2 는 결과를 본 뒤 더한 읽기]",
           "share_sets_policy_lower_harm": 0.3325
         },
         "silenced_harm_share_liot_real": 0.448816

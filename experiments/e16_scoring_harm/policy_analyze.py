@@ -278,7 +278,8 @@ def _burden_rows(blocks: dict[str, Blk], rng: np.random.Generator) -> dict[str, 
                         "advantage_ci95_seed_noise": [-x for x in _seed_noise_mean(num, nh, blk.mask, rng)][::-1],
                         "share_sets_policy_lower_harm": float((pm < 0).mean()),
                         "rule": ("지지(이점 ≤1%p)" if hi <= 0.01 else "반증(이점 ≥2%p)" if lo >= 0.02
-                                 else "판정 불가(1~2%p 구간 또는 구간이 걸침)"),
+                                 else "판정 불가(1~2%p 구간 또는 구간이 걸침)")
+                        + ("" if rname.startswith("R1") else " [사후 기준: R2 는 결과를 본 뒤 더한 읽기]"),
                     }
             helpd = (blk.lane(kr, "xp").sum(1) / np.maximum(blk.n_help.sum(1), 1)
                      - blk.lane(ka, "xp").sum(1) / np.maximum(blk.n_help.sum(1), 1))[blk.mask]
