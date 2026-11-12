@@ -45,13 +45,16 @@ export LIOT_LLM_BACKEND=decision                        # 결정 모델(아래 �
 .venv/bin/liot-serve
 ```
 
-- 시작 로그에서 확인한다: `[HA] N entities mapped.`, `[LIOT] backend=… ntfy=on exec=off(제안-만) tick=300.0s db=…`, `[feedback] http://127.0.0.1:8099/feedback 수신 대기`.
+- 시작 로그에서 확인한다: `[HA] 감독 시작 …`, `[LIOT] backend=… ntfy=on exec=off(제안-만) tick=300.0s db=…`, `[feedback] http://127.0.0.1:8099/feedback 수신 대기`. HA 에 붙으면 `HA resync: N entities mapped, M safety readings fed, K unchanged skipped` 와 `HA monitoring up` 이 로그에 찍힌다(`liot-serve` 는 INFO 로그를 stderr 에 낸다).
 - `LIOT_NOTIFY_SECRET` 이 비었으면 `[feedback] 수신구를 열지 않습니다` 가 찍히고 거주자 버튼·보호자 확인이 동작하지 않는다.
 - `LIOT_NTFY_URL` 이 없으면 정제까지만 하고 실제로 보내지 않는다(sanitize-only).
 - HA 를 쓰지 않으면 센서 스트림 없이 능동 틱만 돈다.
-- 데몬은 HA 연결이 끊겨도 다시 붙지 않는다. 웹소켓이 닫히면 예외로 프로세스가 끝나고, 형식 오류로 스트림이 끝나면 틱만 남은 채 센서를 더는 받지 않는다. 지금은 사람이 다시 띄워야 한다.
-- HA 에 센서를 추가·교체했으면 다시 시작한다. 카테고리 맵은 시작 때 한 번만 만든다.
-- 종료(Ctrl+C)하면 남은 2단계 판정을 마감+1초 안에 마무리하고 DB 를 닫는다. 열린 사다리는 DB 에 남고 다음 시작 때 다시 무장된다.
+- **HA 연결은 데몬이 알아서 유지한다**(결정 0014). 웹소켓이 닫히거나 형식 오류가 나거나 시작 때 HA 가 꺼져 있어도 프로세스는 끝나지 않고, 사다리·틱·피드백 수신구는 HA 와 무관하게 계속 돈다. 대기 1초에서 두 배씩 60초까지 다시 붙고(연결이 5분 넘게 안정돼야 1초로 복귀), 붙을 때마다 안전 센서의 **현재값을 한 번씩 재동기화**해 꺼져 있던 동안 이상이 된 센서가 침묵하지 않게 한다. HA 를 막 재시작했으면 코어가 `RUNNING` 이 될 때까지(최대 5분) 기다린 뒤 재동기화한다.
+- 로그로 상태를 본다: `HA connection lost (<원인>) — retrying in N s`, `HA authentication rejected …`(토큰 확인 — 5분 간격으로만 재시도한다), `HA monitoring stopped …`, `HA monitoring resumed …`.
+- **감시 중단 알림**: 끊김이 120초에 이르면(연속·10분 누적·시작 후 첫 연결 실패) 거주자 토픽에만 '안전 센서 전체 · 감시 중단(집 연결 끊김)' 한 번, 복구되면 '… 감시 재개' 한 번 간다(헌장 OFF 면 없음, 음소거 무시, 보호자에게는 가지 않는다). 짧은 HA 재시작(수십 초)은 알리지 않는다. 이 동안에도 이미 열린 상황의 재알림·보호자 전달·119 안내는 시각대로 나간다. 새 상황은 HA 가 닿아야 열린다(센서를 못 읽는 동안은 새 이상을 알 수 없다 — 그래서 알림으로 알린다).
+- 센서를 HA 에 추가·교체했으면 **다음 재연결** 때 카테고리 맵에 반영된다(재시작 불필요). 바로 반영하려면 HA 쪽 연결을 끊거나 데몬을 다시 시작한다.
+- 종료는 SIGTERM(launchd)·SIGINT(Ctrl+C) 모두 같다: 남은 2단계 판정을 마감+1초 안에 마무리하고 피드백 수신구·DB 를 닫은 뒤 종료 코드 0 으로 끝난다(5초 안). 열린 사다리는 DB 에 남고 다음 시작 때 다시 무장된다.
+- **launchd 는 선택이다.** 데몬이 HA 끊김을 스스로 견디므로 연결 때문에 프로세스 감시자가 필요하지는 않다. 정전·강제 종료·메모리 부족 같은 프로세스 죽음에만 감시자(launchd `KeepAlive`)가 쓸모 있다 — 그때도 시작 복구(`_recover_open_situations`)와 재동기화가 이어받는다.
 
 ## 결정 모델 서버(llama.cpp)
 
@@ -112,7 +115,7 @@ PYTHONPATH=. $V bench/risk/run_bench.py report                # results.md 재�
 |---|---|---|
 | `LIOT_HOME_ID` | `singleton` | 테넌트 id. 데몬과 관제실이 같아야 한다 |
 | `LIOT_DB_PATH` | `liot.db`(작업 디렉터리 기준) | SQLite 경로. `:memory:` 가능. 절대 경로를 권한다 |
-| `LIOT_HA_URL`, `LIOT_HA_TOKEN` | 없음 | 둘 다 있어야 HA 스트림을 연다 |
+| `LIOT_HA_URL`, `LIOT_HA_TOKEN` | 없음 | 둘 다 있어야 HA 감독(연결·재연결·재동기화)을 시작한다. 시작 때 HA 에 닿지 않아도 기동은 멈추지 않는다 |
 | `LIOT_LLM_BACKEND` | 없음 = 가짜 판정기 | `decision` = llama.cpp 결정 모델, `ollama`·`gemma`·`home`·`local` = ollama, 그 밖의 값 = 항상 비가용(degraded) |
 | `LIOT_DECISION_URL` | `http://127.0.0.1:18765` | 결정 모델 서버 |
 | `LIOT_DECISION_MODEL` | `jevk5-9b` | 판단 행에 남을 모델 이름(서버를 검증하지 않는다) |
@@ -132,7 +135,7 @@ PYTHONPATH=. $V bench/risk/run_bench.py report                # results.md 재�
 | `LIOT_FEEDBACK_HOST`, `LIOT_FEEDBACK_PORT` | `127.0.0.1`, `8099` | 수신구. 포트 0 이면 열지 않는다 |
 | `LIOT_TICK_SECONDS` | `300` | 능동 틱 주기. 사다리 루프(5초)와 별개 |
 | `LIOT_HOME_TZ` | `Asia/Seoul` | 집 시간대(IANA 이름). 시간대 버킷(야간 정숙 포함)과 능동 예산의 '하루'를 이 지역 시각으로 센다. 모르는 이름이면 기동 실패. 데몬만 읽는다(관제실 실험실은 UTC) |
-| `LIOT_EXECUTION_ENABLED` | 꺼짐 | 실행 옵트인. HA 가 연결돼 있을 때만 실행기를 만든다 |
+| `LIOT_EXECUTION_ENABLED` | 꺼짐 | 실행 옵트인. HA 설정(URL·토큰)이 있을 때만 실행기를 만든다. 실행기는 호출마다 짧은 별도 HA 연결을 연다 — HA 가 닿지 않으면 실행하지 않는다 |
 | `LIOT_EVENT_LLM` | 꺼짐 | 가짜 LLM 트리거 감지기를 함께 켠다 |
 | `LIOT_EXTERNAL_ENABLED` | 꺼짐 | 외부 데이터 공급자 옵트인. 데몬은 공급자를 연결하지 않아 지금은 효과가 없다 |
 
@@ -147,9 +150,9 @@ PYTHONPATH=. $V bench/risk/run_bench.py report                # results.md 재�
 
 | 키 | 기본 | 뜻 |
 |---|---|---|
-| `charter_enabled` | 참 | 거짓이면 거주자 알림 전면 OFF(보호자 전달은 막지 않는다) |
+| `charter_enabled` | 참 | 거짓이면 거주자 알림 전면 OFF. 동의한 보호자 전달·보호자 119 안내는 막지 않는다(결정 0013). 가족 전달까지 끄려면 동의를 철회한다 |
 | `muted_categories` | `[]` | 음소거 카테고리 목록 |
-| `muted_entities` | `[]` | 음소거 엔티티 목록 |
+| `muted_entities` | `[]` | 음소거 엔티티 목록. 경고 상황 센서를 30일 조용히 하려면 '거절'이 아니라 음소거를 쓴다(상황 알림의 거절은 그 상황의 사다리만 멈춘다, 결정 0015) |
 
 이 세 값을 바꾸는 화면이나 API 는 아직 없다.
 

@@ -28,6 +28,13 @@ LiotApp(두뇌, 네트워크 없음·결정만)을 둘러싸고 부수효과를 
     아니라 '읽지 못함'이다. 상황을 열지도 닫지도 않고 사다리·보호자 경로도 건드리지
     않는다. 거주자에게만 '<센서 종류> 센서 · 감시 불가(연결 끊김)'(주의)를 한 번 보낸다
     (엔티티별 메모리 표식, 정상·이상 값이 오면 지운다).
+  - **HA 감독(재연결·재동기화·감시 중단/재개)**: ``run(ha_factory=...)`` 는 사다리·틱을 HA 와
+    독립으로 먼저 띄우고, HA 는 같은 프로세스 안에서 지수 대기(1→60초)로 다시 붙는다. 연결(최초·
+    재연결)마다 인증 → 구독 → (HA 기동 대기) → get_states → **재동기화**(안전 카테고리 현재값을
+    handle_reading 에 한 번씩) → 버퍼 비우기 → 스트림 순서다. 끊김이 120초에 이르면(연속·10분 누적·
+    시작 후 첫 연결 실패) 거주자 토픽에만 '감시 중단'(경고) 한 번, 복구되면 '감시 재개' 한 번
+    (헌장 OFF 존중·음소거 무시·보호자 제외, audit ``ha_stream_lost``/``ha_stream_restored``).
+    결정 기록 0014.
 
 불변식 보존:
   - 실행 없음(불변식 3): 여기서 하는 외부 I/O 는 *알림 송신* 뿐, 액추에이터
@@ -40,14 +47,17 @@ LiotApp(두뇌, 네트워크 없음·결정만)을 둘러싸고 부수효과를 
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import math
 import secrets
+import time
 import uuid
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from liot.app import LiotApp, SafetySignal, StagedAlert
 from liot.core.clock import Clock
@@ -57,6 +67,20 @@ from liot.core.risk import RiskTier
 from liot.core.scoped_repo import ScopedRepo
 from liot.core.severity import SeverityLevel, SeverityResult
 from liot.db.safety_repo import DEFAULT_HOME_ALIAS, Ladder, SafetyRepo
+from liot.ha_supervision import (
+    AUTH_BACKOFF_S,
+    BACKOFF_STABLE_RESET_S,
+    Backoff,
+    NoticeDue,
+    OutageTracker,
+    Recovery,
+)
+from liot.layers.l1_sensing.ha_bridge import (
+    HAAuthError,
+    HAConnectionClosed,
+    HAConnectionError,
+    HAMalformedMessage,
+)
 from liot.layers.l2_context.feature_vector import (
     apply_decay,
     apply_signal,
@@ -95,7 +119,7 @@ from liot.layers.l4_execution.proposal_service import ProposalService
 if TYPE_CHECKING:  # pragma: no cover
     import aiosqlite
 
-    from liot.layers.l1_sensing.ha_bridge import HABridge
+    from liot.layers.l1_sensing.ha_bridge import BridgeFactory, HABridge, HASnapshot
 
 __all__ = [
     "DEV_SIGNING_SECRET",
@@ -107,6 +131,19 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+
+class _HAConnectFailed(Exception):
+    """HA 에 새 연결을 열지 못했다(감독 내부 신호 — 원인 이름만 싣는다)."""
+
+
+# HA 감독이 '감시 중단' 시점 직전에 깨어나는 최소 간격(초). 부동소수점 오차로 판정이 한 번
+# 비껴가도 헛돌지 않게 하는 하한이다.
+_HA_MIN_WAKE_S = 0.05
+# 끊긴 HA 연결을 닫는 데 쓰는 최대 시간(초).
+_HA_CLOSE_TIMEOUT_S = 2.0
+# 감독의 끊김 뒤처리가 예외로 실패했을 때 다시 시도하기 전에 쉬는 시간(초) — 헛돌지 않게.
+_HA_TAIL_ERROR_WAIT_S = 5.0
 
 # 2단계(결정 모델) 판정 한 번이 보내는 HTTP 요청 수의 상한. 결정 백엔드의
 # 제한시간은 요청 하나당이라(LIOT_DECISION_TIMEOUT), 판정 전체 마감은 그 배수다.
@@ -151,10 +188,23 @@ _SECOND_CONFIRM_WINDOW = timedelta(minutes=15)
 DEV_SIGNING_SECRET: bytes = b"liot-dev-signing-key"
 
 
+ComfortHold = Literal["auto", "phone"]
+
+# '지금 디스패치하는 것은 능동 틱의 편의 제안이다'라는 출처 표식(결정 0016). ``run_tick`` 이
+# 자기 디스패치 동안만 걸고 ``dispatch`` 가 읽는다. 보류 *수준*은 표식이 아니라 발송·실행
+# 직전마다 열린 상황을 다시 읽어 정한다(``_comfort_hold``). 인자 대신 컨텍스트 변수를 쓰는
+# 이유: (1) 실험 하네스가 ``dispatch(proposal)`` 시그니처로 서브클래스를 둔다, (2) 인스턴스
+# 속성이면 디스패치가 await 하는 사이 끼어드는 다른 태스크(상황 알림)가 표식을 물려받는다 —
+# 컨텍스트 변수는 태스크마다 따로라 그럴 수 없다.
+_COMFORT_TICK: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "liot_comfort_tick", default=False
+)
+
+
 class DispatchResult:
     """단일 제안 처리 결과(관측·테스트용)."""
 
-    __slots__ = ("proposal", "decision", "sent", "error", "executed")
+    __slots__ = ("proposal", "decision", "sent", "error", "executed", "held")
 
     def __init__(
         self,
@@ -163,12 +213,14 @@ class DispatchResult:
         sent: bool,
         error: str | None = None,
         executed: bool = False,
+        held: bool = False,
     ) -> None:
         self.proposal = proposal
         self.decision = decision  # IMMEDIATE | DIGEST | SUPPRESS
         self.sent = sent
         self.error = error
         self.executed = executed  # 이 디스패치에서 실제 조작이 일어났는가(AUTO)
+        self.held = held  # 열린 위험 상황 때문에 폰 발송을 보류했는가(결정 0016)
 
     def __repr__(self) -> str:  # pragma: no cover - 디버그 편의
         return (
@@ -185,6 +237,10 @@ class LiotService:
     pref_alpha: float | None = None
     pref_decay: float | None = None
     reject_window_days: int = 30
+    # HA 감독의 기동 대기(결정 기록 0014): HA 코어가 RUNNING 이 될 때까지 get_config 를 이 간격으로
+    # 다시 묻고(그동안 스트림은 받는다) 이 상한을 넘으면 그대로 재동기화한다. 시험이 줄여 쓴다.
+    ha_ready_poll_s: float = 5.0
+    ha_ready_cap_s: float = 300.0
 
     def __init__(
         self,
@@ -262,6 +318,23 @@ class LiotService:
         # 건드리지 않는다 — 같은 상황의 첫 알림이 두 번 나가거나 제안이 둘 생기지 않게.
         # 메모리 상태다: 프로세스가 죽으면 비워지고, 그때 DB 에 남은 고아 상황이 복구 대상이다.
         self._opening: set[str] = set()
+        # ── HA 감독 상태(메모리 — 재시작하면 비워진다. 결정 기록 0014) ──────────────────────
+        # 지금까지 본 HA 엔티티 → 카테고리(연결마다 병합). 한 번 안전으로 분류한 엔티티는 HA 재시작 중
+        # 복원 자리표시자나 부분 get_states 가 비안전으로 덮어쓰지 못한다.
+        self._ha_categories: dict[str, str] = {}
+        # 이 프로세스가 HA 경로로 handle_reading 에 **성공적으로** 흘린 안전 엔티티의 마지막 원시값.
+        # 재동기화는 이 값과 같은 엔티티를 건너뛴다(연결마다 같은 상태를 다시 흘려 알림이 중복되지
+        # 않게). 처리에 실패한 엔티티는 여기서 지운다 — 그 신호는 다시 오지 않으니 다음 재동기화가
+        # 다시 흘려야 한다.
+        self._ha_last_fed: dict[str, Any] = {}
+        # 안전 신호 처리가 예외로 끝났다 → 다음 기회에 재동기화를 한 번 한다(스트림 루프가 소비).
+        self._ha_resync_pending = False
+        # '감시 중단' 알림이 실제로 나갔는가 — 있어야 '감시 재개'를 보낸다.
+        self._ha_stop_delivered = False
+        self._ha_last_cause = ""
+        # 시계·잠자기는 주입 가능하게 둔다(120초 경계·백오프를 가짜 시간으로 시험한다).
+        self._ha_now: Callable[[], float] = time.monotonic
+        self._ha_sleep: Callable[[float], Any] = asyncio.sleep
 
     # ------------------------------------------------------------------
     # 시작
@@ -348,11 +421,24 @@ class LiotService:
     async def dispatch(self, proposal: Proposal) -> DispatchResult:
         """제안을 영속화하고 발화 게이트를 적용해 (가능하면) 실제 송신한다.
 
+        열린 안전 상황 동안의 편의(능동 틱) 제안 보류(결정 0016): ``run_tick`` 이 건 출처
+        표식(``_COMFORT_TICK``)이 있을 때만, **자동 실행 직전과 폰 발송 직전마다** 열린
+        상황을 다시 읽어 정한다 — 열린 상황이 있으면 자동 실행을 막고, 하한 CRITICAL 상황이
+        있으면 폰 발송도 막는다(영속만 하고 DIGEST, 감사 행). 확인(await) 뒤 실행·발송에
+        들어가기까지 다른 await 가 없다: 이 디스패치가 await 하는 사이 열린 상황도 놓치지
+        않는다. 표식이 없는 호출(명시 요청·상황 알림)은 보류가 없다.
+
         조작이 활성(executor+policy)이면, 정책이 AUTO(비안전 ≤BREATH)로 판정한
         제안은 알림 게이트를 통과(IMMEDIATE)할 때 *즉시 실행*한다. DUSK/EMBER/
         안전은 여기서 실행하지 않고 알림만 — 실행은 사람 승인(피드백) 후로 미룬다.
         """
         await self.proposals.save(proposal)
+
+        tick = _COMFORT_TICK.get()
+        if tick and await self._comfort_hold() == "phone":
+            # 게이트·nonce 를 거치기 전의 빠른 보류: 어디로도 나가지 않는 제안에 1회용 링크가
+            # 남으면 안 되고, 예산·dedup 도 소모하지 않는다.
+            return await self._held_result(proposal)
 
         now_dt = self.clock.now_dt()
         self._roll_budget(now_dt)
@@ -368,7 +454,13 @@ class LiotService:
 
         # AUTO: 알림 게이트를 통과했고(=억제/뮤트/거절 아님) 정책이 자동이면 즉시 실행.
         executed = False
-        if exec_decision is ExecDecision.AUTO and self._executor is not None:
+        # 열린 안전 상황이 있으면 편의 제안은 자동 실행하지 않는다. 이 확인 바로 뒤에
+        # (await 없이) 실행에 들어간다.
+        if (
+            exec_decision is ExecDecision.AUTO
+            and self._executor is not None
+            and (not tick or await self._comfort_hold() is None)
+        ):
             executed = await self._try_execute(proposal)
 
         if self.transport is None:
@@ -376,6 +468,13 @@ class LiotService:
             # (그래야 transport 가 붙은 뒤 같은 류가 억제되지 않는다).
             await self.proposals.record_notification(sanitized, now=self.clock.now_utc())
             return DispatchResult(proposal, decision, sent=False, executed=executed)
+
+        # 마지막 확인: 게이트·실행을 기다리는 사이 위험 상황이 열렸으면 폰 발송을 보류한다.
+        # 이 확인 바로 뒤 송신까지 await 가 없다. 이미 쓴 nonce·예산은 되돌린다.
+        if tick and await self._comfort_hold() == "phone":
+            self._drop_nonce(proposal.proposal_id)
+            self._budget.used_this_hour = max(0, self._budget.used_this_hour - 1)
+            return await self._held_result(proposal, executed=executed)
 
         # 실제 송신을 *먼저* 시도. 성공해야만 알림 기록 + dedup 갱신한다.
         # 실패 시 dedup 을 오염시키지 않아야 같은 류(특히 안전 EMBER)가 2시간
@@ -388,6 +487,42 @@ class LiotService:
         await self.proposals.record_notification(sanitized, now=self.clock.now_utc())
         self._recent_notified[dedup_key(proposal)] = now_dt
         return DispatchResult(proposal, decision, sent=True, executed=executed)
+
+    async def _held_result(self, proposal: Proposal, *, executed: bool = False) -> DispatchResult:
+        """폰 발송을 보류한 편의 제안의 결과: 감사 행을 남기고 DIGEST 로 돌려준다."""
+        await self._audit_comfort_held(proposal)
+        return DispatchResult(proposal, "DIGEST", sent=False, executed=executed, held=True)
+
+    async def _comfort_hold(self) -> ComfortHold | None:
+        """열린 안전 상황에 따른 편의 제안 보류 수준(결정 0016).
+
+        열린 상황이 하나라도 있으면 ``"auto"``(자동 실행 금지), 그중 하나라도 하한이
+        CRITICAL 이면 ``"phone"``(폰 발송도 보류). 하한(severity_floor)만 본다 — 모델이
+        올린 최종 파급도는 보호자 조건과 마찬가지로 여기에도 쓰지 않는다.
+        """
+        opened = await self.safety.list_open_situations(self.home_id)
+        if not opened:
+            return None
+        if any(s.severity_floor == SeverityLevel.CRITICAL for s in opened):
+            return "phone"
+        return "auto"
+
+    async def _audit_comfort_held(self, proposal: Proposal) -> None:
+        """폰 발송을 보류한 편의 제안을 audit_log 에 남긴다(사유 comfort_held_open_situation)."""
+        await self._repo.insert(
+            self._db,
+            "audit_log",
+            {
+                "id": None,
+                "trace_id": None,
+                "actor": "SYSTEM",
+                "event_type": "comfort_held_open_situation",
+                "ref_id": proposal.proposal_id,
+                "detail": json.dumps({"decision": "DIGEST"}, ensure_ascii=False),
+                "ts": self.clock.now_utc(),
+            },
+        )
+        await self._db.commit()
 
     # ------------------------------------------------------------------
     # 조작(불변식 8) — fail-closed: 실행 실패는 파이프라인을 죽이지 않는다.
@@ -650,6 +785,8 @@ class LiotService:
           (c) 이미 알림이 나갔는데 사다리만 없음(알림 직후·사다리 생성 전에 죽음) → 첫 알림은
               다시 보내지 않고 사다리만 세운다. 시각은 상황이 열린 때 기준 그대로다.
         마지막은 모두 _arm_ladder 다: 송신이 실패했으면 그 안에서 30초 재시도가 잡힌다.
+        (a)·(b) 에서 첫 알림을 지금 처음 보냈고 상황이 열린 지 90초를 넘겼으면 사다리 기준
+        시각은 지금(anchor_at)이다 — 거주자 → 90초 → 보호자 순서 보존(결정 0017).
         """
         if situation_id in self._opening:
             return False  # 이 프로세스가 지금 여는 중이거나 이미 복구 중 — 고아가 아니다
@@ -666,13 +803,29 @@ class LiotService:
             # 알림이 기록된 제안은 반드시 제안 행이 있으므로 'pid 없음' = 알림 기록 없음이다. 제안이
             # 있으면 _first_alert_unsent 가 알림 기록·게이트(사용자가 정한 침묵)를 함께 본다.
             pid = await escalation.latest_alert_proposal_id(self._db, self.home_id, situation_id)
+            notified_before = await escalation.situation_notified(
+                self._db, self.home_id, situation_id
+            )
             if pid is None:
                 await self._rebuild_first_alert(info, reading)
             else:
                 unsent = await self._first_alert_unsent(info)
                 if unsent is not None:
                     await self._resend_first_alert(unsent)
-            await self._arm_ladder(situation_id)
+            # 결정 0017: 이 복구가 거주자의 '첫 알림'을 지금 처음 보냈고 그 상황이 이미 90초(거주자
+            # 우선 창)보다 오래 열려 있었다면, 사다리 기준 시각을 지금으로 옮긴다 — 안 그러면
+            # 재알림·보호자 전달·119 가 옛 열린 시각 기준으로 이미 지나 있어 첫 알림 직후 몰려
+            # 나간다. 알림이 이미 나갔던 상황((c))·못 보낸 상황은 열린 시각 그대로다.
+            anchor_at: str | None = None
+            now_dt = self.clock.now_dt()
+            if (
+                not notified_before
+                and await escalation.situation_notified(self._db, self.home_id, situation_id)
+                and now_dt - escalation.parse_iso(info.opened_at)
+                > escalation.GUARDIAN_FORWARD_AFTER
+            ):
+                anchor_at = escalation.to_iso(now_dt)
+            await self._arm_ladder(situation_id, anchor_at=anchor_at)
         finally:
             self._opening.discard(situation_id)
         return True
@@ -840,22 +993,33 @@ class LiotService:
         싣는 것은 센서 종류 라벨·집 별칭·시각·파급도 라벨뿐(상황 id·보호자 id·링크 없음).
         집 별칭이 egress 에 걸리면 기본 별칭으로 한 번 더 만든다(_summary_message 와 같다).
         """
+        return await self._send_resident_summary(
+            escalation.message_label(category, "unmonitorable"),
+            SeverityLevel.NOTICE,
+            trace_id=f"unmonitorable:{category}",
+        )
+
+    async def _send_resident_summary(
+        self, label: str, severity: SeverityLevel, *, trace_id: str
+    ) -> bool:
+        """거주자 토픽(self.topic)으로 요약 알림 한 건. 보냈으면 True. 보호자에게는 가지 않는다.
+
+        감시 불가·감시 중단·감시 재개가 같은 길이다: 라벨은 고정 문구(기기·방 이름 없음)이고, 집
+        별칭이 egress 에 걸리면 기본 별칭으로 한 번 더 만든다.
+        """
         settings = await self.safety.get_home_settings(self.home_id)
-        label = escalation.message_label(category, "unmonitorable")
         at = self.clock.now_utc()
         for alias in dict.fromkeys((settings.home_alias, DEFAULT_HOME_ALIAS)):
             payload = self.notifier.build_guardian_payload(
                 situation_label=label,
                 home_alias=alias,
                 at=at,
-                severity=SeverityLevel.NOTICE,
+                severity=severity,
             )
             try:
-                sanitized = self.notifier.sanitize_summary(
-                    payload, trace_id=f"unmonitorable:{category}"
-                )
+                sanitized = self.notifier.sanitize_summary(payload, trace_id=trace_id)
             except EgressViolation:
-                logger.warning("unmonitorable notice rejected by egress (category=%s)", category)
+                logger.warning("resident notice rejected by egress (trace=%s)", trace_id)
                 continue
             return self._deliver(self.topic, sanitized)
         return False
@@ -986,13 +1150,14 @@ class LiotService:
         info: escalation.SituationInfo,
         final: SeverityLevel,
         *,
+        anchor: datetime,
         stage: int,
         guidance_sent: bool,
         retry: bool = False,
     ) -> str | None:
         return escalation.to_iso(
             escalation.next_fire_at(
-                opened=escalation.parse_iso(info.opened_at),
+                opened=anchor,
                 final=final,
                 floor=info.severity_floor,
                 realerts_sent=stage,
@@ -1003,10 +1168,19 @@ class LiotService:
             )
         )
 
-    async def _arm_ladder(self, situation_id: str) -> None:
+    @staticmethod
+    def _ladder_anchor(info: escalation.SituationInfo, ladder: Ladder | None) -> datetime:
+        """사다리 시각(재알림·보호자 전달·119)의 기준 = 사다리의 anchor_at, 없으면 열린 시각."""
+        if ladder is not None and ladder.anchor_at is not None:
+            return escalation.parse_iso(ladder.anchor_at)
+        return escalation.parse_iso(info.opened_at)
+
+    async def _arm_ladder(self, situation_id: str, *, anchor_at: str | None = None) -> None:
         """사다리를 만들거나(없으면) 다음 발화 시각을 다시 잡는다. 여기서는 보내지 않는다.
 
         RECORD·NOTICE(재알림 없음, 하한도 CRITICAL 아님)는 사다리를 만들지 않는다.
+        anchor_at 은 사다리를 새로 만들 때만 쓴다(복구 — 결정 0017). 이미 있는 사다리의 기준은
+        바꾸지 않는다.
         """
         info = await escalation.load_situation(self._db, situation_id)
         if info is None or info.closed_at is not None:
@@ -1020,16 +1194,22 @@ class LiotService:
         # 재무장해도 유지된다.
         first_retry = await self._first_alert_unsent(info) is not None
         if ladder is None:
-            nxt = await self._plan_next(
-                info, final, stage=0, guidance_sent=False, retry=first_retry
+            anchor = (
+                escalation.parse_iso(anchor_at)
+                if anchor_at is not None
+                else escalation.parse_iso(info.opened_at)
             )
-            await self.safety.create_ladder(situation_id, 0, nxt)
+            nxt = await self._plan_next(
+                info, final, anchor=anchor, stage=0, guidance_sent=False, retry=first_retry
+            )
+            await self.safety.create_ladder(situation_id, 0, nxt, anchor_at)
             return
         if not self._ladder_open(ladder):
             return
         nxt = await self._plan_next(
             info,
             final,
+            anchor=self._ladder_anchor(info, ladder),
             stage=ladder.stage,
             guidance_sent=ladder.guidance_119_sent,
             retry=first_retry,
@@ -1133,11 +1313,13 @@ class LiotService:
             await self._on_situation_closed(situation_id)
             return
         now_dt = self.clock.now_dt()
-        opened = escalation.parse_iso(info.opened_at)
+        # 기준 시각: 보통 열린 시각, 복구가 옮겼으면 ladder.anchor_at(결정 0017). 보호자·119 메시지의
+        # at 은 이 값이 아니라 info.opened_at(사실)이다.
+        anchor = self._ladder_anchor(info, ladder)
         final = await self._final_severity(info)
 
         stage = ladder.stage
-        due = escalation.realerts_due(opened, final, now_dt)
+        due = escalation.realerts_due(anchor, final, now_dt)
         realert_attempted = False
         if due > stage:
             # 공유 연결에서 닫힘이 끼어들었을 수 있다 — 해소 뒤 낡은 재알림 금지.
@@ -1160,7 +1342,7 @@ class LiotService:
                 retry = not await self._resend_first_alert(unsent)
         # 보호자 전달·119 안내: 상황 하한(표+거주자)이 CRITICAL 일 때만.
         if escalation.guardian_path(info.severity_floor):
-            if now_dt >= escalation.forward_due_at(opened) and await self._ladder_still_open(
+            if now_dt >= escalation.forward_due_at(anchor) and await self._ladder_still_open(
                 situation_id
             ):
                 newly, failed = await self._forward_to_guardians(info, final, notified)
@@ -1168,13 +1350,13 @@ class LiotService:
                 retry = retry or failed
             if not guidance_sent:
                 due_119 = escalation.guidance_due_at(
-                    opened, await self._first_forward_at(situation_id)
+                    anchor, await self._first_forward_at(situation_id)
                 )
                 if now_dt >= due_119 and await self._ladder_still_open(situation_id):
                     guidance_sent = await self._send_guidance_119(info, final, notified)
 
         nxt = await self._plan_next(
-            info, final, stage=stage, guidance_sent=guidance_sent, retry=retry
+            info, final, anchor=anchor, stage=stage, guidance_sent=guidance_sent, retry=retry
         )
         await self.safety.update_ladder(
             situation_id,
@@ -1414,8 +1596,19 @@ class LiotService:
         await self._record_evaluation()
         if proposal is None:
             return None
+        # 열린 안전 상황 동안의 편의 보류(결정 0016). run_tick 이 편의 제안의 유일한
+        # 입구라 여기서 출처 표식을 건다(제안선 후보는 __origin__ 이 없어 출처로는 못 가른다).
+        # 보류 여부는 dispatch 가 실행·발송 직전에 정한다(디스패치 중 열린 상황도 잡는다).
         self._remember_proposal_cell(proposal)  # 해소 시 신호 반영용 맥락 기억
-        return await self.dispatch(proposal)
+        token = _COMFORT_TICK.set(True)
+        try:
+            result = await self.dispatch(proposal)
+        finally:
+            _COMFORT_TICK.reset(token)
+        if result.held:
+            # 보류분은 선호 셀에 넣지 않는다 — 만료가 비선호로 학습되면 안 된다.
+            self._prop_cell.pop(proposal.proposal_id, None)
+        return result
 
     # ------------------------------------------------------------------
     # 개인화 루프(Phase3) — 알림 응답 → 선호 임베딩 갱신(유튜브식)
@@ -1582,45 +1775,423 @@ class LiotService:
         self,
         bridge: HABridge | None = None,
         *,
+        ha_factory: BridgeFactory | None = None,
         tick_seconds: float = 300.0,
         max_events: int | None = None,
         max_ticks: int | None = None,
         ladder_resolution_s: float = escalation.LADDER_RESOLUTION_S,
+        max_sessions: int | None = None,
     ) -> None:
         """상시 데몬: HA 스트림 소비 + 주기 틱 + 사다리 루프를 동시에 굴린다.
 
-        bridge 가 None 이면 능동 틱만(센서 스트림 없이) 돈다. max_events/
-        max_ticks 는 테스트용 경계(미지정 시 무한). 사다리 루프(ladder_resolution_s
-        해상도)는 틱과 별개로 돌고, 틱·스트림이 끝나면 함께 멈춘다.
+        두 가지 모양이다.
+          - ``run(bridge)``: 브리지 하나를 **한 번** 소비하고 스트림이 끝나면 돌아온다(예전 그대로 —
+            ``stream()`` 만 가진 객체도 받는다). 신호 하나의 예외는 로그로 남기고 다음 신호로 넘어간다.
+          - ``run(ha_factory=...)``: **감독**. 사다리·틱은 HA 와 독립으로 먼저 돌고, HA 는 같은
+            프로세스 안에서 끊기면 다시 붙는다(``_ha_supervisor``). 취소로만 끝난다(``max_sessions`` 는
+            시험용 상한: 연결 시도 횟수).
+        둘 다 없으면(bridge=None) 능동 틱만 돈다. max_events/max_ticks 는 테스트용 경계(미지정 시
+        무한). 사다리 루프(ladder_resolution_s 해상도)는 틱과 별개로 돌고, 틱·스트림이 끝나면
+        함께 멈춘다.
         """
+        if bridge is not None and ha_factory is not None:
+            raise ValueError("bridge 와 ha_factory 는 함께 줄 수 없다")
         await self.start()
+        # 사다리·틱은 HA 연결과 무관하게 가장 먼저 띄운다 — HA 가 없어도 열린 상황의 재알림·보호자
+        # 전달·119 안내는 시각대로 나가야 한다(게이트 1).
         tasks = [asyncio.create_task(self._tick_loop(tick_seconds, max_ticks))]
+        ladder_task = asyncio.create_task(self._ladder_loop(ladder_resolution_s))
         if bridge is not None:
             tasks.append(asyncio.create_task(self._stream_loop(bridge, max_events)))
-        ladder_task = asyncio.create_task(self._ladder_loop(ladder_resolution_s))
+        elif ha_factory is not None:
+            tasks.append(
+                asyncio.create_task(self._ha_supervisor(ha_factory, max_sessions=max_sessions))
+            )
         try:
             await asyncio.gather(*tasks)
         finally:
             for t in tasks:
                 t.cancel()
             ladder_task.cancel()
-            await asyncio.gather(ladder_task, return_exceptions=True)
+            await asyncio.gather(ladder_task, *tasks, return_exceptions=True)
             # 남은 2단계 판정을 DB 가 닫히기 전에 마무리한다(호출자가 run 뒤에 DB 를
             # 닫는다). 각 태스크의 자체 마감 + 여유 1초를 넘기면 취소한다.
             await self.drain_phase2(timeout=self._phase2_deadline() + 1.0)
 
     async def _stream_loop(self, bridge: HABridge, max_events: int | None) -> None:
+        """브리지 하나를 한 번 소비한다. 신호 하나의 예외는 로그로 남기고 다음 신호로 넘어간다.
+
+        재연결·재동기화는 하지 않는다(그건 ``_ha_supervisor``). 스트림이 끝나면 돌아온다.
+        """
         n = 0
         async for reading in bridge.stream():
-            await self.handle_reading(reading)
+            await self._feed_reading(reading, resync=False)
             n += 1
             if max_events and n >= max_events:
                 return
+        logger.warning("HA stream ended (single-bridge run) — sensors are no longer read")
+
+    # ------------------------------------------------------------------
+    # HA 감독(결정 기록 0014) — 끊기면 같은 프로세스 안에서 다시 붙고, 붙을 때마다 재동기화한다
+    # ------------------------------------------------------------------
+    def _is_safety_reading(self, reading: SensorReading) -> bool:
+        """안전 카테고리 읽기인가. 판정이 예외면 안전으로 본다(보수적 — 재동기화 쪽으로 기운다)."""
+        try:
+            return self.app.classify_safety(reading) is not None
+        except Exception:  # noqa: BLE001 — 분류 실패는 안전으로 취급한다
+            return True
+
+    async def _feed_reading(self, reading: SensorReading, *, resync: bool) -> bool:
+        """읽기 하나를 파이프라인에 흘린다. 예외는 삼키되 **남긴다**: 로그 + 재동기화 예약.
+
+        예외가 나면 그 신호는 다시 오지 않는다(HA 는 상태 변화만 보낸다). 안전 카테고리였다면
+        이 엔티티의 '마지막으로 흘린 값'을 지우고(재동기화가 건너뛰지 못하게) 재동기화를 한 번
+        예약한다 — 스트림 루프가 다음 기회에 get_states 로 현재값을 다시 흘린다. 재동기화 도중의
+        실패(``resync=True``)는 예약하지 않는다: 재동기화 자체가 재시도이고, 예약하면 영구
+        장애(DB 오류 등)에서 재동기화가 쉬지 않고 돈다.
+        """
+        safety = self._is_safety_reading(reading)
+        try:
+            await self.handle_reading(reading)
+        except Exception as exc:  # noqa: BLE001 — 신호 하나가 감시 전체를 멈추면 안 된다
+            logger.error(
+                "HA reading failed (resync=%s safety=%s): %s",
+                resync, safety, type(exc).__name__, exc_info=exc,
+            )
+            self._ha_last_fed.pop(reading.entity_id, None)
+            if safety and not resync:
+                self._ha_resync_pending = True
+            return False
+        if safety:
+            self._ha_last_fed[reading.entity_id] = reading.raw_value
+        return True
+
+    async def _ha_supervisor(
+        self, ha_factory: BridgeFactory, *, max_sessions: int | None = None
+    ) -> None:
+        """HA 연결을 끊김 없이 유지한다: 연결 → 세션 → 끊기면 대기 → 다시. 취소로만 끝난다.
+
+        연결 시도가 실패하든(HA 꺼짐·인증 거부) 세션이 도중에 끊기든(연결 종료·형식 오류·시간
+        초과) 같은 길이다: 끊김으로 세고, 알림 시점을 보고, 대기한 뒤 다시 시도한다. 대기는 1초에서
+        두 배씩 60초까지, 연결이 5분 넘게 안정된 뒤에만 1초로 되돌린다. 인증 거부는 5분 대기(HA 의
+        IP 차단 회피)와 별도 로그다. 감독 자신의 버그도 데몬을 끝내지 않는다(로그 + 같은 재시도).
+        """
+        tracker = OutageTracker(self._ha_now())
+        backoff = Backoff()
+        attempts = 0
+        while True:
+            attempts += 1
+            bridge: HABridge | None = None
+            auth_rejected = False
+            try:
+                try:
+                    bridge = await ha_factory()
+                except Exception as exc:
+                    raise _HAConnectFailed(type(exc).__name__) from exc
+                await self._ha_session(bridge, tracker)
+                cause = "ended"  # _ha_session 은 정상적으로는 끝나지 않는다(방어)
+            except asyncio.CancelledError:
+                raise
+            except HAAuthError:
+                auth_rejected = True
+                cause = "auth_rejected"
+            except _HAConnectFailed as failed:
+                cause = f"connect_failed:{failed.args[0]}"
+            except HAConnectionClosed:
+                cause = "closed"
+            except HAMalformedMessage:
+                cause = "malformed"
+            except HAConnectionError:
+                cause = "transport_error"
+            except Exception as exc:  # noqa: BLE001 — 감독은 죽지 않는다
+                logger.error("HA supervisor error: %s", type(exc).__name__, exc_info=exc)
+                cause = f"error:{type(exc).__name__}"
+            finally:
+                if bridge is not None:
+                    await self._ha_close(bridge)
+
+            # 끊김 뒤처리(대기 계산·알림 판정·대기)도 감독을 끝내면 안 된다 — 취소가 아닌 예외가
+            # gather 밖으로 나가면 사다리까지 취소된다. 실패하면 남기고 짧게 쉰 뒤 다시 시도한다.
+            try:
+                now = self._ha_now()
+                if (
+                    tracker.up_since is not None
+                    and now - tracker.up_since >= BACKOFF_STABLE_RESET_S
+                ):
+                    backoff.reset()
+                tracker.mark_down(now)
+                self._ha_last_cause = cause
+                if auth_rejected:
+                    delay = AUTH_BACKOFF_S
+                    logger.error(
+                        "HA authentication rejected — token revoked or wrong? retrying in %.0f s "
+                        "(slow retry avoids an HA IP ban)", delay,
+                    )
+                else:
+                    delay = backoff.next_delay()
+                    logger.warning("HA connection lost (%s) — retrying in %.0f s", cause, delay)
+                await self._ha_check_notice(tracker)
+                if max_sessions is not None and attempts >= max_sessions:
+                    return
+                await self._ha_wait(delay, tracker)
+            except Exception as exc:  # noqa: BLE001 — 감독은 취소로만 끝난다
+                logger.error("HA supervisor tail failed: %s", type(exc).__name__, exc_info=exc)
+                if max_sessions is not None and attempts >= max_sessions:
+                    return
+                await self._ha_sleep(_HA_TAIL_ERROR_WAIT_S)
+
+    @staticmethod
+    async def _ha_close(bridge: HABridge) -> None:
+        """연결을 닫는다. 반쯤 죽은 연결의 닫기 핸드셰이크가 종료(SIGTERM)를 붙잡지 못하게 제한한다."""
+        try:
+            async with asyncio.timeout(_HA_CLOSE_TIMEOUT_S):
+                await bridge.close()
+        except Exception:  # noqa: BLE001 — 이미 끊긴 연결을 닫다 나는 오류는 할 일이 없다
+            logger.debug("ha bridge close failed", exc_info=True)
+
+    async def _ha_wait(self, delay: float, tracker: OutageTracker) -> None:
+        """``delay`` 초 기다린다. 도중에 '감시 중단' 시점이 오면 그 시각에 깨어 알린다.
+
+        백오프가 60초·5분이어도 알림이 120초 경계에서 나가게 하려는 것이다(깨어나 판정만 하고 남은
+        대기를 이어 간다).
+        """
+        remaining = delay
+        while remaining > 0:
+            now = self._ha_now()
+            step = remaining
+            deadline = tracker.next_deadline(now)
+            if deadline is not None and deadline - now < remaining:
+                # 경계 직전에 깨운다. 부동소수점 오차로 판정이 한 번 비껴가도 헛돌지 않게 하한을 둔다.
+                step = min(remaining, max(deadline - now, _HA_MIN_WAKE_S))
+            await self._ha_sleep(step)
+            remaining -= step
+            await self._ha_check_notice(tracker)
+
+    async def _ha_session(self, bridge: HABridge, tracker: OutageTracker) -> None:
+        """연결 하나의 일생. 예외로만 끝난다(연결 종료·형식 오류·시간 초과 …).
+
+        순서가 안전을 정한다: 인증 → **구독** → (HA 기동 대기) → get_states → 재동기화 → 버퍼
+        비우기 → 스트림. 구독을 get_states 보다 먼저 하고 요청 중 끼어든 이벤트를 버퍼에 쌓으므로,
+        스냅샷과 구독 사이에 일어난 상태 변화도 사라지지 않는다(``HABridge._request``).
+        """
+        self._ha_resync_pending = False
+        await bridge.authenticate()
+        await bridge.subscribe()
+        await self._ha_wait_running(bridge, tracker)
+        await self._ha_resync(bridge)
+        await self._ha_mark_up(tracker)
+        logger.info("HA monitoring up")
+        while True:
+            reading = await bridge.next_reading()
+            if reading is None:  # pragma: no cover - timeout 없이는 None 이 안 나온다(방어)
+                continue
+            await self._feed_reading(reading, resync=False)
+            if self._ha_resync_pending:
+                self._ha_resync_pending = False
+                logger.warning("HA reading failed earlier — resyncing current states")
+                await self._ha_resync(bridge)
+
+    async def _ha_wait_running(self, bridge: HABridge, tracker: OutageTracker) -> None:
+        """HA 코어가 RUNNING 이 될 때까지 기다린다(상한 ``ha_ready_cap_s``). 그동안 스트림은 받는다.
+
+        HA 를 막 재시작했을 때 get_states 는 ``unavailable``·``restored: true`` 자리표시자를 돌려준다.
+        그걸 흘리면 '감시 불가' 알림이 쏟아지거나 열린 상황이 거짓으로 닫힌다. 코어 상태를 알려
+        주지 않는 HA(``core_state`` 가 None)는 기다리지 않는다. 상한을 넘기면 경고하고 그대로
+        재동기화한다(복원 자리표시자는 어차피 건너뛴다) — 영영 안 오는 RUNNING 때문에 안전 현재값을
+        못 받는 쪽이 더 나쁘다.
+        """
+        deadline = self._ha_now() + self.ha_ready_cap_s
+        loop = asyncio.get_running_loop()
+        while True:
+            state = await bridge.core_state()
+            if state is None or state == "RUNNING":
+                return
+            if self._ha_now() >= deadline:
+                logger.warning(
+                    "HA core still %s after %.0f s — resyncing anyway", state, self.ha_ready_cap_s
+                )
+                return
+            logger.info("HA core is %s — waiting for RUNNING", state)
+            # 기다리는 동안 받는 이벤트가 안전 카테고리로 분류되도록 맵을 먼저 채운다(첫 연결이면 맵이
+            # 카탈로그뿐이라 device_class 로만 안전인 센서의 이벤트가 비안전으로 지나간다). 이 스냅샷의
+            # 값은 흘리지 않는다 — 자리표시자일 수 있다. 값은 RUNNING 뒤 재동기화가 흘린다.
+            self._ha_merge_categories(await bridge.entity_states())
+            end = loop.time() + self.ha_ready_poll_s
+            while (remaining := end - loop.time()) > 0:
+                reading = await bridge.next_reading(timeout=remaining)
+                if reading is None:
+                    break
+                await self._feed_reading(reading, resync=False)
+            await self._ha_check_notice(tracker)
+
+    def _ha_merge_categories(self, snapshot: HASnapshot) -> dict[str, str]:
+        """스냅샷의 카테고리를 지금까지 본 맵에 병합하고 앱(맥락·능동 생성기 포함)에 반영한다.
+
+        교체가 아니라 병합이다: 부분 get_states(HA 기동 중)나 복원 자리표시자가 이미 안전으로
+        분류한 엔티티를 비안전으로 덮으면 그 센서가 침묵한다. 복원 자리표시자는 device_class 가
+        없어 도메인 접두사로 떨어지므로, 이미 아는 엔티티면 건너뛴다. 사라진 엔티티는 남겨 둔다
+        (이벤트가 오지 않으니 해가 없다).
+        """
+        merged = dict(self._ha_categories)
+        for eid, category in snapshot.categories.items():
+            if eid in snapshot.restored and eid in merged:
+                continue
+            merged[eid] = category
+        self._ha_categories = merged
+        self.app.set_categories(merged)
+        return merged
+
+    async def _ha_resync(self, bridge: HABridge) -> None:
+        """get_states 로 카테고리 맵을 갱신하고 안전 카테고리 현재값을 handle_reading 에 흘린다.
+
+        데몬이 꺼져 있던(연결이 끊겼던) 동안 이상이 된 센서는 이벤트가 오지 않아, 이걸 하지 않으면
+        가스가 새고 있어도 침묵한다. 이 프로세스가 마지막으로 흘린 값과 같은 엔티티는 건너뛴다
+        (재연결마다 같은 상태를 다시 흘려 알림이 중복되지 않게). 이상 → 정상 → 감시 불가 순으로
+        흘려 가장 급한 알림이 앞서게 한다.
+        """
+        snapshot = await bridge.entity_states()
+        merged = self._ha_merge_categories(snapshot)
+
+        todo: list[tuple[int, SensorReading]] = []
+        skipped = 0
+        for reading in snapshot.readings:
+            try:
+                signal = self.app.classify_safety(reading)
+            except Exception as exc:  # noqa: BLE001 — 한 엔티티가 재동기화 전체를 막지 않는다
+                logger.error("HA resync classify failed: %s", type(exc).__name__)
+                continue
+            if signal is None:
+                continue
+            eid = reading.entity_id
+            if eid in self._ha_last_fed and self._ha_last_fed[eid] == reading.raw_value:
+                skipped += 1
+                continue
+            rank = 2 if signal.unmonitorable else (0 if signal.abnormal else 1)
+            todo.append((rank, reading))
+        todo.sort(key=lambda item: item[0])  # 안정 정렬 — 같은 순위는 HA 가 준 순서
+        for _, reading in todo:
+            await self._feed_reading(reading, resync=True)
+        logger.info(
+            "HA resync: %d entities mapped, %d safety readings fed, %d unchanged skipped",
+            len(merged), len(todo), skipped,
+        )
+
+    async def _ha_mark_up(self, tracker: OutageTracker) -> None:
+        """재동기화까지 끝났다 = 감시가 복구됐다. 알린 끊김이었으면 '감시 재개'를 낸다."""
+        now = self._ha_now()
+        # 기동 대기·재동기화가 길어 120초를 넘긴 채로 올라와도 '중단 → 재개' 순서를 지킨다.
+        await self._ha_check_notice(tracker)
+        recovery = tracker.mark_up(now)
+        if recovery is not None and recovery.notified:
+            await self._ha_notice_restored(recovery)
+
+    async def _ha_check_notice(self, tracker: OutageTracker) -> None:
+        due = tracker.notice_due(self._ha_now())
+        if due is None:
+            return
+        tracker.mark_notified()  # 보내는 도중 다시 판정돼 두 번 나가지 않게 먼저 세운다
+        await self._ha_notice_stopped(due)
+
+    async def _ha_notice_stopped(self, due: NoticeDue) -> None:
+        """'감시 중단': 거주자 토픽에만 한 건(경고) + audit ``ha_stream_lost``.
+
+        감시 불가(결정 0012)와 같은 규칙이다 — 보호자 없음, 헌장 OFF 는 존중(알림 없음), 음소거는
+        무시한다. 이 함수는 예외를 밖으로 내지 않는다(알림이 어떻게 되든 감독은 계속 재시도한다).
+        한 번의 끊김에서 한 번만 시도한다(송신 실패를 재시도하지 않는다 — 기록에 남는다).
+        """
+        notified = False
+        charter_enabled = True
+        try:
+            charter_enabled = bool(await self.prefs.get("charter_enabled", True))
+            if charter_enabled:
+                notified = await self._send_resident_summary(
+                    escalation.message_label("", "monitoring_stopped"),
+                    SeverityLevel.WARNING,
+                    trace_id="monitoring_stopped",
+                )
+        except Exception as exc:  # noqa: BLE001 — 알림 실패가 재시도를 막으면 안 된다
+            logger.error("monitoring-stopped notice failed: %s", type(exc).__name__)
+        self._ha_stop_delivered = notified
+        logger.warning(
+            "HA monitoring stopped (%s, %.0f s down, cause=%s) — resident notified=%s "
+            "charter_enabled=%s",
+            due.reason, due.down_s, self._ha_last_cause, notified, charter_enabled,
+        )
+        await self._audit_ha(
+            "ha_stream_lost",
+            due.reason,
+            {
+                "reason": due.reason,
+                "cause": self._ha_last_cause,
+                "down_s": round(due.down_s, 1),
+                "notified": notified,
+                "charter_enabled": charter_enabled,
+            },
+        )
+
+    async def _ha_notice_restored(self, recovery: Recovery) -> None:
+        """'감시 재개': 알린 끊김이 끝났을 때 거주자 토픽에 한 건 + audit ``ha_stream_restored``.
+
+        '감시 중단'이 실제로 나갔을 때만 보낸다(중단을 모르는 거주자에게 재개만 알리면 혼란이다).
+        헌장 OFF 는 존중한다. 예외를 밖으로 내지 않는다.
+        """
+        stop_delivered = self._ha_stop_delivered
+        self._ha_stop_delivered = False
+        notified = False
+        charter_enabled = True
+        try:
+            charter_enabled = bool(await self.prefs.get("charter_enabled", True))
+            if charter_enabled and stop_delivered:
+                notified = await self._send_resident_summary(
+                    escalation.message_label("", "monitoring_resumed"),
+                    SeverityLevel.NOTICE,
+                    trace_id="monitoring_resumed",
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("monitoring-resumed notice failed: %s", type(exc).__name__)
+        logger.warning(
+            "HA monitoring resumed after %.0f s — resident notified=%s", recovery.down_s, notified
+        )
+        await self._audit_ha(
+            "ha_stream_restored",
+            "restored",
+            {
+                "down_s": round(recovery.down_s, 1),
+                "stop_delivered": stop_delivered,
+                "notified": notified,
+                "charter_enabled": charter_enabled,
+            },
+        )
+
+    async def _audit_ha(self, event_type: str, ref_id: str, detail: dict[str, Any]) -> None:
+        """감시 중단·재개 감사 행 한 줄. 실패해도 감독을 막지 않는다."""
+        try:
+            await self._repo.insert(
+                self._db,
+                "audit_log",
+                {
+                    "id": None,
+                    "trace_id": None,
+                    "actor": "SYSTEM",
+                    "event_type": event_type,
+                    "ref_id": ref_id,
+                    "detail": json.dumps(detail, ensure_ascii=False),
+                    "ts": self.clock.now_utc(),
+                },
+            )
+            await self._db.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("%s audit failed: %s", event_type, type(exc).__name__)
 
     async def _tick_loop(self, tick_seconds: float, max_ticks: int | None) -> None:
         n = 0
         while True:
-            await self.run_tick()
+            try:
+                await self.run_tick()
+            except Exception as exc:  # noqa: BLE001 — 틱 하나의 실패가 사다리·HA 감독까지 끝내면 안 된다
+                # gather 안의 태스크가 예외로 끝나면 run 이 사다리를 취소하고 프로세스가 끝난다(게이트 1).
+                # 사다리 루프와 같은 정책: 남기고 다음 틱으로 간다.
+                logger.error("proactive tick failed: %s", type(exc).__name__, exc_info=exc)
             n += 1
             if max_ticks and n >= max_ticks:
                 return

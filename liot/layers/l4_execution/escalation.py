@@ -14,11 +14,20 @@
   - WARNING: 무응답이면 10분마다 재알림, 최대 3회.
   - 첫 거주자 알림 송신이 실패하면 사다리의 다음 발화를 LADDER_RETRY(30초) 뒤로 당겨
     첫 알림을 다시 보낸다(성공할 때까지). 재알림·보호자 전달·119 시각의 기준은 그대로
-    '상황이 열린 시각'이라 이 재시도가 그것들을 옮기지 않고, 재알림 횟수도 쓰지 않는다.
+    '기준 시각'이라 이 재시도가 그것들을 옮기지 않고, 재알림 횟수도 쓰지 않는다.
   - CRITICAL: 무응답이면 1분마다 재알림.
-      하한이 CRITICAL 이면 첫 알림 90초 뒤 동의한 보호자 전원에게 동시 전달,
+      하한이 CRITICAL 이면 기준 시각 90초 뒤 동의한 보호자 전원에게 동시 전달,
       그 전달 5분 뒤에도 아무도 확인하지 않으면 거주자·보호자에게 119 전화 **안내**.
-      동의한 보호자가 없어도 119 안내는 같은 시각(첫 알림 + 90초 + 5분)에 나간다.
+      동의한 보호자가 없어도 119 안내는 같은 시각(기준 시각 + 90초 + 5분)에 나간다.
+
+기준 시각(anchor): 사다리 시각(재알림·보호자 전달·119)은 모두 한 시각에서 센다. 보통 그것은
+상황이 열린 시각(situations.opened_at)이다. 단 하나의 예외 — 프로세스가 죽어 사다리 없이 남은
+오래 묵은 상황을 복구가 지금 **처음으로** 거주자에게 알릴 때, 그 상황이 이미 90초(거주자 우선
+창)보다 오래 열려 있었다면 기준 시각은 그 복구 송신 시각이다(escalation_ladders.anchor_at,
+결정 0017). 안 그러면 거주자의 첫 알림 직후 보호자 전달이 나가 '거주자 먼저, 90초 뒤 보호자'
+순서가 무너진다. 이 모듈의 함수는 기준 시각을 인자(opened)로 받을 뿐 어느 쪽인지 모른다 —
+고르는 일은 서비스(LiotService._ladder_anchor)가 한다. 보호자·119 메시지에 싣는 '언제'는 기준이
+아니라 사실 그대로 상황이 열린 시각이다.
 
 119 는 안내 문구일 뿐이다. 이 모듈(과 사다리 전체)에는 전화를 걸거나 자동으로
 신고하는 경로가 없다.
@@ -44,6 +53,8 @@ __all__ = [
     "GUIDANCE_119_TEXT",
     "LADDER_RESOLUTION_S",
     "LADDER_RETRY",
+    "MONITORING_RESUMED_LABEL",
+    "MONITORING_STOPPED_LABEL",
     "SENSOR_KIND_LABEL_KO",
     "SITUATION_LABEL_KO",
     "UNMONITORABLE_TEXT",
@@ -116,10 +127,21 @@ SENSOR_KIND_LABEL_KO: Final[dict[str, str]] = {
 }
 DEFAULT_SENSOR_KIND_LABEL: Final[str] = "안전"
 UNMONITORABLE_TEXT: Final[str] = "감시 불가(연결 끊김)"
+# HA 연결 전체가 끊겨 센서를 하나도 못 읽을 때(감시 중단)와 다시 붙었을 때(감시 재개)의 라벨.
+# 센서 종류가 아니라 집 전체의 감시 상태라 카테고리를 쓰지 않는다. 기기·방 이름은 싣지 않는다.
+MONITORING_STOPPED_LABEL: Final[str] = "안전 센서 전체 · 감시 중단(집 연결 끊김)"
+MONITORING_RESUMED_LABEL: Final[str] = "안전 센서 전체 · 감시 재개(집 연결 복구)"
 # 119 는 안내다 — 사람이 직접 전화하도록 번호 문구만 싣는다(자동 신고 없음).
 GUIDANCE_119_TEXT: Final[str] = "119에 직접 전화해 주세요(자동 신고 아님)"
 
-MessageKind = Literal["forward", "resolved", "guidance_119", "unmonitorable"]
+MessageKind = Literal[
+    "forward",
+    "resolved",
+    "guidance_119",
+    "unmonitorable",
+    "monitoring_stopped",
+    "monitoring_resumed",
+]
 
 
 # ── 라벨 ────────────────────────────────────────────────────────────────────
@@ -141,6 +163,10 @@ def message_label(category: str, kind: MessageKind) -> str:
     """
     if kind == "unmonitorable":
         return f"{sensor_kind_label(category)} 센서 · {UNMONITORABLE_TEXT}"
+    if kind == "monitoring_stopped":
+        return MONITORING_STOPPED_LABEL
+    if kind == "monitoring_resumed":
+        return MONITORING_RESUMED_LABEL
     base = situation_label(category)
     if kind == "resolved":
         return f"{base} · {RESOLVED_TEXT}"
@@ -201,14 +227,14 @@ def next_realert_at(
 
 
 def forward_due_at(opened: datetime) -> datetime:
-    """보호자 전달 시각 = 첫 알림 + 90초."""
+    """보호자 전달 시각 = 기준 시각 + 90초. 기준 시각은 보통 상황이 열린 시각이다(위 모듈 설명)."""
     return opened + GUARDIAN_FORWARD_AFTER
 
 
 def guidance_due_at(opened: datetime, first_forward_at: datetime | None) -> datetime:
     """119 안내 시각 = 전달 시각 + 5분. 실제 전달이 늦었으면 그 전달 + 5분.
 
-    보호자가 없어도(전달 없음) 첫 알림 + 90초 + 5분이다.
+    보호자가 없어도(전달 없음) 기준 시각 + 90초 + 5분이다. 기준 시각은 보통 상황이 열린 시각이다.
     """
     due = forward_due_at(opened) + GUIDANCE_119_AFTER_FORWARD
     if first_forward_at is not None:

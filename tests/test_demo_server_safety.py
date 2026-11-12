@@ -419,7 +419,9 @@ async def test_daemon_opens_resolved_default_db_path(monkeypatch: pytest.MonkeyP
         seen.append(path)
         return await real_init_db(":memory:", durable=durable)
 
-    async def fake_run(self: Any, bridge: Any = None, *, tick_seconds: float = 0.0) -> None:
+    async def fake_run(
+        self: Any, bridge: Any = None, *, ha_factory: Any = None, tick_seconds: float = 0.0
+    ) -> None:
         return None
 
     monkeypatch.setattr(serve, "init_db", spy_init_db)
