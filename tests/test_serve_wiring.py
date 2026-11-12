@@ -36,8 +36,11 @@ def _capture_run(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     """service.run 을 가짜로 바꿔 '무엇을 들고 루프에 들어갔는지'만 본다."""
     seen: dict[str, object] = {}
 
-    async def fake_run(self, bridge=None, *, tick_seconds: float = 0.0):  # noqa: ANN001
+    async def fake_run(  # noqa: ANN001
+        self, bridge=None, *, ha_factory=None, tick_seconds: float = 0.0
+    ):
         seen["bridge"] = bridge
+        seen["ha_factory"] = ha_factory
         seen["tick_seconds"] = tick_seconds
         seen["executor"] = self._executor
         seen["policy_enabled"] = self._policy.enabled
@@ -56,7 +59,8 @@ async def test_amain_runs_without_ha_or_ntfy(monkeypatch: pytest.MonkeyPatch) ->
     seen = _capture_run(monkeypatch)
     rc = await serve._amain()
     assert rc == 0
-    assert seen["bridge"] is None  # HA 미설정 → 브리지 없음
+    assert seen["bridge"] is None
+    assert seen["ha_factory"] is None  # HA 미설정 → 감독 없음(연결 팩토리를 넘기지 않는다)
     assert seen["transport"] is None  # ntfy 미설정 → sanitize-only
     assert seen["tick_seconds"] == 7.0
     assert seen["executor"] is None and seen["policy_enabled"] is False
@@ -101,7 +105,7 @@ async def test_amain_with_dev_key_does_not_open_feedback_endpoint(
     out = capsys.readouterr().out
     assert "수신구를 열지 않습니다" in out, out
     assert "LIOT_NOTIFY_SECRET" in out  # 어떻게 열지까지 알려 준다
-    assert seen["bridge"] is None
+    assert seen["ha_factory"] is None
 
     # 아무도 그 포트를 듣고 있지 않아야 한다(정말로 열지 않았다).
     with socket.socket() as check:
@@ -201,7 +205,7 @@ async def test_ha_bridge_needs_both_url_and_token(
     monkeypatch.delenv("LIOT_HA_TOKEN", raising=False)
     seen = _capture_run(monkeypatch)
     assert await serve._amain() == 0
-    assert seen["bridge"] is None
+    assert seen["ha_factory"] is None  # URL 만으로는 감독이 만들어지지 않는다
     assert "미설정" in capsys.readouterr().out
 
 

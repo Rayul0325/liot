@@ -5,7 +5,9 @@
   필수 없음(전부 합리적 기본값). 자주 쓰는 것:
     LIOT_HOME_ID        : 테넌트 id(기본 'singleton').
     LIOT_DB_PATH        : SQLite 경로(기본 'liot.db'; ':memory:' 가능).
-    LIOT_HA_URL         : HA WebSocket URL. 있으면 센서 스트림 소비.
+    LIOT_HA_URL         : HA WebSocket URL. 있으면 센서 스트림 소비 — 끊기면 같은 프로세스 안에서
+                          다시 붙고(1→60초 대기) 붙을 때마다 현재 센서값을 재동기화한다. 시작 때
+                          HA 가 닿지 않아도 사다리·틱은 돈다. SIGTERM/SIGINT 로 정리하고 끝난다.
     LIOT_HA_TOKEN       : HA 장기 액세스 토큰.
     LIOT_LLM_BACKEND    : 'ollama' 등(미설정 시 FakeLLM).
     LIOT_NTFY_URL       : ntfy 서버. 있으면 실제 알림 송신(미설정 시 sanitize-only).
@@ -29,14 +31,23 @@ ntfy 알림만 나간다.
 from __future__ import annotations
 
 import asyncio
+import functools
+import logging
 import os
+import signal
 import sys
-from typing import Protocol
+from typing import Any, Protocol
 
 from liot.app import LiotApp
 from liot.core.clock import Clock, resolve_tz
 from liot.core.env import env_flag
 from liot.db.database import init_db
+from liot.layers.l1_sensing.ha_bridge import (
+    BridgeFactory,
+    call_service_once,
+    connect_ha,
+    get_state_once,
+)
 from liot.layers.l3_judgment.llm_judge import build_llm_backend
 from liot.layers.l4_execution.executor import HAExecutor, build_execution_policy
 from liot.layers.l4_execution.ntfy_transport import build_ntfy_transport
@@ -159,6 +170,52 @@ def resolve_home_tz(raw: str | None) -> str:
     return name
 
 
+class _StopSignals:
+    """SIGTERM·SIGINT 를 받으면 주 태스크를 취소해 finally(피드백 서버·DB 닫기)가 돌게 한다.
+
+    launchd 는 SIGTERM 으로 끈다. 처리기가 없으면 프로세스가 finally 없이 죽어 DB 의 마지막 쓰기가
+    닫히지 못한다. 취소는 **한 번만** 건다 — 정리 중(DB 닫는 중)에 신호가 또 와도 정리를 끊지 않는다.
+    """
+
+    def __init__(self) -> None:
+        self.requested = False
+        self._signals: list[signal.Signals] = []
+        self._prior: dict[signal.Signals, Any] = {}
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def install(self, task: asyncio.Task[Any] | None) -> None:
+        if task is None:
+            return
+        loop = asyncio.get_running_loop()
+        self._loop = loop
+
+        def _request() -> None:
+            if not self.requested:
+                self.requested = True
+                task.cancel()
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            prior = signal.getsignal(sig)
+            try:
+                loop.add_signal_handler(sig, _request)
+            except (NotImplementedError, RuntimeError, ValueError):
+                continue  # 주 스레드 밖·지원 안 하는 플랫폼 — 처리기 없이 돈다
+            self._signals.append(sig)
+            self._prior[sig] = prior
+
+    def remove(self) -> None:
+        if self._loop is None:
+            return
+        for sig in self._signals:
+            self._loop.remove_signal_handler(sig)
+            # 설치 전 처리기로 되돌린다(asyncio.run 이 SIGINT 에 건 처리기 등을 지우지 않는다).
+            prior = self._prior.get(sig)
+            if prior is not None:
+                signal.signal(sig, prior)
+        self._signals.clear()
+        self._prior.clear()
+
+
 async def _amain() -> int:
     home_id = os.environ.get("LIOT_HOME_ID", "singleton").strip() or "singleton"
     db_path = resolve_db_path()
@@ -175,51 +232,68 @@ async def _amain() -> int:
     clock = Clock(tz=home_tz)
     db = await init_db(db_path, durable=True)
 
-    # HA 연결(있으면): 카테고리 맵 주입 + 센서 스트림.
-    bridge = None
-    categories: dict[str, str] = {}
-    if ha_url and ha_token:
-        from liot.layers.l1_sensing.ha_bridge import HABridge, WebsocketsHAConnection
-
-        conn = WebsocketsHAConnection(ha_url)
-        await conn.open()
-        bridge = HABridge(conn, ha_token)
-        categories = await bridge.entity_categories()
-        print(f"[HA] {len(categories)} entities mapped.")
-    else:
-        print("[HA] LIOT_HA_URL/TOKEN 미설정 → 센서 스트림 없이 능동 틱만 구동.")
-
-    app = LiotApp(clock=clock, categories=categories, llm_backend=build_llm_backend())
-    transport = build_ntfy_transport()
-
-    # 조작(불변식 8): LIOT_EXECUTION_ENABLED 가 참이고 HA 브리지가 있을 때만 활성.
-    # HA 가 없으면 조작 대상이 없으므로 executor 미구성(제안-만 유지).
-    policy = build_execution_policy()
-    executor = None
-    if policy.enabled:
-        if bridge is not None:
-            executor = HAExecutor(bridge.call_service, bridge.get_state)
-        else:
-            print("[exec] LIOT_EXECUTION_ENABLED 이나 HA 미연결 → 조작 비활성(제안-만).")
-
-    service = LiotService(
-        app, db, home_id=home_id, clock=clock, transport=transport,
-        topic=topic, secret=secret, executor=executor, policy=policy,
-    )
-    print(
-        f"[LIOT] backend={app.judge.backend.model_id} "
-        f"ntfy={'on' if transport else 'sanitize-only'} "
-        f"exec={'ON' if executor else 'off(제안-만)'} tick={tick_seconds}s db={db_path} "
-        f"tz={home_tz}"
-    )
-
-    fb_server = await open_feedback_endpoint(
-        service, host=fb_host, port=fb_port, secret=secret, allow_dev_key=allow_dev_key
-    )
-
+    # DB 를 연 직후부터 끝까지 하나의 try/finally 다. DB 를 연 뒤 어디서 실패하든(HA 호출·조립·수신구)
+    # aiosqlite 의 비데몬 스레드가 닫히지 않아 프로세스가 멈춰 남는 일이 없다.
+    stop = _StopSignals()
+    fb_server: asyncio.AbstractServer | None = None
     try:
-        await service.run(bridge, tick_seconds=tick_seconds)
+        stop.install(asyncio.current_task())
+
+        # HA(있으면): 연결·카테고리 맵·재동기화는 서비스의 감독이 맡는다(끊기면 다시 붙는다).
+        # 시작 때는 카탈로그 맵으로 시작하고 첫 연결에서 HA 맵으로 갈아 낀다. HA 가 닿지 않아도
+        # 사다리·틱·피드백은 HA 와 무관하게 돈다.
+        ha_factory: BridgeFactory | None = None
+        if ha_url and ha_token:
+            ha_factory = functools.partial(connect_ha, ha_url, ha_token)
+            print("[HA] 감독 시작 — 연결·재동기화는 백그라운드에서(끊기면 자동 재연결).")
+        else:
+            print("[HA] LIOT_HA_URL/TOKEN 미설정 → 센서 스트림 없이 능동 틱만 구동.")
+
+        app = LiotApp(clock=clock, categories={}, llm_backend=build_llm_backend())
+        transport = build_ntfy_transport()
+
+        # 조작(불변식 8): LIOT_EXECUTION_ENABLED 가 참이고 HA 설정이 있을 때만 활성.
+        # HA 가 없으면 조작 대상이 없으므로 executor 미구성(제안-만 유지). 실행기는 호출마다 짧은
+        # 별도 연결(열기 → 인증 → 호출 → 닫기)을 쓴다 — 스트림 소켓을 공유하면 같은 소켓에서
+        # 동시에 recv() 해 websockets 가 ConcurrencyError 를 낸다. HA 에 닿지 못하면 호출이 예외로
+        # 끝나 실행 실패(fail-closed)가 된다.
+        policy = build_execution_policy()
+        executor = None
+        if policy.enabled:
+            if ha_factory is not None:
+                executor = HAExecutor(
+                    functools.partial(call_service_once, ha_factory),
+                    functools.partial(get_state_once, ha_factory),
+                )
+            else:
+                print("[exec] LIOT_EXECUTION_ENABLED 이나 HA 미연결 → 조작 비활성(제안-만).")
+
+        service = LiotService(
+            app, db, home_id=home_id, clock=clock, transport=transport,
+            topic=topic, secret=secret, executor=executor, policy=policy,
+        )
+        print(
+            f"[LIOT] backend={app.judge.backend.model_id} "
+            f"ntfy={'on' if transport else 'sanitize-only'} "
+            f"exec={'ON' if executor else 'off(제안-만)'} tick={tick_seconds}s db={db_path} "
+            f"tz={home_tz}"
+        )
+
+        fb_server = await open_feedback_endpoint(
+            service, host=fb_host, port=fb_port, secret=secret, allow_dev_key=allow_dev_key
+        )
+
+        await service.run(ha_factory=ha_factory, tick_seconds=tick_seconds)
+    except asyncio.CancelledError:
+        if not stop.requested:
+            raise  # 신호가 아닌 취소(호출자·시험)는 그대로 올린다
+        # 종료 신호로 우리가 건 취소다 — 정상 종료. 아래 finally 가 수신구와 DB 를 닫는다.
+        task = asyncio.current_task()
+        if task is not None:
+            task.uncancel()
+        print("[LIOT] 종료 신호를 받아 정리하고 끝냅니다.")
     finally:
+        stop.remove()
         if fb_server is not None:
             fb_server.close()
         await db.close()
@@ -227,6 +301,10 @@ async def _amain() -> int:
 
 
 def main() -> int:
+    # 재연결·감시 중단 같은 운영 로그가 보이게 한다(처리기가 없으면 WARNING 이상만 기본 처리기로 나간다).
+    # aiosqlite 의 DEBUG 는 SQL 인자(보호자 토픽 포함)를 찍으므로 INFO 위로 둔다(engineering-notes).
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger("aiosqlite").setLevel(logging.INFO)
     try:
         return asyncio.run(_amain())
     except KeyboardInterrupt:

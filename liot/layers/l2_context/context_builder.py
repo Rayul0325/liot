@@ -202,6 +202,13 @@ class ContextBuilder:
         self._home_id = home_id
         self._categories = dict(categories) if categories else {}
 
+    def set_categories(self, categories: Mapping[str, str] | None) -> None:
+        """엔티티 → 카테고리 맵을 통째로 바꾼다(HA 재연결 때 새 엔티티를 반영).
+
+        사본을 쥔다 — 앱·생성기와 같은 dict 를 공유하지 않는다(호출자가 나중에 고쳐도 영향 없음).
+        """
+        self._categories = dict(categories) if categories else {}
+
     def should_snapshot(
         self,
         prev: Mapping[str, Any] | None,
