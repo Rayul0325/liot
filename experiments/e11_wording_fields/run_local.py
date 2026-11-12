@@ -15,8 +15,8 @@ import argparse
 from argparse import Namespace
 from pathlib import Path
 
-from experiments.e11_wording_fields import variants
 from experiments.e5_models.benchkit import LOCAL_MODELS, run_bench
+from experiments.e11_wording_fields import variants
 
 EXP_DIR = Path(__file__).resolve().parent
 ARMS = (*variants.FIELD_ARMS, *variants.REWRITE_ARMS)  # baselines come from the E5 raw files

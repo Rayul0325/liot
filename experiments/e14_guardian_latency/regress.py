@@ -23,8 +23,8 @@ import random
 from datetime import timedelta
 from typing import Any
 
-from experiments.e2_invariants import quota
 from experiments.common.service_kit import reading
+from experiments.e2_invariants import quota
 from liot.layers.l4_execution.escalation import LADDER_RETRY
 
 RETRY_S = LADDER_RETRY.total_seconds()

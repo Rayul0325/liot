@@ -13,7 +13,6 @@ Only the 45 non-injection cases are built (injection cases are outside every met
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from experiments.e5_models.benchkit import run_bench

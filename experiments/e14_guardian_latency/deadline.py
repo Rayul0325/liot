@@ -17,7 +17,6 @@ first alert would wait for, ``questions == 1`` are comfort-style single-question
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from experiments.common import io

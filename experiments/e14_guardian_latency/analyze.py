@@ -225,7 +225,7 @@ def _hybrid(raw: Path) -> dict[str, Any]:
                 agg[f"{name}_miss_rate"].append(float((a[:, 1] / n).mean()))
                 agg[f"{name}_false_rate"].append(float((a[:, 0] / n).mean()))
         time_stats[win] = {k: float(np.nanmedian(v)) for k, v in sorted(agg.items())}
-        time_stats[win]["qualifying_cells"] = len(agg[f"liot_miss_rate"])
+        time_stats[win]["qualifying_cells"] = len(agg["liot_miss_rate"])
     out["by_window"] = levels
     out["median_over_qualifying_cells"] = time_stats
     out["primary_window"] = PRIMARY

@@ -68,7 +68,7 @@ def _reps(table: Table, judge: str, ctx: str) -> list[int]:
 
 
 def _weights(judges: list[str], collapse_jevk5: bool) -> dict[str, float]:
-    w = {j: 1.0 for j in judges}
+    w = dict.fromkeys(judges, 1.0)
     if collapse_jevk5:
         fam = [j for j in judges if j in JEVK5]
         for j in fam:
@@ -453,7 +453,8 @@ def _informative_only(table: Table, design: dict[str, Any], judges: list[str], e
                 data[j] = (ks, *(_raise_vec(table, j, c, 0, ks) for c in ("sentence", "operational", arm)))
         if not data:
             continue
-        rs, ro, rt = (sum(int(v[i].sum()) for v in data.values()) for i in (1, 2, 3))
+        vals: list[Any] = list(data.values())
+        rs, ro, rt = (sum(int(v[i].sum()) for v in vals) for i in (1, 2, 3))
         cases = sorted({k[0] for v in data.values() for k in v[0]})
         idx = {j: {c: [i for i, k in enumerate(v[0]) if k[0] == c] for c in cases} for j, v in data.items()}
         rng = _rng(f"c43-informative-{arm}")

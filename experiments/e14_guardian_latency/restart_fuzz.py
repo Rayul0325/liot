@@ -47,7 +47,6 @@ from experiments.common.service_kit import (
     HOME,
     SECRET,
     TOPIC,
-    guardian_forwards,
     judgments,
     proposals,
     reading,

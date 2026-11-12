@@ -12,13 +12,12 @@ All three are rebuilt idempotently (existing rows are skipped by key).
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from experiments.common import io
+from experiments.e5_models.benchkit import LOCAL_MODELS, SEVERITIES, TIERS, run_bench
 from experiments.e11_wording_fields import rule, variants
 from experiments.e11_wording_fields.prep_inputs import HERE
-from experiments.e5_models.benchkit import LOCAL_MODELS, SEVERITIES, TIERS, run_bench
 
 RAW = HERE / "raw"
 E5_RAW = HERE.parent / "e5_models" / "raw"
