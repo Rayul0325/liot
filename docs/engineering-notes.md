@@ -137,7 +137,10 @@
 - 증상: 며칠 전에 열린 채 한 번도 알리지 못한 가스 상황이 재시작 때 복구되면, 거주자의 첫 알림이 나간 뒤 약 5초 만에 보호자 전달이, 약 300초 뒤 119 안내가 나갔다. '거주자 먼저, 90초 뒤 보호자' 가 무너진다.
 - 원인: 사다리의 모든 시각(`_plan_next`·`_fire_ladder` 의 `realerts_due`·`forward_due_at`·`guidance_due_at`)이 `situations.opened_at` 에서 센다. 복구가 첫 알림을 보내는 시각과 `opened_at` 의 간격에는 상한이 없다.
 - 대응: `escalation_ladders.anchor_at`(nullable, 마이그레이션 v4)을 더했다. 기준 = `anchor_at or opened_at`(`LiotService._ladder_anchor`). `_recover_situation` 이 (a)·(b) 에서 '복구 전에는 알림 기록이 없었고 복구 뒤에는 있고(= 첫 알림이 지금 나갔다) 열린 지 90초(`GUARDIAN_FORWARD_AFTER`)를 넘었다' 일 때만 `anchor_at = 지금` 으로 사다리를 만든다. 기준은 사다리를 만들 때 한 번 정해져 재시작(`_rearm_ladders`)에도 유지되고 `update_ladder` 로는 바꿀 수 없다. 보호자·119 메시지의 `at` 은 기준이 아니라 사실인 `opened_at` 그대로다.
-- 함정: '지금 보냈다' 는 송신 반환값이 아니라 DB 의 알림 기록 유무(전·후 `situation_notified`)로 읽는다 — (b) 는 `dispatch` 안에서 보내고, 게이트가 막은 경우(헌장 OFF·음소거)는 보낸 게 없어 거주자 우선 창이 성립하지 않으므로 기준을 옮기지 않는다(동의한 보호자 전달이 유일한 안전망 — 결정 0013). 송신이 실패한 복구도 옮기지 않는다: 그 첫 알림은 살아 있는 U5 재시도(30초 간격)로 늦게 나가며, 그 경우 보호자 전달은 열린 시각 + 90초 기준 그대로다(`tests/test_first_alert_retry.py`).
+- 함정: '지금 보냈다' 는 송신 반환값이 아니라 DB 의 알림 기록 유무(전·후 `situation_notified`)로 읽는다 — (b) 는 `dispatch` 안에서 보내고, 게이트가 막은 경우(헌장 OFF·음소거)는 보낸 게 없어 거주자 우선 창이 성립하지 않으므로 기준을 옮기지 않는다(동의한 보호자 전달이 유일한 안전망 — 결정 0013). 송신이 실패한 복구도 옮기지 않는다: 그 첫 알림은 살아 있는 U5 재시도로 늦게 나간다.
+- 남는 한계(오래 묵은 고아 + 복구 송신 실패): 기준이 None 이라 `next_fire_at` 이 과거에 잡힌다. 거주자 첫 알림 재시도와 보호자 전달이 다음 사다리 틱(약 5초 안)에 같은 틱으로 나간다 — 이전의 '재시도는 30초 간격' 표현은 첫 재시도에는 맞지 않는다. 거주자 먼저 90초는 이 경우 지켜지지 않는다.
+- 남는 한계(죽는 자리): 복구의 송신은 성공했는데 `create_ladder` 전에 또 죽으면 다음 재시작은 (c) 경로로 가서 기준이 None 이고 보호자 전달이 즉시 나간다. 창이 좁다(송신 → 알림 기록 → 사다리 행 사이).
+- 결정 0013(헌장 OFF 와 보호자)은 D2·D4 브랜치와 함께 들어온다 — 이 항목의 참조는 병합 때 연결된다.
 - 확인: `tests/test_orphan_situation_recovery.py`(D5 시험들), `tests/test_migration_v4.py`. 열린 시각 기준 시험(`test_late_restart_keeps_the_timing_anchored_to_the_open_time`, (c) 경로)은 그대로 통과해야 한다.
 
 ### 재알림은 살아 있는 nonce 를 다시 쓴다

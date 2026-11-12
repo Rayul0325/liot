@@ -814,3 +814,39 @@ async def test_recovery_from_a_live_reading_also_anchors_a_three_day_old_orphan(
         assert _to(transport, died["guardian_topic"]) == []
     finally:
         await db.close()
+
+
+@pytest.mark.parametrize(
+    ("entity", "kill", "steps"),
+    [
+        # (재알림 시각 t, 그때까지 거주자 푸시 누계, 그 발화 뒤 다음 발화 시각 = 복구 + 값)
+        # 위험(가스): 1분마다. 보호자 전달(+90)·119(+390)이 사이에 끼므로 다음 발화는 그중 이른 것.
+        (GAS, NO_PROPOSAL, [(60, 2, 90), (120, 3, 180), (180, 4, 240), (240, 5, 300)]),
+        # 경고(문): 10분마다 최대 3회 — 상한 뒤에는 다음 발화가 없다.
+        (DOOR, NO_PROPOSAL, [(600, 2, 1200), (1200, 3, 1800), (1800, 4, None), (2400, 4, None)]),
+    ],
+    ids=["critical_gas", "warning_door"],
+)
+async def test_realert_cadence_after_an_anchored_recovery_counts_from_the_recovery(
+    tmp_path: Path, entity: str, kill: dict[str, Any], steps: list[tuple[int, int, int | None]]
+) -> None:
+    # 기준 시각이 옮겨진 사다리는 여러 번 발화해도 재알림을 복구 시각부터 센다. _fire_ladder 의
+    # realerts_due 나 그 안의 _plan_next 가 열린 시각을 쓰면 푸시 수가 모자라거나(밀린 재알림이 한
+    # 번으로 합쳐짐) 다음 발화 시각이 과거로 가 매 틱 발화한다.
+    path = str(tmp_path / "liot.db")
+    clock = Clock(fixed=T0)
+    await _kill_during(path, clock, entity, **kill)
+    clock.set_fixed(_at(THREE_DAYS))
+    svc, db, transport = await _restart(path, clock)
+    try:
+        _, ladder = await _anchor_of(svc)
+        assert ladder.anchor_at == _at(THREE_DAYS)
+        assert len(_to(transport, TOPIC)) == 1
+        for t, pushes, nxt in steps:
+            await _advance(svc, clock, THREE_DAYS + t)
+            assert len(_to(transport, TOPIC)) == pushes, t
+            _, ladder = await _anchor_of(svc)
+            expected = None if nxt is None else _at(THREE_DAYS + nxt)
+            assert ladder.next_fire_at == expected, (t, ladder.next_fire_at)
+    finally:
+        await db.close()
