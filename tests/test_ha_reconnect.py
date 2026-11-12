@@ -56,7 +56,7 @@ from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l3_judgment.llm_judge import LLMResult
 from liot.layers.l4_execution import escalation
 from liot.layers.l4_execution.executor import ExecutionError, HAExecutor
-from liot.layers.l4_execution.ntfy_transport import FakeNtfyTransport
+from liot.layers.l4_execution.ntfy_transport import FakeNtfyTransport, NtfyError
 from liot.service import LiotService
 from tests.ha_world import T0, FakeTime, LoopbackHA, ScriptedFactory, World
 
@@ -703,14 +703,30 @@ async def test_mute_does_not_hide_the_stopped_or_resumed_notice(key: str, value:
         await db.close()
 
 
+class _FailFirstSend(FakeNtfyTransport):
+    """첫 송신만 실패하고 그 뒤는 성공한다."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.attempts = 0
+
+    def send(self, topic: str, sanitized: dict[str, Any]) -> None:
+        self.attempts += 1
+        if self.attempts == 1:
+            raise NtfyError("forced first failure")
+        super().send(topic, sanitized)
+
+
 async def test_failed_stop_notice_send_means_no_resume_notice_and_does_not_block() -> None:
-    """중단 알림이 안 나갔으면(전송 실패) 재개만 알리지 않는다. 감독은 계속 돈다."""
+    """중단 알림이 안 나갔으면(전송 실패) 재개만 알리지 않는다 — 중단을 모르는 거주자에게 재개만 가면
+    혼란이다. 재개 송신은 성공할 수 있는 상태였다(두 번째 송신부터 성공). 감독은 계속 돈다."""
     ft = FakeTime()
-    transport = FakeNtfyTransport(fail=True)
+    transport = _FailFirstSend()
     svc, db, _ = await _make(transport=transport, fake_time=ft)
     factory = ScriptedFactory(_world(), ft, ["fail"] * 9 + [("ok", 5.0)])
     try:
         await _supervise(svc, factory, max_sessions=10)
+        assert transport.attempts == 1 and transport.sent == []  # 재개를 시도조차 하지 않았다
         lost = await _audit(db, "ha_stream_lost")
         assert [r["notified"] for r in lost] == [False]
         restored = await _audit(db, "ha_stream_restored")
@@ -830,6 +846,7 @@ async def test_resync_skips_entities_whose_state_equals_the_last_value_fed() -> 
     task = _start(svc, world.factory)
     try:
         await _until(lambda: _is_open(svc, GAS))
+        await _until(lambda: len(fed) >= 3)  # 가스·연기·문 — 안전 엔티티 셋을 모두 흘렸다
         first = list(fed)
         assert (GAS, "on") in first
         sent = len(transport.sent)
@@ -907,7 +924,8 @@ async def test_known_safety_category_survives_restored_placeholder_and_partial_s
         world.remove(SMOKE)  # 부분 스냅샷
         world.drop_all()
         await _until(lambda: world.states_requests >= 2)
-        await asyncio.sleep(0.05)
+        world.emit(DOOR, "on")  # 새 세션이 재동기화를 마치고 스트림에 들어섰다는 표지
+        await _until(lambda: _is_open(svc, DOOR))
         assert svc.app._category_of(GAS) == "gas"
         assert svc.app._category_of(SMOKE) == "smoke"
     finally:
@@ -1043,23 +1061,32 @@ async def test_failure_clears_last_fed_so_resync_refeeds_the_same_value() -> Non
 
 
 async def test_failures_during_resync_do_not_rearm_the_resync() -> None:
-    """재동기화 도중의 실패는 재동기화를 또 예약하지 않는다(영구 장애에서 쉬지 않고 도는 일을 막는다)."""
+    """재동기화 도중의 실패는 재동기화를 또 예약하지 않는다(영구 장애에서 재동기화가 되풀이되지 않게).
+
+    가스만 계속 실패한다. 시작 재동기화에서 가스가 실패해도 다음 정상 신호(문)가 지나갈 때
+    재동기화가 또 돌지 않는다. 스트림에서 가스가 실패하면 재동기화는 정확히 한 번 돈다.
+    """
     world = _world()
     world.set(GAS, "on", "gas")
     svc, db, transport = await _make()
+    real = svc.handle_reading
 
-    async def broken(reading: SensorReading) -> Any:
-        raise RuntimeError("db down")
+    async def gas_broken(reading: SensorReading) -> Any:
+        if reading.entity_id == GAS:
+            raise RuntimeError("db down")
+        return await real(reading)
 
-    svc.handle_reading = broken
+    svc.handle_reading = gas_broken
     task = _start(svc, world.factory)
     try:
         await _until(lambda: world.states_requests >= 1)
-        await asyncio.sleep(0.3)
+        world.emit(DOOR, "on")  # 정상 처리되는 신호 — 시작 재동기화의 실패가 예약을 남기지 않았다
+        await _until(lambda: _is_open(svc, DOOR))
         assert world.states_requests == 1
-        world.emit(GAS, "off")  # 스트림 실패 하나 → 재동기화 한 번
+        world.emit(GAS, "off")  # 스트림 실패 하나 → 재동기화 한 번(그 안의 가스 실패는 재예약 안 함)
         await _until(lambda: world.states_requests >= 2)
-        await asyncio.sleep(0.3)
+        world.emit(DOOR, "off")
+        await _until(lambda: _is_gone(svc, DOOR))
         assert world.states_requests == 2
     finally:
         await _stop(task)
