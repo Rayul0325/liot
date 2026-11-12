@@ -61,7 +61,8 @@ def arm_names() -> list[str]:
 
 def run_cell(seed: int, *, unreg: float, obs: float, auc: float, attack: float, mode: str,
              vuln_ack: float, plain_ack: float = PLAIN_ACK, fpr: float = h15b.FPR,
-             n: int = N_EVENTS, ack_on: bool = True) -> dict[str, Any]:
+             n: int = N_EVENTS, ack_on: bool = True,
+             ack_mean_s: float = ACK_MEAN_S) -> dict[str, Any]:
     rng = np.random.default_rng(seed)
     u_cat, u_fa, u_home, u_obs, u_att, u_score = (rng.random(n) for _ in range(6))
     ack_rng = np.random.default_rng(seed + 10_000)  # separate stream: h15b draws stay identical
@@ -86,7 +87,7 @@ def run_cell(seed: int, *, unreg: float, obs: float, auc: float, attack: float, 
     # ── shared resident-ack model ──
     p_ack = np.where(truly_vuln, vuln_ack, plain_ack)
     resp = (u_resp < p_ack) if ack_on else np.zeros(n, dtype=bool)
-    t_ack = -ACK_MEAN_S * np.log1p(-u_time)
+    t_ack = -ack_mean_s * np.log1p(-u_time)
 
     def acked_within(w: float) -> np.ndarray:
         return resp & (t_ack <= w)

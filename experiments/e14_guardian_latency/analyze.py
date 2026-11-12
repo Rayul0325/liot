@@ -243,6 +243,29 @@ def _hybrid(raw: Path) -> dict[str, Any]:
     return out
 
 
+def _hybrid_sens(raw: Path) -> dict[str, Any]:
+    recs = read_jsonl(raw / "hybrid_sens.jsonl")
+    if not recs:
+        return {}
+    cells: dict[str, Any] = {}
+    for rec in recs:
+        n = np.array([s["n_events"] for s in rec["seeds"]], dtype=float)
+        liot, final = _arr(rec, "liot"), _arr(rec, "final")
+        row: dict[str, Any] = {}
+        for win in HYB_WINDOWS:
+            ev = _evaluate(liot, final, _arr(rec, win), n)
+            row[win] = {"qualifies": ev["qualifies"], "share": ev["share"],
+                        "fp_ratio": ev["fp_ratio"], "passes": ev["passes"]}
+        cells[rec["key"]] = row
+    by_mean: dict[str, Any] = {}
+    for am in sorted({r["ack_mean_s"] for r in recs}):
+        ks = [r["key"] for r in recs if r["ack_mean_s"] == am]
+        qual = [cells[k][PRIMARY] for k in ks if cells[k][PRIMARY]["qualifies"]]
+        by_mean[f"mean{am:g}"] = {"cells": len(ks), "qualifying": len(qual),
+                                  "passing_primary_window": sum(1 for e in qual if e["passes"])}
+    return {"cells": cells, "by_ack_mean": by_mean}
+
+
 # ── C4.9 (c) restart + concurrency fuzz ─────────────────────────────────────────────────────
 def _fuzz(raw: Path) -> dict[str, Any]:
     rows = read_jsonl(raw / "restart_fuzz.jsonl")
@@ -501,7 +524,7 @@ def _seq(raw: Path) -> dict[str, Any]:
 def summarize(raw_dir: Path) -> dict[str, Any]:
     raw = Path(raw_dir)
     return {
-        "regress": _regress(raw), "hybrid": _hybrid(raw), "fuzz": _fuzz(raw),
+        "regress": _regress(raw), "hybrid": _hybrid(raw), "hybrid_sens": _hybrid_sens(raw), "fuzz": _fuzz(raw),
         "killsweep": _killsweep(raw), "deadline": _deadline(raw), "coalesce": _coalesce(raw),
         "tick": _tick(raw), "seq": _seq(raw),
     }

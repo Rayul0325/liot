@@ -123,6 +123,28 @@ def collect_hybrid(raw: Path, quick: bool) -> int:
     return written
 
 
+ACK_MEANS = (30.0, 60.0, 120.0, 240.0)
+
+
+def collect_hybrid_sens(raw: Path) -> int:
+    """Post-hoc sensitivity (added after the main run): the resident answer-time mean was fixed at
+    60 s as an assumption; this shows how the prediction depends on it. Descriptive only."""
+    path = raw / "hybrid_sens.jsonl"
+    done = io.done_keys(path, ("key",))
+    written = 0
+    for vack, atk, am in itertools.product(hybrid.VULN_ACK, (0.0, 0.1), ACK_MEANS):
+        c = {"vuln_ack": vack, "unreg": 0.1, "obs": 0.05, "auc": 0.8, "attack": atk,
+             "mode": "honest", "ack_mean_s": am}
+        key = f"v{vack}|a{atk}|mean{am:g}"
+        if (key,) in done:
+            continue
+        seeds = [hybrid.run_cell(s, **c) for s in range(hybrid.N_SEEDS)]
+        io.append_jsonl(path, {"key": key, **c, "n_seeds": hybrid.N_SEEDS, "seeds": seeds,
+                               "meta": io.run_meta()})
+        written += 1
+    return written
+
+
 # ── restart fuzz (C4.9 c) ─────────────────────────────────────────────────────
 async def collect_fuzz(n_per: int, raw: Path) -> int:
     path = raw / "restart_fuzz.jsonl"
@@ -274,7 +296,7 @@ def collect_seq(raw: Path, quick: bool) -> int:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     p.add_argument("--part", default="all", choices=[
-        "regress", "hybrid", "fuzz", "killsweep", "deadline", "coalesce", "tick", "seq", "all"])
+        "regress", "hybrid", "hybrid_sens", "fuzz", "killsweep", "deadline", "coalesce", "tick", "seq", "all"])
     p.add_argument("--n", type=int, default=None)
     p.add_argument("--shard", default="0/1")
     p.add_argument("--quick", action="store_true")
@@ -303,6 +325,8 @@ def main() -> None:
 
     if args.part in ("hybrid", "all"):
         print("hybrid wrote", collect_hybrid(raw, args.quick))
+    if args.part in ("hybrid_sens", "all"):
+        print("hybrid_sens wrote", collect_hybrid_sens(raw))
     if args.part in ("deadline", "all"):
         print("deadline wrote", collect_deadline(raw))
     if args.part in ("seq", "all"):

@@ -487,7 +487,7 @@ async def run_episode(mode: str, ep: int) -> dict[str, Any]:
                     killed = True
                 except Exception as exc:  # noqa: BLE001 - an exception on the safety path is recorded
                     anomalies.append({"where": kind, "exc": type(exc).__name__})
-                killed = killed or any(isinstance(x, SimulatedKill) for x in results)
+                killed = killed or any(isinstance(x, SimulatedKill) for x in results) or inc.db.dead
                 inc.db.budget = None
                 transport.fail = False
                 if killed:
