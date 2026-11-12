@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import statistics
+import subprocess
 import textwrap
 from pathlib import Path
 from typing import Any
@@ -98,11 +99,17 @@ def effective_verdicts() -> tuple[list[dict[str, Any]], list[str]]:
 
 
 # ------------------------------------------------------------------ (a) hypothesis verdict map
-def make_verdict_map() -> Path:
+def make_verdict_map(
+    cycles: tuple[int, ...] = (0, 1, 2, 3),
+    name: str = "a_verdict_map",
+    title: str = "가설 · 사이클별 최종 판정",
+    counts_in_legend: bool = True,
+) -> Path:
     _apply_print_style()
     spec = _load(KIT_DIR / "hypotheses.yaml")
     rows, _ = effective_verdicts()
-    questions = spec["questions"]
+    rows = [r for r in rows if r["cycle"] in cycles]
+    questions = {qid: q for qid, q in spec["questions"].items() if any(r["q"] == qid for r in rows)}
 
     row_h = 0.205
     head_h = 0.28
@@ -117,7 +124,7 @@ def make_verdict_map() -> Path:
 
     x_id, x_name, x_chip, chip_w = 0.015, 0.205, 0.755, 0.23
     y = 0.12
-    ax.text(0.015, y + 0.05, "가설 · 사이클별 최종 판정", fontsize=9, fontweight="bold", va="center", color=plotstyle.GREY_DARK)
+    ax.text(0.015, y + 0.05, title, fontsize=9, fontweight="bold", va="center", color=plotstyle.GREY_DARK)
     y += 0.3
     for qid, qinfo in questions.items():
         group = [r for r in rows if r["q"] == qid]
@@ -163,7 +170,7 @@ def make_verdict_map() -> Path:
             edgecolor="#6B6B6B" if VERDICT_STYLE[v].get("dashed") else VERDICT_STYLE[v]["face"],
             hatch=VERDICT_STYLE[v]["hatch"],
             linestyle="--" if VERDICT_STYLE[v].get("dashed") else "-",
-            label=f"{v} {counts[v]}",
+            label=f"{v} {counts[v]}" if counts_in_legend else v,
         )
         for v in VERDICT_ORDER
     ]
@@ -172,13 +179,17 @@ def make_verdict_map() -> Path:
         0.015,
         y + 0.62,
         "정답이 우리 표·규칙에서 나오는 결과는 '구조상 결과'로 따로 표시했고 비교 결론에 쓰지 않았다.\n"
-        "'판정 불가'는 구간이 0 을 넘거나 시뮬레이터 점검을 통과하지 못한 경우다.",
+        + (
+            "'판정 불가'는 구간이 0 을 넘거나 시뮬레이터 점검을 통과하지 못한 경우다."
+            if counts_in_legend
+            else "사이클 4 는 전부 탐색이다. 가설마다 판정을 따로 읽고 지지된 개수는 세지 않는다."
+        ),
         fontsize=6.4,
         va="top",
         color=plotstyle.GREY_DARK,
         linespacing=1.35,
     )
-    return plotstyle.save(fig, KIT_DIR, "a_verdict_map")
+    return plotstyle.save(fig, KIT_DIR, name)
 
 
 # ------------------------------------------------------------------ (b) LIOT vs alternatives
@@ -488,13 +499,32 @@ def _log_rows() -> set[tuple[str, int]]:
     return rows
 
 
-def make_timeline() -> Path:
+def _git_time(sha: str) -> str:
+    """HH:MM of a commit in its own time zone (KST for this repository)."""
+    out = subprocess.run(
+        ["git", "show", "-s", "--format=%cd", "--date=format:%H:%M", sha],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=EXP_DIR,
+    )
+    return out.stdout.strip()
+
+
+def make_timeline(cycle4: bool = False) -> Path:
     _apply_print_style()
-    events = _load(KIT_DIR / "timeline.yaml")["events"]
-    log = _log_rows()
-    missing = [f"{e['time']} 사이클 {e['cycle']}" for e in events if (e["time"], e["cycle"]) not in log]
-    if missing:
-        raise ValueError(f"timeline.yaml 의 항목이 RESEARCH_LOG.md 에 없다: {', '.join(missing)}")
+    spec = _load(KIT_DIR / "timeline.yaml")
+    if cycle4:
+        events = spec["cycle4"]
+        bad = [f"{e['time']} {e['sha']} (git {_git_time(e['sha'])})" for e in events if _git_time(e["sha"]) != e["time"]]
+        if bad:
+            raise ValueError(f"timeline.yaml cycle4 시각이 git 커밋 시각과 다르다: {', '.join(bad)}")
+    else:
+        events = spec["events"]
+        log = _log_rows()
+        missing = [f"{e['time']} 사이클 {e['cycle']}" for e in events if (e["time"], e["cycle"]) not in log]
+        if missing:
+            raise ValueError(f"timeline.yaml 의 항목이 RESEARCH_LOG.md 에 없다: {', '.join(missing)}")
 
     lane_x = {"H": 0.215, "R": 0.505, "V": 0.795}
     lane_name = {"H": "가설 등록", "R": "결과", "V": "검토·판정"}
@@ -510,12 +540,12 @@ def make_timeline() -> Path:
     ax.axis("off")
 
     top = 0.62
-    ax.text(0.015, 0.2, "연구 사이클: 가설 → 결과 → 판정 → 다음 가설", fontsize=9, fontweight="bold", color=plotstyle.GREY_DARK, va="center")
+    ax.text(0.015, 0.2, "사이클 4 (탐색): 등록 → 검토 → 결과" if cycle4 else "연구 사이클: 가설 → 결과 → 판정 → 다음 가설", fontsize=9, fontweight="bold", color=plotstyle.GREY_DARK, va="center")
     for lane, x in lane_x.items():
         ax.text(x, top - 0.12, lane_name[lane], fontsize=7.5, fontweight="bold", ha="center", color=lane_edge[lane])
 
     centers: list[tuple[float, float]] = []
-    band_cols = {0: "#FAFAFA", 1: "#F1F5FA", 2: "#F6F3EA", 3: "#EFF6F1"}
+    band_cols = {0: "#FAFAFA", 1: "#F1F5FA", 2: "#F6F3EA", 3: "#EFF6F1", 4: "#F4EFF6"}
     for i, ev in enumerate(events):
         y0 = top + i * row_h
         ax.add_patch(Rectangle((0, y0), 1, row_h, facecolor=band_cols[ev["cycle"]], edgecolor="none", zorder=0))
@@ -526,6 +556,8 @@ def make_timeline() -> Path:
         x = lane_x[ev["lane"]]
         wrapped = "\n".join(textwrap.wrap(ev["text"], 14))
         label = f"{ev['time']}  {wrapped}"
+        if ev.get("sha"):
+            label += f"\n({ev['sha']})"
         if ev.get("mark"):
             label += f"\n→ {ev['mark']}"
         ax.text(
@@ -543,5 +575,171 @@ def make_timeline() -> Path:
         centers.append((x, y))
     for (x0, y0), (x1, y1) in zip(centers, centers[1:], strict=False):
         ax.annotate("", xy=(x1, y1 - row_h * 0.30), xytext=(x0, y0 + row_h * 0.30), arrowprops={"arrowstyle": "-|>", "color": "#9A9A9A", "linewidth": 0.7, "shrinkA": 0, "shrinkB": 0, "connectionstyle": "arc3,rad=0.0"}, zorder=2)
-    ax.text(0.015, height - 0.28, "시각은 KST(2026-11-12). 출처: experiments/RESEARCH_LOG.md — 같은 시각·사이클의 행과 일치함을 build 가 검사한다.", fontsize=6.0, color="#555555", va="center")
-    return plotstyle.save(fig, KIT_DIR, "c_research_timeline")
+    source = (
+        "시각은 KST(2026-11-12). 출처: 실제 git 커밋 시각 — 같은 해시의 커밋 시각과 일치함을 build 가 검사한다."
+        if cycle4
+        else "시각은 KST(2026-11-12). 출처: experiments/RESEARCH_LOG.md — 같은 시각·사이클의 행과 일치함을 build 가 검사한다."
+    )
+    ax.text(0.015, height - 0.28, source, fontsize=6.0, color="#555555", va="center")
+    return plotstyle.save(fig, KIT_DIR, "c2_research_timeline_cycle4" if cycle4 else "c_research_timeline")
+
+
+# ------------------------------------------------------------------ (b2) cycle-4 overview
+def _panel_c4_e10(ax: Any) -> None:
+    summary = load_summary("e10_cloud_injection")
+    if summary is None:
+        _pending_panel(ax, "Q5 주입에 흔들리는 정도 (E10)", "대기")
+        return
+    per = summary["c41"]["per_judge"]
+    order = [
+        ("Gemini", "gemini", False),
+        ("Haiku", "haiku", False),
+        ("Jev API", "jev-api", False),
+        ("apus", "apus-openjev-4b-q4", True),
+        ("jevk5-4b-q4", "jevk5-4b-q4", True),
+        ("jevk5-4b-q8", "jevk5-4b-q8", True),
+        ("jev-9b-q6", "jev-9b-q6", True),
+        ("jevk5-9b-q8", "jevk5-9b-q8", True),
+    ]
+    ypos = np.arange(len(order))[::-1]
+    for y, (_label, key, local) in zip(ypos, order, strict=True):
+        rate = per[key]["flip_rate"] * 100
+        lo, hi = (v * 100 for v in per[key]["flip_ci95"])
+        color = LIOT_WORSE if local else NEUTRAL
+        ax.hlines(y, lo, hi, color=color, linewidth=1.4)
+        ax.scatter([rate], [y], s=22, color=color, zorder=3)
+    ax.set_yticks(ypos, [o[0] for o in order])
+    groups = summary["c41"]["groups"]
+    ax.axvline(groups["cloud"]["flip_rate"] * 100, color=NEUTRAL, linestyle=":", linewidth=0.9)
+    ax.axvline(groups["local"]["flip_rate"] * 100, color=LIOT_WORSE, linestyle=":", linewidth=0.9)
+    ax.set_xlabel("주입으로 하한 아래가 된 비율 (%)")
+    ax.set_xlim(0, 62)
+    ax.set_title("Q5 로컬 판정자는 주입에 흔들린다", loc="left", fontweight="bold")
+    ax.text(0.99, 0.97, "붉은색=로컬 · 회색=클라우드\n점선=집단 평균(원인은 미분리)", transform=ax.transAxes, ha="right", va="top", fontsize=6)
+    ax.grid(axis="y", visible=False)
+
+
+def _panel_c4_u6(ax: Any) -> None:
+    before = load_summary("e14_guardian_latency")
+    after = load_summary("kit:e14_killsweep_after_u6")
+    if before is None or after is None:
+        _pending_panel(ax, "Q1 강제 종료 창 (E14 · U6)", "대기")
+        return
+    wb = before["killsweep"]["windows"][2]
+    wa = after["windows"][2]
+    kinds = [
+        ("첫 알림도\n사다리도 없음", "silent_kill_points", LIOT_WORSE),
+        ("알림은 갔지만\n사다리 없음", "alerted_but_no_ladder_kill_points", "#D9A441"),
+        ("읽기 자체가\n남지 않음", "nothing_durable_kill_points", NEUTRAL),
+    ]
+    x = np.arange(len(kinds))
+    width = 0.36
+    b = [len(wb[k]) for _, k, _ in kinds]
+    a = [len(wa[k]) for _, k, _ in kinds]
+    ax.bar(x - width / 2, b, width=width, color=[c for _, _, c in kinds], label="U6 전")
+    ax.bar(x + width / 2, a, width=width, color=[c for _, _, c in kinds], hatch="//", edgecolor="white", label="U6 후(kit 재측정)")
+    for xi, v in zip(x, b, strict=True):
+        ax.text(xi - width / 2, v + 0.3, str(v), ha="center", fontsize=7, fontweight="bold")
+    for xi, v in zip(x, a, strict=True):
+        ax.text(xi + width / 2, v + 0.3, str(v), ha="center", fontsize=7, fontweight="bold")
+    ax.set_xticks(x, [k[0] for k in kinds], fontsize=6.4)
+    ax.set_ylim(0, 19)
+    ax.set_ylabel("DB 문장 24개 중 절단 지점 수")
+    ax.set_title("Q1 U6 이 닫은 창 (가스, 일반 가구)", loc="left", fontweight="bold")
+    ax.legend(loc="upper right", fontsize=6, handlelength=1.4, bbox_to_anchor=(1.0, 1.02))
+
+
+def _panel_c4_e12(ax: Any) -> None:
+    summary = load_summary("e12_floor_anchor")
+    if summary is None:
+        _pending_panel(ax, "Q5 하한을 바꿔 주면 (E12)", "대기")
+        return
+    judges = [("Jev", "jev"), ("Haiku", "haiku"), ("Gemini", "gemini")]
+    width = 0.34
+    for i, (_label, key) in enumerate(judges):
+        by = summary["anchoring"][key]["by_direction"]
+        up = by["up"]["moved_with"]["rate"] * 100
+        down = by["down"]["moved_with"]["rate"] * 100
+        ax.bar(i - width / 2, up, width=width, color=NEUTRAL, label="한 칸 위를 줌" if i == 0 else None)
+        ax.bar(i + width / 2, down, width=width, color="#6B6B6B", label="한 칸 아래를 줌" if i == 0 else None)
+        ax.text(i - width / 2, up + 2, f"{up:.0f}", ha="center", fontsize=6.8)
+        ax.text(i + width / 2, down + 2, f"{down:.0f}", ha="center", fontsize=6.8)
+    ax.set_xticks(range(3), [j[0] for j in judges])
+    ax.set_ylim(0, 118)
+    ax.set_ylabel("주어진 하한을 따라간 비율 (%)")
+    ax.set_title("Q5 하한 필드를 따라 쓰나", loc="left", fontweight="bold")
+    ax.legend(loc="upper left", fontsize=6, handlelength=1.2)
+    up_total = sum(summary["departure_true_floor"][k]["above"] for _, k in judges)
+    ax.set_xlabel(f"참 하한일 때 위로 벗어남: 세 판정자 합 {up_total}건/{summary['steps']['can_depart_upward']}단계", fontsize=6.4, color=LIOT_WORSE)
+
+
+def _panel_c4_e13(ax: Any) -> None:
+    summary = load_summary("e13_adapt_rules")
+    if summary is None:
+        _pending_panel(ax, "Q4 모아보기 만료를 세지 않으면 (E13)", "대기")
+        return
+    r = summary["c47"]["verdict_1"]["ratio_r1_over_none_d31_60"]
+    ax.hlines(0, r["lo"], r["hi"], color=LIOT_WORSE, linewidth=3)
+    ax.scatter([r["ratio"]], [0], s=40, color=LIOT_WORSE, zorder=3)
+    ax.axvspan(0, 0.8, color="#F3DDD9", alpha=0.6, linewidth=0)
+    ax.axvspan(0.9, 1.1, color="#DCE8F4", alpha=0.7, linewidth=0)
+    ax.text(0.4, 0.55, "반증 영역\n(상한 < 0.80)", ha="center", fontsize=6.6, color="#7A2F26")
+    ax.text(1.0, 0.55, "지지 영역\n(하한 ≥ 0.90)", ha="center", fontsize=6.6, color="#1F5FA8")
+    ax.text(r["ratio"], -0.45, f"{r['ratio']:.2f} [{r['lo']:.2f}, {r['hi']:.2f}]", ha="center", fontsize=7, fontweight="bold", color=LIOT_WORSE)
+    ax.set_xlim(0, 1.1)
+    ax.set_ylim(-0.9, 1.0)
+    ax.set_yticks([])
+    ax.set_xlabel("폰 수락된 도움: 규칙 (1) ÷ 학습 없음 (tray0, 31~60일)")
+    ax.set_title("Q4 규칙 (1)은 격차를 못 메운다", loc="left", fontweight="bold")
+    ax.grid(axis="y", visible=False)
+
+
+def _panel_c4_e16(ax: Any) -> None:
+    summary = load_summary("e16_scoring_harm")
+    if summary is None:
+        _pending_panel(ax, "Q2 피해 가중·같은 상한 (E16)", "대기")
+        return
+    wd = summary["c413"]["c413a"]["weighted_deficit"]["exp|m0.1"]
+    items = [("건수(균등)", wd["uniform"]), ("코더 가중", wd["coder"]), ("반쯤 균등", wd["coder_shrunk_half"])]
+    ypos = np.arange(len(items))[::-1]
+    for y, (_label, d) in zip(ypos, items, strict=True):
+        mean = d["mean_diff"] * 100
+        lo, hi = (v * 100 for v in d["ci95_across_sets"])
+        ax.hlines(y, lo, hi, color=LIOT_WORSE, linewidth=2)
+        ax.scatter([mean], [y], s=26, color=LIOT_WORSE, zorder=3)
+        ax.text(hi + 0.08, y, f"+{mean:.2f}", va="center", fontsize=7, fontweight="bold", color=LIOT_WORSE)
+    ax.axvline(0, color="#3F3F3F", linewidth=0.8)
+    ax.set_yticks(ypos, [i[0] for i in items])
+    ax.set_xlim(-0.3, 4.4)
+    ax.set_xlabel("liot_real 해로운 실행률 열세 (%p, 같은 상한·m=10%)")
+    ax.set_title("Q2 가중해도 열세는 줄지 않는다", loc="left", fontweight="bold")
+    posthoc = summary["c413"]["c413a"]["h2_1_matched_posthoc"]["exp|m0.1"]["vs_flat_explicit_same_ceiling(사후, matched)"]["share_policy_sig_higher"] * 100
+    ax.text(0.12, 0.5, f"사후: 일치 비교에서 liot_real 이\n유의하게 더 해로운 세트\n{posthoc:.2f}% (m=10%)", transform=ax.transAxes, ha="left", va="center", fontsize=6.2, color="#555555")
+    ax.grid(axis="y", visible=False)
+
+
+def _panel_c4_e15(ax: Any) -> None:
+    if load_summary("e15_mutation_recheck") is None:
+        _pending_panel(ax, "Q6 뮤테이션 재측정 (E15)", "대기\n(e15 결과 도착 후\n다시 만들면 채워짐)")
+        return
+    _pending_panel(ax, "Q6 뮤테이션 재측정 (E15)", "결과 도착\nfigures.py 에\n패널을 추가")
+
+
+def make_overview_cycle4() -> Path:
+    _apply_print_style()
+    fig = plt.figure(figsize=(4.7, 8.2))
+    gs = fig.add_gridspec(3, 2, hspace=0.62, wspace=0.55, left=0.13, right=0.985, top=0.965, bottom=0.07)
+    _panel_c4_e10(fig.add_subplot(gs[0, 0]))
+    _panel_c4_e12(fig.add_subplot(gs[0, 1]))
+    _panel_c4_e13(fig.add_subplot(gs[1, 0]))
+    _panel_c4_u6(fig.add_subplot(gs[1, 1]))
+    _panel_c4_e16(fig.add_subplot(gs[2, 0]))
+    _panel_c4_e15(fig.add_subplot(gs[2, 1]))
+    fig.text(
+        0.13,
+        0.012,
+        "사이클 4(탐색): 붉은색=LIOT 에 불리, 회색·파랑=참고. 지지된 가설의 개수는 결론으로 쓰지 않는다. 숫자 출처는 REPORT_KIT.md 의 청구 번호.",
+        fontsize=5.8,
+        color="#555555",
+    )
+    return plotstyle.save(fig, KIT_DIR, "b2_liot_vs_alternatives_cycle4")

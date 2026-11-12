@@ -112,7 +112,25 @@ def e9_upward_possible(summary: dict[str, Any]) -> float:
     return float(by_floor["ambient"]["n"] + by_floor["breath"]["n"])
 
 
+def e12_scene_follow(summary: dict[str, Any], judge: str, shown: str, what: str, true_floor: str | None = None) -> float:
+    """E12: steps where the swapped floor ``shown`` was given; ``what`` = den | num (answer == shown).
+
+    Keys of ``answers_by_scene_and_shown_floor`` look like ``alert|gas | true=ember shown=dusk``.
+    ``true_floor`` narrows to scenes whose real floor is that tier.
+    """
+    den = num = 0
+    for key, counts in summary["answers_by_scene_and_shown_floor"][judge].items():
+        if f"shown={shown}" not in key:
+            continue
+        if true_floor is not None and f"true={true_floor}" not in key:
+            continue
+        den += sum(counts.values())
+        num += counts.get(shown, 0)
+    return float(den if what == "den" else num)
+
+
 FUNCS: dict[str, Callable[..., float]] = {
+    "e12_scene_follow": e12_scene_follow,
     "e9_upward_possible": e9_upward_possible,
     "e8_modules_below": e8_modules_below,
     "h15b_auc08_over2_share": h15b_auc08_over2_share,

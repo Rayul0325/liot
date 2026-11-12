@@ -63,3 +63,28 @@ hypotheses:
   - {id: H6.2, q: Q6, cycle: 1, exp: e7_ladder, name: 동시 대 순차 호출, verdict: 기술 결과, raw: 기술 결과(판정 없음), claims: [E7-02]}
   - {id: C2.10, q: Q6, cycle: 2, exp: e7_ladder, name: 방관 효과를 동시 호출 수로 계산, verdict: 읽기에 따라 갈림, raw: 해석 N 은 반증 조건에 걸리고 해석 동시 호출 수는 지지 — 결론은 해석에 달렸다, claims: [E7-03]}
   - {id: H6.3, q: Q6, cycle: 2, exp: e8_mutation, name: 안전 모듈의 뮤테이션 점수, verdict: 지지, raw: "지지(반증 실패) — 커버리지 95% 이상인데 10개 모듈 중 7개가 90% 미만(개수는 가정에 따라 7→4→2); 안전 관련 빈틈 15곳. 등록 때는 품질 확인이라 연구 결론에서 제외", claims: [E8-01, E8-02, E8-03]}
+  # ---- 사이클 4 (전부 탐색 — 가설별 판정만 인용, 지지된 개수는 세지 않는다)
+  - {id: "C4.1", q: Q5, cycle: 4, exp: e10_cloud_injection, name: "클라우드가 주입에 덜 흔들리나", verdict: "지지", raw: "지지 — 이 3개(Jev API·Haiku·Gemini) 대 이 5개 로컬, 원인(클라우드 여부)은 미분리. 순효과 구간 하한은 0.10 아래", claims: [E10-01]}
+  - {id: "C4.4", q: Q5, cycle: 4, exp: e10_cloud_injection, name: "세 번째 코더(Gemini)의 일치", verdict: "기술 결과", raw: "기술 결과 — κ·AC1 병기, 하위 종류 61/61 은 어휘가 문장을 보고 만들어져 구조적으로 높음", claims: [E10-02]}
+  - {id: "C4.2", q: Q5, cycle: 4, exp: e11_wording_fields, name: "올림은 사실인가 어휘인가", verdict: "판정 불가", raw: "판정 불가 — 조작 실패(1차 제외가 두 팔 모두 20% 초과). 점추정은 탐색 값", claims: [E11-01]}
+  - {id: "C4.3", q: Q5, cycle: 4, exp: e11_wording_fields, name: "필드가 얼마나 풍부해야 올림이 돌아오나", verdict: "반증", raw: "반증(등록 문구) — 정보 상한 약 0.56, 정보가 있는 사례만으로는 판정 불가", claims: [E11-02, E11-03]}
+  - {id: "C4.5 (a)", q: Q5, cycle: 4, exp: e12_floor_anchor, name: "세 판정자는 실제 장면에서 갈리나", verdict: "기술 결과", raw: "기술 결과 — Jev 가 낀 쌍의 일치는 구조상 결과. 위로 벗어남 0/77 (세 판정자)", claims: [E12-01]}
+  - {id: "C4.5 (b)", q: Q5, cycle: 4, exp: e12_floor_anchor, name: "하한을 바꿔 주면 답이 따라가나", verdict: "기술 결과", raw: "기술 결과 — 같은 낱말 필드를 따라 쓰는 echo. Jev 잔잔→숨결 57/57, 땅거미 쪽 0/50", claims: [E12-02]}
+  - {id: "C4.6", q: Q4, cycle: 4, exp: e13_adapt_rules, name: "쉬는 기간과 선호 변화 시점", verdict: "판정 불가", raw: "판정 불가 — 판정 칸(변화일 15) 구간이 0.05 에 걸침. 다른 변화일 2 지지·3 판정 불가. 다시 수락 일수 단축은 구조상 결과", claims: [E13-01]}
+  - {id: "C4.7 (1)", q: Q4, cycle: 4, exp: e13_adapt_rules, name: "모아보기 만료를 비선호로 안 세면", verdict: "반증", raw: "반증 (예상 가능했음) — tray0 비율 0.443 [0.338, 0.557]. findings.md 수정만으로는 폰 수락된 도움이 줄어듦", claims: [E13-02]}
+  - {id: "C4.7 (2)(3)", q: Q4, cycle: 4, exp: e13_adapt_rules, name: "두 번째에 차단·수락 시 해제", verdict: "기술 결과", raw: "기술 결과 — (3)은 단독으로 작동할 길이 없음(구조상)", claims: [E13-03]}
+  - {id: "C4.8", q: Q4, cycle: 4, exp: e13_adapt_rules, name: "수고 계수 스윕(A 빼기 B)", verdict: "구조상 결과", raw: "구조상 결과 — 단조 충족, 되돌림 0", claims: [E13-04, E13-05]}
+  - {id: "C4.9 (a)", q: Q1, cycle: 4, exp: e14_guardian_latency, name: "U5 뒤 첫 송신 실패 대기 충돌 0", verdict: "구조상 결과", raw: "구조상 결과(회귀 확인) — 충돌 0 이지만 첫 알림은 여전히 30초 늦음", claims: [E14-01]}
+  - {id: "C4.9 (b)", q: Q1, cycle: 4, exp: e14_guardian_latency, name: "혼합 보호자 기준", verdict: "지지", raw: "지지 — 응답 확인 평균 60초 가정에서만(30·120·240초에서 0 통과). 게이트 4 를 깨는 탐색 변형, 일반화 금지", claims: [E14-02]}
+  - {id: "C4.9 (c)", q: Q1, cycle: 4, exp: e14_guardian_latency, name: "재시작·동시성 퍼징에서 게이트 1·4", verdict: "반증", raw: "반증 — 중간 절단 698/2,000 에피소드(34.9%, 균등 추출이라 실제 빈도 아님) 게이트 1 위반. 게이트 4 위반 0. U6 이 창을 닫음", claims: [E14-03, E14-04]}
+  - {id: "C4.10 (a)", q: Q1, cycle: 4, exp: e14_guardian_latency, name: "짧은 마감 대기가 잡는 답의 비율", verdict: "기술 결과", raw: "기술 결과 (가설에서 빠짐) — 질문 2개 ≤1.0초 70.4%, 높은 부하 한 기계", claims: [E14-05]}
+  - {id: "C4.10 (b)", q: Q1, cycle: 4, exp: e14_guardian_latency, name: "후속 올림 푸시 묶기", verdict: "기술 결과", raw: "기술 결과 — 첫 알림 지연 불변은 구조상 결과. K=1 에서 ≤1.05 불충족", claims: [E14-06]}
+  - {id: "C4.10 (c) 틱", q: Q6, cycle: 4, exp: e14_guardian_latency, name: "사다리 틱 1초", verdict: "구조상 결과", raw: "구조상 결과 — 위상 4종 모두 오차 1초 이상 0/162", claims: [E14-07]}
+  - {id: "C4.10 (c) 순차", q: Q6, cycle: 4, exp: e14_guardian_latency, name: "순차 호출 대기 30·60초 곡선", verdict: "기술 결과", raw: "기술 결과 — 방관 해석에 따라 갈림(응답 모델 가정)", claims: [E14-07]}
+  - {id: "C4.11", q: Q6, cycle: 4, exp: e15_mutation_recheck, name: "빈틈 시험 뒤 뮤테이션 재측정", verdict: "대기", raw: "e15 진행 중 — (a)는 정의상 오르는 구조상 결과", claims: [E15-00]}
+  - {id: "C4.12 (a)", q: Q3, cycle: 4, exp: e16_scoring_harm, name: "곱셈에 하한을 붙이면", verdict: "기술 결과", raw: "기술 결과 — 하한 위반 0 은 구조상 결과. 안전 칸에만 하한을 두면 단조 위반 64.7%", claims: [E16-01]}
+  - {id: "C4.12 (b)", q: Q3, cycle: 4, exp: e16_scoring_harm, name: "취약 배수 5 이상", verdict: "반증", raw: "반증(동점 손실 중앙값 42 > 32) — 가스 위험 아래 0 은 구조상 결과. 곱셈 최선은 14 로 표보다 잘게 나눔", claims: [E16-02]}
+  - {id: "C4.13 (a)", q: Q2, cycle: 4, exp: e16_scoring_harm, name: "피해를 심각도로 가중하면", verdict: "구조상 결과", raw: "구조상 결과(순환, ρ 0.899) — 열세는 줄지 않음(1.05배, 참고)", claims: [E16-03]}
+  - {id: "C4.13 (b)", q: Q2, cycle: 4, exp: e16_scoring_harm, name: "부담을 끄면 남은 이점이 사라지나", verdict: "반증", raw: "반증(등록 비교군 R1) — R2 는 사후 기준. 반증은 구조상 예상 가능했음", claims: [E16-04]}
+  - {id: "C4.13 (c)", q: Q2, cycle: 4, exp: e16_scoring_harm, name: "H2.2 실패의 원인", verdict: "기술 결과", raw: "기술 결과 — 시뮬레이터 결함이 아니라 비교군의 제안 집합 차이(침묵 효과)", claims: [E16-05]}
+  - {id: "H2.1 사후", q: Q2, cycle: 4, exp: e16_scoring_harm, name: "H2.1 사후 재판정(같은 상한)", verdict: "반증", raw: "반증(사후) — 같은 상한을 건 비교군에서 m=10% 78.75% 세트. 등록 형태의 '판정 불가'는 그대로", claims: [E16-05]}

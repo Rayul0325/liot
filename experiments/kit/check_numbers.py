@@ -82,7 +82,10 @@ class Claim:
 
 def load_summary(exp: str) -> dict[str, Any] | None:
     """Parsed ``<exp>/results/summary.json`` or ``None`` when the experiment has not landed."""
-    path = EXP_DIR / exp / "results" / "summary.json"
+    if exp.startswith("kit:"):  # the kit's own re-measurements (see rerun_u6_killsweep.py)
+        path = KIT_DIR / "data" / f"{exp[4:]}.json"
+    else:
+        path = EXP_DIR / exp / "results" / "summary.json"
     if not path.exists():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
