@@ -293,10 +293,14 @@ async def _amain() -> int:
             task.uncancel()
         print("[LIOT] 종료 신호를 받아 정리하고 끝냅니다.")
     finally:
-        stop.remove()
+        # 처리기는 DB 를 닫은 **뒤에** 되돌린다 — 닫는 중에 신호가 또 와도 기본 동작(즉시 종료)으로
+        # 떨어지지 않고 무시된다(정리를 끊지 않는다).
         if fb_server is not None:
             fb_server.close()
-        await db.close()
+        try:
+            await db.close()
+        finally:
+            stop.remove()
     return 0
 
 

@@ -141,6 +141,8 @@ class _HAConnectFailed(Exception):
 _HA_MIN_WAKE_S = 0.05
 # 끊긴 HA 연결을 닫는 데 쓰는 최대 시간(초).
 _HA_CLOSE_TIMEOUT_S = 2.0
+# 감독의 끊김 뒤처리가 예외로 실패했을 때 다시 시도하기 전에 쉬는 시간(초) — 헛돌지 않게.
+_HA_TAIL_ERROR_WAIT_S = 5.0
 
 # 2단계(결정 모델) 판정 한 번이 보내는 HTTP 요청 수의 상한. 결정 백엔드의
 # 제한시간은 요청 하나당이라(LIOT_DECISION_TIMEOUT), 판정 전체 마감은 그 배수다.
@@ -1819,24 +1821,35 @@ class LiotService:
                 if bridge is not None:
                     await self._ha_close(bridge)
 
-            now = self._ha_now()
-            if tracker.up_since is not None and now - tracker.up_since >= BACKOFF_STABLE_RESET_S:
-                backoff.reset()
-            tracker.mark_down(now)
-            self._ha_last_cause = cause
-            if auth_rejected:
-                delay = AUTH_BACKOFF_S
-                logger.error(
-                    "HA authentication rejected — token revoked or wrong? retrying in %.0f s "
-                    "(slow retry avoids an HA IP ban)", delay,
-                )
-            else:
-                delay = backoff.next_delay()
-                logger.warning("HA connection lost (%s) — retrying in %.0f s", cause, delay)
-            await self._ha_check_notice(tracker)
-            if max_sessions is not None and attempts >= max_sessions:
-                return
-            await self._ha_wait(delay, tracker)
+            # 끊김 뒤처리(대기 계산·알림 판정·대기)도 감독을 끝내면 안 된다 — 취소가 아닌 예외가
+            # gather 밖으로 나가면 사다리까지 취소된다. 실패하면 남기고 짧게 쉰 뒤 다시 시도한다.
+            try:
+                now = self._ha_now()
+                if (
+                    tracker.up_since is not None
+                    and now - tracker.up_since >= BACKOFF_STABLE_RESET_S
+                ):
+                    backoff.reset()
+                tracker.mark_down(now)
+                self._ha_last_cause = cause
+                if auth_rejected:
+                    delay = AUTH_BACKOFF_S
+                    logger.error(
+                        "HA authentication rejected — token revoked or wrong? retrying in %.0f s "
+                        "(slow retry avoids an HA IP ban)", delay,
+                    )
+                else:
+                    delay = backoff.next_delay()
+                    logger.warning("HA connection lost (%s) — retrying in %.0f s", cause, delay)
+                await self._ha_check_notice(tracker)
+                if max_sessions is not None and attempts >= max_sessions:
+                    return
+                await self._ha_wait(delay, tracker)
+            except Exception as exc:  # noqa: BLE001 — 감독은 취소로만 끝난다
+                logger.error("HA supervisor tail failed: %s", type(exc).__name__, exc_info=exc)
+                if max_sessions is not None and attempts >= max_sessions:
+                    return
+                await self._ha_sleep(_HA_TAIL_ERROR_WAIT_S)
 
     @staticmethod
     async def _ha_close(bridge: HABridge) -> None:
@@ -2084,7 +2097,12 @@ class LiotService:
     async def _tick_loop(self, tick_seconds: float, max_ticks: int | None) -> None:
         n = 0
         while True:
-            await self.run_tick()
+            try:
+                await self.run_tick()
+            except Exception as exc:  # noqa: BLE001 — 틱 하나의 실패가 사다리·HA 감독까지 끝내면 안 된다
+                # gather 안의 태스크가 예외로 끝나면 run 이 사다리를 취소하고 프로세스가 끝난다(게이트 1).
+                # 사다리 루프와 같은 정책: 남기고 다음 틱으로 간다.
+                logger.error("proactive tick failed: %s", type(exc).__name__, exc_info=exc)
             n += 1
             if max_ticks and n >= max_ticks:
                 return

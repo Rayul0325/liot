@@ -1451,3 +1451,108 @@ async def test_daemon_with_no_ha_at_startup_retries_keeps_ladder_alive_and_close
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+
+
+# ==========================================================================
+# 10) 리뷰 후속: 틱 루프·감독 뒤처리 격리, 신호 처리기 순서
+# ==========================================================================
+async def test_one_failing_tick_does_not_end_run_and_ladder_and_tick_keep_going() -> None:
+    """``run_tick`` 예외 하나가 gather 를 끝내 사다리까지 취소하면 안 된다(게이트 1).
+
+    첫 틱만 실패한다. 이후 틱이 계속 돌고, 사다리 루프도 계속 돌며, run 은 살아 있다.
+    """
+    svc, db, _ = await _make()
+    real_tick = svc.run_tick
+    ticks = {"n": 0}
+
+    async def flaky_tick() -> Any:
+        ticks["n"] += 1
+        if ticks["n"] == 1:
+            raise RuntimeError("tick boom")
+        return await real_tick()
+
+    ladder = {"n": 0}
+    real_ladder = svc.ladder_tick
+
+    async def counting_ladder() -> Any:
+        ladder["n"] += 1
+        return await real_ladder()
+
+    svc.run_tick = flaky_tick
+    svc.ladder_tick = counting_ladder
+    task = asyncio.create_task(svc.run(tick_seconds=0.03, ladder_resolution_s=0.02))
+    try:
+        await _until(lambda: ticks["n"] >= 3)
+        n = ladder["n"]
+        await _until(lambda: ladder["n"] >= n + 3)
+        assert not task.done(), "틱 하나의 실패로 run 이 끝났다"
+    finally:
+        await _stop(task)
+        await db.close()
+
+
+async def test_supervisor_tail_failure_never_ends_the_supervisor() -> None:
+    """끊김 뒤처리(알림 판정 등)가 예외로 실패해도 감독은 계속 재시도한다 — 취소로만 끝난다."""
+    ft = FakeTime()
+    svc, db, _ = await _make(fake_time=ft)
+
+    async def broken(tracker: Any) -> None:
+        raise RuntimeError("notice path exploded")
+
+    svc._ha_check_notice = broken
+    factory = ScriptedFactory(_world(), ft, ["fail"] * 3)
+    try:
+        await asyncio.wait_for(svc._ha_supervisor(factory, max_sessions=3), timeout=10)
+        assert len(factory.times) == 3  # 세 번 모두 시도했다(첫 실패에서 끝나지 않았다)
+        assert ft.sleeps == [5.0, 5.0]  # 실패한 뒤처리마다 쉬었다(헛돌지 않는다)
+    finally:
+        await db.close()
+
+
+async def test_run_survives_a_failing_supervisor_tail() -> None:
+    world = _world()
+    world.refuse = True
+    svc, db, _ = await _make()
+
+    async def broken(tracker: Any) -> None:
+        raise RuntimeError("notice path exploded")
+
+    svc._ha_check_notice = broken
+    task = _start(svc, world.factory)
+    try:
+        await asyncio.sleep(0.3)
+        assert not task.done(), "감독 뒤처리 예외가 run(gather)을 끝냈다"
+    finally:
+        await _stop(task)
+        await db.close()
+
+
+async def test_amain_keeps_the_signal_handler_installed_while_the_db_closes(
+    monkeypatch: pytest.MonkeyPatch, _daemon_env: None
+) -> None:
+    """DB 를 닫는 중에 신호가 또 와도 기본 동작(즉시 종료)으로 떨어지지 않는다 — 처리기는 닫은 뒤에 되돌린다."""
+    entered = _park_run(monkeypatch)
+    before = signal.getsignal(signal.SIGTERM)
+    seen: list[Any] = []
+    real_init = init_db
+
+    async def init_with_spy(path: str, **kwargs: Any) -> Any:
+        db = await real_init(path, **kwargs)
+        real_close = db.close
+
+        async def spy_close() -> None:
+            seen.append(signal.getsignal(signal.SIGTERM))
+            await real_close()
+
+        db.close = spy_close  # type: ignore[method-assign]
+        return db
+
+    monkeypatch.setattr("liot.serve.init_db", init_with_spy)
+    task = asyncio.create_task(serve._amain())
+    await asyncio.wait_for(entered.wait(), timeout=5)
+    assert signal.getsignal(signal.SIGTERM) != before
+    os.kill(os.getpid(), signal.SIGTERM)
+    assert await asyncio.wait_for(task, timeout=5) == 0
+    assert seen
+    assert seen[0] != before, "DB 를 닫기 전에 신호 처리기를 되돌렸다"
+    assert signal.getsignal(signal.SIGTERM) == before
