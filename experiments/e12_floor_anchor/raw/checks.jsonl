@@ -1,0 +1,1 @@
+{"steps": 107, "roundtrip_unchanged": 107, "egress_unchanged": 107, "tier_word_outside_floor_field": 0, "meta": {"git_sha": "ec7e2caefa4b45d23ca5f89823c7985698bdd4c4", "git_dirty": true, "python": "3.13.3", "platform": "macOS-27.0-arm64-arm-64bit-Mach-O", "load1": 49.62548828125, "ts": "2026-11-12T01:53:53.036020+00:00"}}
