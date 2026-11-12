@@ -231,12 +231,23 @@ async def _add_safety_persistence(db: aiosqlite.Connection) -> None:
     await _add_columns_if_missing(db, "proposals", _PROPOSAL_V3_COLUMNS)
 
 
+async def _add_ladder_anchor(db: aiosqlite.Connection) -> None:
+    """버전 4: escalation_ladders.anchor_at — 사다리 시각의 기준을 열린 시각에서 옮길 때만 쓴다.
+
+    NULL(기존 행·보통의 새 행) = 기준은 situations.opened_at, 지금까지와 똑같이 동작한다.
+    값이 있으면 그 시각이 기준이다: 오래 묵은 고아 상황을 복구가 지금 처음 알릴 때(결정 0017).
+    멱등: 컬럼은 없을 때만 추가한다.
+    """
+    await _add_columns_if_missing(db, "escalation_ladders", (("anchor_at", "TEXT"),))
+
+
 # (version, async fn(db)) 순서대로 누적 적용한다. version 은 1부터 단조 증가.
 _MIGRATIONS: list[tuple[int, str, Callable[[aiosqlite.Connection], object]]] = [
     (1, "baseline schema (schema.sql)", _apply_baseline),
     (2, "candidate_evaluations table", _add_candidate_evaluations),
     (3, "residents/guardians/consent/situations/ladders + severity columns",
      _add_safety_persistence),
+    (4, "escalation_ladders.anchor_at (nullable)", _add_ladder_anchor),
 ]
 
 LATEST_VERSION = max((v for v, _, _ in _MIGRATIONS), default=0)
