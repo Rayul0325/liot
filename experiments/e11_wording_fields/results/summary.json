@@ -333,6 +333,45 @@
       "haiku",
       "gemini"
     ],
+    "prefix_split": {
+      "calm": {
+        "with_urgent_marker": {
+          "cases": 12,
+          "gain_ci95_case_bootstrap": [
+            0.046053,
+            0.197397
+          ],
+          "gain_equal_weight": 0.117647
+        },
+        "without_urgent_marker": {
+          "cases": 6,
+          "gain_ci95_case_bootstrap": [
+            0.0,
+            0.078125
+          ],
+          "gain_equal_weight": 0.034722
+        }
+      },
+      "danger": {
+        "with_urgent_marker": {
+          "cases": 10,
+          "gain_ci95_case_bootstrap": [
+            0.0625,
+            0.221154
+          ],
+          "gain_equal_weight": 0.144231
+        },
+        "without_urgent_marker": {
+          "cases": 8,
+          "gain_ci95_case_bootstrap": [
+            0.016667,
+            0.238636
+          ],
+          "gain_equal_weight": 0.115385
+        }
+      },
+      "marker": "긴급"
+    },
     "thresholds": {
       "exclusion_max": 0.2,
       "gain_falsify": 0.1,
@@ -343,7 +382,14 @@
     "verdict_c42": {
       "calm_gain": 0.088942,
       "label": "판정 불가",
-      "reason": "between the registered thresholds",
+      "label_if_final_exclusions_were_used": "판정 불가",
+      "pass1_exclusion_rates": {
+        "alarming": 0.888889,
+        "neutral": 0.222222
+      },
+      "point_estimates_status": "exploratory (not usable for the registered verdict)",
+      "reason": "manipulation/exclusion rule failed (pass-1 exclusions exceed 20% in both arms; pass-2 checker looser than the pre-run plan; alarming arm became an emergency-assertion prefix)",
+      "reason_if_final_exclusions_were_used": "between the registered thresholds",
       "retention": 0.897389
     }
   },
@@ -1035,6 +1081,90 @@
         "jevk5-9b-q8": 7
       }
     },
+    "field_information": {
+      "cases": 45,
+      "cases_with_any_non_default_field": 19,
+      "pairs": 18,
+      "pairs_where_field_differs": {
+        "all_four_identical": 7,
+        "concurrent": 3,
+        "duration": 4,
+        "rate": 6,
+        "sensor_kinds_emptiness": 2,
+        "sensor_kinds_set": 4
+      }
+    },
+    "informative_only": {
+      "arms": {
+        "f_A": {
+          "pooled_returned": 0.111111,
+          "pooled_returned_ci95_case_bootstrap": [
+            -0.10531,
+            0.290323
+          ],
+          "raised_arm": 7,
+          "raised_operational": 2,
+          "raised_sentence": 47
+        },
+        "f_AB": {
+          "pooled_returned": 0.311111,
+          "pooled_returned_ci95_case_bootstrap": [
+            0.026299,
+            0.529412
+          ],
+          "raised_arm": 16,
+          "raised_operational": 2,
+          "raised_sentence": 47
+        },
+        "f_ABCD": {
+          "pooled_returned": 0.266667,
+          "pooled_returned_ci95_case_bootstrap": [
+            0.026299,
+            0.51925
+          ],
+          "raised_arm": 14,
+          "raised_operational": 2,
+          "raised_sentence": 47
+        },
+        "f_B": {
+          "pooled_returned": 0.155556,
+          "pooled_returned_ci95_case_bootstrap": [
+            -0.031275,
+            0.375
+          ],
+          "raised_arm": 9,
+          "raised_operational": 2,
+          "raised_sentence": 47
+        },
+        "f_C": {
+          "pooled_returned": -0.044444,
+          "pooled_returned_ci95_case_bootstrap": [
+            -0.156291,
+            0.0
+          ],
+          "raised_arm": 0,
+          "raised_operational": 2,
+          "raised_sentence": 47
+        },
+        "f_D": {
+          "pooled_returned": -0.022222,
+          "pooled_returned_ci95_case_bootstrap": [
+            -0.148194,
+            0.040816
+          ],
+          "raised_arm": 1,
+          "raised_operational": 2,
+          "raised_sentence": 47
+        }
+      },
+      "cases": 45,
+      "ceiling_share_reachable": 0.559524,
+      "denominator_items": 84,
+      "denominator_items_on_uninformative_cases": 37,
+      "informative_cases": 19,
+      "label_informative_only_4_fields": "판정 불가",
+      "label_rule": "post-hoc: interval entirely below 0.5 -> 반증; entirely at/above 0.5 -> 지지; else 판정 불가"
+    },
     "judges": [
       "jevk5-9b-q8",
       "jevk5-4b-q8",
@@ -1070,6 +1200,7 @@
         "2": 0.146341,
         "4": 0.121951
       },
+      "qualifier": "반증(등록 문구) — 정보 상한 ≈0.56; 정보가 있는 사례만으로는 판정 불가",
       "reason": "returned share < 0.5 at 4 fields",
       "single_field_pooled_share": {
         "f_A": 0.036585,

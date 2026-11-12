@@ -42,7 +42,7 @@ def fig_c42(s: dict[str, Any], exp_dir: Path) -> Path:
     axes[1].set_yticks([])
     axes[1].set_ylim(-0.5, 0.5)
     axes[1].set_title("평온 사례 올림 증가 (비율 차이)", fontsize=9)
-    fig.suptitle(f"C4.2 판정: {s['c42_wording']['verdict_c42']['label']}", fontsize=10)
+    fig.suptitle(f"C4.2 판정: {s['c42_wording']['verdict_c42']['label']} (두 점추정은 탐색용)", fontsize=10)
     del names
     return plotstyle.save(fig, exp_dir, "c42_retention_and_calm_gain")
 
@@ -75,7 +75,8 @@ def fig_c43(s: dict[str, Any], exp_dir: Path) -> Path:
     ax.set_xticks([0, 1, 2, 4], ["0", "1", "2", "4"])
     ax.set_xlabel("더한 필드 수")
     ax.set_ylabel("돌아온 몫 (문장 대 운영 올림 차이 중)")
-    ax.set_title(f"C4.3 판정: {v['label']}  (자격 판정자 {len(v['eligible_judges_rep0'])}명, 건수 합산)")
+    ceil = s["c43_fields"]["informative_only"]["ceiling_share_reachable"]
+    ax.set_title(f"C4.3 판정: {v['label']}(등록 문구), 정보 상한 약 {ceil:.2f}  (판정자 {len(v['eligible_judges_rep0'])}명, 건수 합산)", fontsize=9)
     ax.legend(fontsize=8, loc="lower right")
     return plotstyle.save(fig, exp_dir, "c43_field_curve")
 

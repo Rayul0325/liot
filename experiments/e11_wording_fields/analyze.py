@@ -144,6 +144,33 @@ def _gain(c: dict[str, tuple[int, int, int]], pick: list[str]) -> float | None:
     return None if n == 0 else (sum(c[x][0] for x in pick) - sum(c[x][1] for x in pick)) / n
 
 
+URGENT_WORD = "긴급"
+
+
+def _prefix_split(
+    table: Table, acc: dict[str, dict[str, str]], judges: list[str], danger: list[str], calm: list[str],
+    w: dict[str, float],
+) -> dict[str, Any]:
+    """Raise-rate gain of the alarming rewrites split by whether the accepted text carries '긴급' (descriptive)."""
+    out: dict[str, Any] = {"marker": URGENT_WORD}
+    for pool_name, pool in (("calm", calm), ("danger", danger)):
+        sub: dict[str, Any] = {}
+        for name, has in (("with_urgent_marker", True), ("without_urgent_marker", False)):
+            pick = [c for c in pool if c in acc.get("alarming", {}) and (URGENT_WORD in acc["alarming"][c]) == has]
+            gc = {j: _gain_contrib(table, j, "rw_alarming", pick) for j in judges}
+            pt = _wmean({j: _gain(gc[j], pick) for j in judges}, w) if pick else None
+            rng = _rng(f"c42-prefix-{pool_name}-{name}")
+            bs: list[float] = []
+            for _ in range(BOOT if pick else 0):
+                s = [pick[i] for i in rng.integers(0, len(pick), size=len(pick))]
+                m = _wmean({j: _gain(gc[j], s) for j in judges}, w)
+                if m is not None:
+                    bs.append(m)
+            sub[name] = {"cases": len(pick), "gain_equal_weight": pt, "gain_ci95_case_bootstrap": _ci(bs)}
+        out[pool_name] = sub
+    return out
+
+
 def _c42(table: Table, design: dict[str, Any], judges: list[str]) -> dict[str, Any]:
     acc = design.get("accepted", {"neutral": {}, "alarming": {}})
     pv = design.get("pair_variant", {})
@@ -216,7 +243,35 @@ def _c42(table: Table, design: dict[str, Any], judges: list[str]) -> dict[str, A
     nd = out["cells"]["neutral_on_danger"]
     ac = out["cells"]["alarming_on_calm"]
     ret, gain = nd["retention_normalised_equal_weight"], ac["raise_rate_gain_equal_weight"]
-    excl_over = any((e["final_rate"] or 0) > EXCLUDE_MAX for e in excl.values())
+    excl_over_final = any((e["final_rate"] or 0) > EXCLUDE_MAX for e in excl.values())
+    excl_over_pass1 = all((e["pass1_rate"] or 0) > EXCLUDE_MAX for e in excl.values())
+    excl_over = excl_over_final
+    if ret is None or gain is None:
+        verdict_if_final, why_if_final = "판정 불가", "retention or gain undefined"
+    elif ret >= RETAIN_SUPPORT and gain >= GAIN_FALSIFY:
+        verdict_if_final, why_if_final = "둘 다", "retention >= .80 and calm gain >= .10"
+    elif ret < RETAIN_FALSIFY or gain >= GAIN_FALSIFY:
+        verdict_if_final, why_if_final = "반증", "retention < .50 or calm gain >= .10"
+    elif ret >= RETAIN_SUPPORT and gain < GAIN_SUPPORT:
+        verdict_if_final, why_if_final = "지지", "retention >= .80 and calm gain < .05"
+    else:
+        verdict_if_final, why_if_final = "판정 불가", "between the registered thresholds"
+    out["prefix_split"] = _prefix_split(table, acc, judges, danger, calm, w)
+    if excl_over_pass1 or excl_over:
+        # metric-review reading (validity review): the 20% rule is read on the pass-1 failures
+        out["verdict_c42"] = {
+            "label": "판정 불가",
+            "reason": ("manipulation/exclusion rule failed (pass-1 exclusions exceed 20% in both arms; "
+                       "pass-2 checker looser than the pre-run plan; alarming arm became an emergency-assertion prefix)"),
+            "retention": ret, "calm_gain": gain,
+            "point_estimates_status": "exploratory (not usable for the registered verdict)",
+            "label_if_final_exclusions_were_used": verdict_if_final,
+            "reason_if_final_exclusions_were_used": why_if_final,
+            "pass1_exclusion_rates": {a: e["pass1_rate"] for a, e in excl.items()},
+        }
+        out["thresholds"] = {"retention_support": RETAIN_SUPPORT, "retention_falsify": RETAIN_FALSIFY,
+                             "gain_support": GAIN_SUPPORT, "gain_falsify": GAIN_FALSIFY, "exclusion_max": EXCLUDE_MAX}
+        return out
     if excl_over:
         verdict, why = "판정 불가", "exclusion share above 20% in a registered arm"
     elif ret is None or gain is None:
@@ -246,7 +301,7 @@ def _common_keys(table: Table, judge: str, ctxs: tuple[str, ...], rep: int) -> l
     return sorted(set.intersection(*sets)) if all(sets) else []
 
 
-def _c43(table: Table, judges: list[str]) -> dict[str, Any]:
+def _c43(table: Table, design: dict[str, Any], judges: list[str]) -> dict[str, Any]:
     out: dict[str, Any] = {"judges": judges, "min_denominator": MIN_DENOM, "arms": {}}
     # eligibility from sentence vs operational only (independent of the target arm)
     elig: dict[str, dict[str, int]] = {}
@@ -332,6 +387,104 @@ def _c43(table: Table, judges: list[str]) -> dict[str, Any]:
         "equal_weight_share_by_field_count": {"0": 0.0, **{str(n): means[n] for n in (1, 2, 4)}},
         "single_field_pooled_share": {a: a0.get(a, {}).get("pooled_returned") for a in ("f_A", "f_B", "f_C", "f_D")},
     }
+    out["field_information"] = _field_information(design)
+    out["informative_only"] = _informative_only(table, design, judges, elig0)
+    inf = out["informative_only"]
+    out["verdict_c43"]["qualifier"] = (
+        f"반증(등록 문구) — 정보 상한 ≈{inf['ceiling_share_reachable']:.2f}; "
+        f"정보가 있는 사례만으로는 {inf['label_informative_only_4_fields']}"
+    )
+    return out
+
+
+NULL_FIELDS = ((), "unknown", "0", "unknown")
+
+
+def _tuple(codes: dict[str, Any]) -> tuple[Any, ...]:
+    return (tuple(codes["sensor_kinds"]), codes["rate"], codes["concurrent"], codes["duration"])
+
+
+def _field_information(design: dict[str, Any]) -> dict[str, Any]:
+    """Which field differs between the calm and the danger variant of a pair (coder-A values)."""
+    codes = design.get("codes_A", {})
+    pv = design.get("pair_variant", {})
+    names = sorted({v["pair"] for v in pv.values() if v["pair"]})
+    cnt = {"sensor_kinds_set": 0, "sensor_kinds_emptiness": 0, "rate": 0, "concurrent": 0, "duration": 0,
+           "all_four_identical": 0}
+    for n in names:
+        a, b = codes[f"{n}/calm"], codes[f"{n}/danger"]
+        cnt["sensor_kinds_set"] += int(sorted(a["sensor_kinds"]) != sorted(b["sensor_kinds"]))
+        cnt["sensor_kinds_emptiness"] += int(bool(a["sensor_kinds"]) != bool(b["sensor_kinds"]))
+        for f in ("rate", "concurrent", "duration"):
+            cnt[f] += int(a[f] != b[f])
+        cnt["all_four_identical"] += int(_tuple(a) == _tuple(b))
+    return {"pairs": len(names), "pairs_where_field_differs": cnt,
+            "cases_with_any_non_default_field": sum(1 for c in codes.values() if _tuple(c) != NULL_FIELDS),
+            "cases": len(codes)}
+
+
+def _informative_only(table: Table, design: dict[str, Any], judges: list[str], elig0: list[str]) -> dict[str, Any]:
+    """Ceiling of the returned share and the share restricted to cases whose 4 fields are not all default.
+
+    A case whose four field values are all default (no anomalous sensor, rate unknown, concurrent 0, duration
+    unknown) gives the model exactly the operational summary plus constant text, so a rise there cannot come back
+    through the fields.  Ceiling = 1 - (denominator items on such cases) / (all denominator items); a denominator
+    item is a (judge, case, question) the judge raised with the sentence and not with the operational summary
+    (rep0, eligible judges).  Post-hoc reading added after the validity review (HYPOTHESES.md, 사후 변경 기록).
+    """
+    codes = design.get("codes_A", {})
+    informative = {c for c, v in codes.items() if _tuple(v) != NULL_FIELDS}
+    items = []
+    for j in elig0:
+        s_, o_ = _items(table, j, "sentence", 0), _items(table, j, "operational", 0)
+        items += [(j, k) for k, (a, f) in s_.items() if k in o_ and a > f and not o_[k][0] > o_[k][1]]
+    uninf = sum(1 for _, k in items if k[0] not in informative)
+    out: dict[str, Any] = {
+        "informative_cases": len(informative), "cases": len(codes),
+        "denominator_items": len(items), "denominator_items_on_uninformative_cases": uninf,
+        "ceiling_share_reachable": 1 - uninf / len(items) if items else None,
+        "arms": {},
+    }
+    for arm in FIELD_ARMS:
+        data: dict[str, tuple[list[tuple[str, str]], np.ndarray, np.ndarray, np.ndarray]] = {}
+        for j in elig0:
+            ks = [k for k in _common_keys(table, j, ("sentence", "operational", arm), 0) if k[0] in informative]
+            if ks:
+                data[j] = (ks, *(_raise_vec(table, j, c, 0, ks) for c in ("sentence", "operational", arm)))
+        if not data:
+            continue
+        rs, ro, rt = (sum(int(v[i].sum()) for v in data.values()) for i in (1, 2, 3))
+        cases = sorted({k[0] for v in data.values() for k in v[0]})
+        idx = {j: {c: [i for i, k in enumerate(v[0]) if k[0] == c] for c in cases} for j, v in data.items()}
+        rng = _rng(f"c43-informative-{arm}")
+        bs: list[float] = []
+        for _ in range(BOOT):
+            pick = [cases[i] for i in rng.integers(0, len(cases), size=len(cases))]
+            a = b = c_ = 0
+            for j, v in data.items():
+                sel = [i for c in pick for i in idx[j][c]]
+                a += int(v[1][sel].sum())
+                b += int(v[2][sel].sum())
+                c_ += int(v[3][sel].sum())
+            if a > b:
+                bs.append((c_ - b) / (a - b))
+        out["arms"][arm] = {
+            "raised_sentence": rs, "raised_operational": ro, "raised_arm": rt,
+            "pooled_returned": (rt - ro) / (rs - ro) if rs > ro else None,
+            "pooled_returned_ci95_case_bootstrap": _ci(bs),
+        }
+    a4 = out["arms"].get("f_ABCD", {})
+    ci = a4.get("pooled_returned_ci95_case_bootstrap")
+    if a4.get("pooled_returned") is None or ci is None:
+        lab = "판정 불가"
+    elif ci[1] < 0.5:
+        lab = "반증"
+    elif ci[0] >= 0.5:
+        lab = "지지"
+    else:
+        lab = "판정 불가"
+    out["label_informative_only_4_fields"] = lab
+    out["label_rule"] = "post-hoc: interval entirely below 0.5 -> 반증; entirely at/above 0.5 -> 지지; else 판정 불가"
     return out
 
 
@@ -455,7 +608,7 @@ def summarize(raw_dir: Path) -> dict[str, Any]:
         "judges": judges,
         "counts": _basic_counts(table, judges),
         "c42_wording": _c42(table, design, judges),
-        "c43_fields": _c43(table, judges),
+        "c43_fields": _c43(table, design, judges),
         "rule_vs_models": _rule_vs_models(table, judges),
         "coder_agreement_A_vs_B": _coder_agreement(design),
         "design": {k: design.get(k) for k in ("exclusions", "tone_mean_by_pass")},

@@ -69,3 +69,23 @@ def test_checks_flag_number_tag_length_and_added_entity() -> None:
     assert any(f.startswith("length") for f in checks.check_one(orig, orig + " " + orig, ents))
     assert any(f.startswith("entities_added") for f in checks.check_one(orig, "[day] 오븐 220도 40분째 가동, 주방 무인, 화재.", ents))
     assert any(f.startswith("entities_missing") for f in checks.check_one(orig, "[day] 220도 40분째 가동, 주방 무인.", ents))
+
+
+def test_field_information_counts_pairs_and_default_cases() -> None:
+    from experiments.e11_wording_fields import analyze
+
+    null = {"sensor_kinds": [], "rate": "unknown", "concurrent": "0", "duration": "unknown"}
+    hot = {"sensor_kinds": ["gas"], "rate": "rising", "concurrent": "1", "duration": "unknown"}
+    design = {
+        "codes_A": {"p/calm": null, "p/danger": hot, "q/calm": null, "q/danger": dict(null)},
+        "pair_variant": {
+            "p/calm": {"pair": "p", "variant": "calm"}, "p/danger": {"pair": "p", "variant": "danger"},
+            "q/calm": {"pair": "q", "variant": "calm"}, "q/danger": {"pair": "q", "variant": "danger"},
+        },
+    }
+    info = analyze._field_information(design)
+    assert info["pairs"] == 2
+    assert info["pairs_where_field_differs"]["all_four_identical"] == 1
+    assert info["pairs_where_field_differs"]["sensor_kinds_emptiness"] == 1
+    assert info["pairs_where_field_differs"]["rate"] == 1
+    assert info["cases_with_any_non_default_field"] == 1
