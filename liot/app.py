@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -271,6 +272,20 @@ class LiotApp:
         self.bus.subscribe(Layer.L2, self._on_l1_to_l2)
         self.bus.subscribe(Layer.L3, self._on_l2_to_l3)
         self.bus.subscribe(Layer.L4, self._on_l3_to_l4)
+
+    def set_categories(self, categories: Mapping[str, str] | None) -> None:
+        """엔티티 → 카테고리 맵을 바꾼다 — 앱·ContextBuilder·ProactiveGenerator 셋 모두.
+
+        셋은 각자 사본을 쥐고 있어(생성 때 ``dict(...)`` 복사) 앱 맵만 고치면 맥락·능동 생성기는
+        옛 분류를 본다: 안전 분류가 계층마다 갈리는 것이 가장 위험한 어긋남이다. HA 재연결 때
+        새 엔티티를 반영하는 유일한 경로다. 빈 맵이면 생성자와 같이 카탈로그 맵으로 돌아간다.
+        """
+        new = dict(categories or {})
+        if not new:
+            new = self._categories_from_catalog(self.catalog)
+        self._categories = new
+        self.context_builder.set_categories(new)
+        self.proactive.set_categories(new)
 
     @staticmethod
     def _categories_from_catalog(catalog: DeviceCatalog) -> dict[str, str]:

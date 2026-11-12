@@ -200,14 +200,35 @@ DB 를 읽지도 쓰지도 않는 순수 계산이다. 실제 파급도 표·사
 
 HA 가 안전 센서를 `unavailable`·`unknown` 으로 보내면 상황 요약 형식으로 거주자 토픽에만 한 건 간다. `situation_label` = `<센서 종류> 센서 · 감시 불가(연결 끊김)`, `severity_label` = `주의`, 확인 링크 없음. 보호자에게는 가지 않는다.
 
+### 감시 중단·재개 알림(데몬 → 거주자)
+
+HA 연결 전체가 끊겨 센서를 하나도 못 읽을 때 같은 상황 요약 형식으로 **거주자 토픽에만** 간다(보호자 없음·확인 링크 없음·허용 키 집합 그대로). 헌장 OFF 면 보내지 않고, 음소거는 무시한다(결정 0012 와 같다). 시점은 §4 의 '재연결' 규칙이다.
+
+| 알림 | `situation_label` | `severity_label` | 시점 |
+|---|---|---|---|
+| 감시 중단 | `안전 센서 전체 · 감시 중단(집 연결 끊김)` | `경고` | 한 번의 끊김당 한 번 |
+| 감시 재개 | `안전 센서 전체 · 감시 재개(집 연결 복구)` | `주의` | 중단 알림이 실제로 나간 끊김이 끝날 때 한 번 |
+
+기기·방 이름은 싣지 않는다(고정 문구). `audit_log` 에는 `ha_stream_lost`(`ref_id` = startup·continuous·cumulative, `detail` = reason·cause·down_s·notified·charter_enabled)와 `ha_stream_restored`(`detail` = down_s·stop_delivered·notified·charter_enabled)가 남는다.
+
 ## 4. Home Assistant 입력(HA → 데몬)
 
-- 연결: `LIOT_HA_URL` 의 WebSocket. 순서는 서버 `auth_required` → 클라이언트 `{"type":"auth","access_token":<토큰>}` → 서버 `auth_ok`. `auth_ok` 가 아니면 인증 실패로 기동이 멈춘다. 첫 메시지가 `auth_required` 가 아니어도 실패다.
-- 시작 시 `{"id":n,"type":"get_states"}` 결과로 엔티티별 카테고리를 정한다: 도메인이 lock·light·switch·climate·media_player·cover·fan·vacuum·valve 면 도메인으로(`valve` → 수도 본관, `vacuum` → appliance), 아니면 `attributes.device_class` 로(gas·carbon_monoxide → 가스, smoke → 연기, moisture·water → 누수, door·garage_door → 문, lock → 도어락, window, motion·occupancy·presence → motion, temperature, humidity), 둘 다 아니면 도메인 접두사. 이 맵은 기동 때 한 번만 만든다.
-- 구독: `{"id":n,"type":"subscribe_events","event_type":"state_changed"}`. 소비하는 것은 `event.data.new_state` 의 `entity_id`, `state`(원시값), `attributes.unit_of_measurement`, `last_changed`(없으면 `last_updated`)다. `new_state` 가 없으면(엔티티 제거) 무시한다. `result` 응답의 `success` 가 거짓이면 요청 실패다.
-- 상태 정규화: `on`·`true`·`1`·`yes`·`open`·`opened`·`detected`·`motion`·`present`·`home`·`wet`·`unlocked`·`active` → 참, `off`·`false`·`0`·`no`·`closed`·`close`·`clear`·`no_motion`·`absent`·`away`·`dry`·`locked`·`idle`·`inactive` → 거짓, 숫자(단위 붙어도) → 실수, 그 밖 → 소문자 문자열(`unavailable`·`unknown` 포함 — 안전 카테고리에서는 이상으로 판정된다).
-- 쓰기: 실행이 켜졌을 때만 `{"type":"call_service","domain","service","target":{"entity_id"},"service_data"?}` 를 보낸다. `service_data` 에는 brightness·temperature·position·volume_level 숫자만 싣는다.
-- 연결이 닫히면 재연결하지 않는다.
+- 연결: `LIOT_HA_URL` 의 WebSocket. 순서는 서버 `auth_required` → 클라이언트 `{"type":"auth","access_token":<토큰>}` → 서버 `auth_ok`. `auth_ok` 가 아니면 인증 실패(`HAAuthError`)다. 첫 메시지가 `auth_required` 가 아니어도 실패다. 요청 하나(인증·구독·`get_states`·`get_config`·`call_service`)의 응답은 30초 안에 와야 하고, 아니면 연결 실패로 본다.
+- 카테고리: `{"id":n,"type":"get_states"}` 결과로 엔티티별 카테고리를 정한다: 도메인이 lock·light·switch·climate·media_player·cover·fan·vacuum·valve 면 도메인으로(`valve` → 수도 본관, `vacuum` → appliance), 아니면 `attributes.device_class` 로(gas·carbon_monoxide → 가스, smoke → 연기, moisture·water → 누수, door·garage_door → 문, lock → 도어락, window, motion·occupancy·presence → motion, temperature, humidity), 둘 다 아니면 도메인 접두사. 이 맵은 **연결(최초·재연결)마다** 다시 만들어 지금까지 본 맵에 **병합**한다(앱·ContextBuilder·ProactiveGenerator 셋에 함께 반영 — `LiotApp.set_categories`). HA 에 닿기 전에는 기기 카탈로그 맵으로 시작한다. 병합이라 부분 `get_states`(HA 기동 중)나 `attributes.restored: true` 자리표시자가 이미 안전으로 분류한 엔티티를 덮지 못하고, 사라진 엔티티는 남는다.
+- 구독: `{"id":n,"type":"subscribe_events","event_type":"state_changed"}`. 소비하는 것은 `event.data.new_state` 의 `entity_id`, `state`(원시값), `attributes.unit_of_measurement`, `last_changed`(없으면 `last_updated`)다. `new_state` 가 없으면(엔티티 제거) 무시한다. `result` 응답의 `success` 가 거짓이면 요청 실패다. `event`·`data`·`new_state` 가 객체가 아니거나 읽기로 바꿀 수 없으면 건너뛰지 않고 형식 오류(`HAMalformedMessage`)로 연결을 끊고 다시 붙는다(건너뛰면 그 안전 신호가 사라진다).
+- 상태 정규화: `on`·`true`·`1`·`yes`·`open`·`opened`·`detected`·`motion`·`present`·`home`·`wet`·`unlocked`·`active` → 참, `off`·`false`·`0`·`no`·`closed`·`close`·`clear`·`no_motion`·`absent`·`away`·`dry`·`locked`·`idle`·`inactive` → 거짓, 숫자(단위 붙어도) → 실수, 그 밖 → 소문자 문자열. `unavailable`·`unknown` 은 이상도 정상도 아닌 **판정 보류**(감시 불가, 결정 0012)이고, 깨진 문자열·빈 값·NaN 은 이상이다.
+- 쓰기: 실행이 켜졌을 때만 `{"type":"call_service","domain","service","target":{"entity_id"},"service_data"?}` 를 보낸다. `service_data` 에는 brightness·temperature·position·volume_level 숫자만 싣는다. 호출(과 이전 상태 조회)마다 **짧은 별도 연결**을 연다(열기 → 인증 → 호출 → 닫기) — 스트림 소켓과 공유하지 않는다. HA 에 닿지 못하면 실행 실패(조작 안 함)다.
+
+### 재연결과 재동기화(결정 0014)
+
+`liot-serve` 는 HA 연결을 같은 프로세스 안에서 유지하는 **감독**을 돌린다(`LiotService.run(ha_factory=...)`). 사다리·틱·피드백 수신구는 HA 연결과 무관하게 먼저 뜬다.
+
+- 세션 순서(연결마다): 인증 → `subscribe_events` → (HA 코어가 `RUNNING` 이 될 때까지 대기) → `get_states` → **재동기화** → 버퍼 비우기 → 스트림. 응답을 기다리는 동안 도착한 이벤트는 버리지 않고 버퍼에 쌓아 스트림이 순서대로 먼저 내준다(스냅샷과 구독 사이의 상태 변화가 사라지지 않는다).
+- HA 기동 대기: `{"type":"get_config"}` 의 `result.state` 가 `RUNNING` 이 아니면 5초 간격으로 다시 묻는다(상한 5분, 넘기면 경고 로그 뒤 그대로 진행). 기다리는 동안에도 스트림은 받고, 카테고리 맵만 먼저 채운다(그 스냅샷의 값은 흘리지 않는다). `state` 가 없는 응답은 준비된 것으로 본다.
+- 재동기화: `get_states` 의 안전 카테고리 엔티티 현재값을 `handle_reading` 에 한 번씩 흘린다(이상 → 정상 → 감시 불가 순). 꺼져 있던 동안 이상이 된 센서가 침묵하지 않게 한다. `attributes.restored: true` 자리표시자는 건너뛴다. 이 프로세스가 마지막으로 **성공적으로** 흘린 값과 같은 엔티티도 건너뛴다(재연결마다 같은 알림이 중복되지 않게). 처리에 실패한 엔티티는 그 기록에서 지운다.
+- 신호 하나의 예외는 로그로 남기고 다음 신호로 넘어간다. 실패한 것이 안전 카테고리 읽기였으면 재동기화를 한 번 예약한다(그 신호는 다시 오지 않는다). 재동기화 도중의 실패는 재예약하지 않는다.
+- 재연결 대기: 1초에서 시작해 두 배씩 60초까지. 연결이 5분 넘게 안정된 뒤에만 1초로 되돌린다. 인증 거부(`auth_invalid`)는 5분 대기와 별도 로그(HA 의 IP 차단 회피)이고 끊김으로 센다. 감독은 취소로만 끝난다.
+- 감시 중단·재개: 끊김은 시작 시각부터 센다(데몬이 뜬 뒤 첫 연결 전도 끊김). **감시 중단**은 한 번의 끊김에서 한 번, ① 연속 120초(시작 후 첫 연결이 120초 안에 안 된 경우 포함 — `ha_stream_lost.ref_id` = startup) ② 최근 10분 안 끊김 누적 120초(깜빡임, cumulative) 중 먼저 오는 쪽에 낸다. **감시 재개**는 중단 알림이 실제로 나간 끊김이 끝날 때(재동기화까지 마친 뒤) 한 번 낸다. 재개하면 누적을 새로 센다. 알림 형식은 위 '감시 중단·재개 알림'.
 
 ## 5. 결정 모델 서버(데몬 → llama.cpp)
 

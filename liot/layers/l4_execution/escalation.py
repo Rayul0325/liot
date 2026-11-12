@@ -53,6 +53,8 @@ __all__ = [
     "GUIDANCE_119_TEXT",
     "LADDER_RESOLUTION_S",
     "LADDER_RETRY",
+    "MONITORING_RESUMED_LABEL",
+    "MONITORING_STOPPED_LABEL",
     "SENSOR_KIND_LABEL_KO",
     "SITUATION_LABEL_KO",
     "UNMONITORABLE_TEXT",
@@ -125,10 +127,21 @@ SENSOR_KIND_LABEL_KO: Final[dict[str, str]] = {
 }
 DEFAULT_SENSOR_KIND_LABEL: Final[str] = "안전"
 UNMONITORABLE_TEXT: Final[str] = "감시 불가(연결 끊김)"
+# HA 연결 전체가 끊겨 센서를 하나도 못 읽을 때(감시 중단)와 다시 붙었을 때(감시 재개)의 라벨.
+# 센서 종류가 아니라 집 전체의 감시 상태라 카테고리를 쓰지 않는다. 기기·방 이름은 싣지 않는다.
+MONITORING_STOPPED_LABEL: Final[str] = "안전 센서 전체 · 감시 중단(집 연결 끊김)"
+MONITORING_RESUMED_LABEL: Final[str] = "안전 센서 전체 · 감시 재개(집 연결 복구)"
 # 119 는 안내다 — 사람이 직접 전화하도록 번호 문구만 싣는다(자동 신고 없음).
 GUIDANCE_119_TEXT: Final[str] = "119에 직접 전화해 주세요(자동 신고 아님)"
 
-MessageKind = Literal["forward", "resolved", "guidance_119", "unmonitorable"]
+MessageKind = Literal[
+    "forward",
+    "resolved",
+    "guidance_119",
+    "unmonitorable",
+    "monitoring_stopped",
+    "monitoring_resumed",
+]
 
 
 # ── 라벨 ────────────────────────────────────────────────────────────────────
@@ -150,6 +163,10 @@ def message_label(category: str, kind: MessageKind) -> str:
     """
     if kind == "unmonitorable":
         return f"{sensor_kind_label(category)} 센서 · {UNMONITORABLE_TEXT}"
+    if kind == "monitoring_stopped":
+        return MONITORING_STOPPED_LABEL
+    if kind == "monitoring_resumed":
+        return MONITORING_RESUMED_LABEL
     base = situation_label(category)
     if kind == "resolved":
         return f"{base} · {RESOLVED_TEXT}"

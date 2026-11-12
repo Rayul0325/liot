@@ -15,6 +15,7 @@
 | [0011](0011-119-guidance-only.md) | 119 는 안내만, 자동 신고 없음 | 채택 |
 | [0012](0012-ha-unavailable-is-unmonitorable.md) | HA 읽기 불가는 위험이 아니라 감시 불가 — 거주자에게만 한 번 | 채택 |
 | [0013](0013-charter-off-keeps-guardian-forward.md) | 헌장 전면 OFF 는 거주자 알림만 끈다. 동의한 보호자 전달·119 안내는 막지 않는다 | 채택 |
+| [0014](0014-ha-reconnect-and-resync.md) | HA 연결은 같은 프로세스 안에서 다시 붙고, 붙을 때마다 현재 센서값을 재동기화한다. 120초 끊기면 거주자에게만 감시 중단·재개 | 채택 |
 | [0015](0015-situation-reject-stops-ladder-only.md) | 상황 알림의 '거절'은 그 상황의 사다리만 멈춘다. 30일 거절 이력에 넣지 않는다 | 채택 |
 | [0016](0016-comfort-held-during-situation.md) | 열린 안전 상황 동안 편의 제안은 자동 실행하지 않고, 하한 위험 상황 동안은 폰 발송도 보류한다 | 채택 |
 | [0017](0017-recovered-first-alert-anchor.md) | 복구가 오래 묵은 상황의 첫 알림을 지금 보내면 사다리 기준 시각을 그 송신 시각으로 옮긴다(거주자 먼저 90초 보존) | 채택 |

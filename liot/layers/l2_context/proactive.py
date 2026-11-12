@@ -256,6 +256,10 @@ class ProactiveGenerator:
         # 기본 파이프라인 동작을 바꾸지 않기 위해 기본값은 None.
         self.llm_candidate_backend = llm_candidate_backend
 
+    def set_categories(self, categories: Mapping[str, str] | None) -> None:
+        """엔티티 → 카테고리 맵을 통째로 바꾼다(HA 재연결 때 새 엔티티를 반영). 사본을 쥔다."""
+        self.categories = dict(categories) if categories else {}
+
     # ------------------------------------------------------------------
     def _origin_for(self, rule: ProactiveRule) -> str:
         """재현 가능한 출처 토큰: proactive:rule:<id>@<ruleset_hash 8자리>."""
