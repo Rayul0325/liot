@@ -154,20 +154,21 @@ DEV_SIGNING_SECRET: bytes = b"liot-dev-signing-key"
 
 ComfortHold = Literal["auto", "phone"]
 
-# 열린 안전 상황 동안의 편의 제안 보류(결정 0016). ``run_tick`` 이 자기 디스패치 동안만 걸고
-# ``dispatch`` 가 읽는다. 인자 대신 컨텍스트 변수를 쓰는 이유: (1) 실험 하네스가
-# ``dispatch(proposal)`` 시그니처로 서브클래스를 둔다, (2) 인스턴스 속성이면 디스패치가
-# await 하는 사이 끼어드는 다른 태스크(상황 알림)가 보류를 물려받는다 — 컨텍스트 변수는
-# 태스크마다 따로라 그럴 수 없다.
-_COMFORT_HOLD: contextvars.ContextVar[ComfortHold | None] = contextvars.ContextVar(
-    "liot_comfort_hold", default=None
+# '지금 디스패치하는 것은 능동 틱의 편의 제안이다'라는 출처 표식(결정 0016). ``run_tick`` 이
+# 자기 디스패치 동안만 걸고 ``dispatch`` 가 읽는다. 보류 *수준*은 표식이 아니라 발송·실행
+# 직전마다 열린 상황을 다시 읽어 정한다(``_comfort_hold``). 인자 대신 컨텍스트 변수를 쓰는
+# 이유: (1) 실험 하네스가 ``dispatch(proposal)`` 시그니처로 서브클래스를 둔다, (2) 인스턴스
+# 속성이면 디스패치가 await 하는 사이 끼어드는 다른 태스크(상황 알림)가 표식을 물려받는다 —
+# 컨텍스트 변수는 태스크마다 따로라 그럴 수 없다.
+_COMFORT_TICK: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "liot_comfort_tick", default=False
 )
 
 
 class DispatchResult:
     """단일 제안 처리 결과(관측·테스트용)."""
 
-    __slots__ = ("proposal", "decision", "sent", "error", "executed")
+    __slots__ = ("proposal", "decision", "sent", "error", "executed", "held")
 
     def __init__(
         self,
@@ -176,12 +177,14 @@ class DispatchResult:
         sent: bool,
         error: str | None = None,
         executed: bool = False,
+        held: bool = False,
     ) -> None:
         self.proposal = proposal
         self.decision = decision  # IMMEDIATE | DIGEST | SUPPRESS
         self.sent = sent
         self.error = error
         self.executed = executed  # 이 디스패치에서 실제 조작이 일어났는가(AUTO)
+        self.held = held  # 열린 위험 상황 때문에 폰 발송을 보류했는가(결정 0016)
 
     def __repr__(self) -> str:  # pragma: no cover - 디버그 편의
         return (
@@ -361,10 +364,12 @@ class LiotService:
     async def dispatch(self, proposal: Proposal) -> DispatchResult:
         """제안을 영속화하고 발화 게이트를 적용해 (가능하면) 실제 송신한다.
 
-        열린 안전 상황 동안의 편의(능동 틱) 제안 보류(결정 0016)는 ``run_tick`` 이 거는
-        컨텍스트 변수(``_COMFORT_HOLD``)로 받는다: ``"auto"`` 는 자동 실행만 막고(알림은
-        게이트 그대로), ``"phone"`` 은 폰 발송도 막는다 — 영속만 하고 DIGEST 로 돌려주며
-        감사 행을 남긴다. 걸지 않은 호출(명시 요청·상황 알림)은 보류가 없다.
+        열린 안전 상황 동안의 편의(능동 틱) 제안 보류(결정 0016): ``run_tick`` 이 건 출처
+        표식(``_COMFORT_TICK``)이 있을 때만, **자동 실행 직전과 폰 발송 직전마다** 열린
+        상황을 다시 읽어 정한다 — 열린 상황이 있으면 자동 실행을 막고, 하한 CRITICAL 상황이
+        있으면 폰 발송도 막는다(영속만 하고 DIGEST, 감사 행). 확인(await) 뒤 실행·발송에
+        들어가기까지 다른 await 가 없다: 이 디스패치가 await 하는 사이 열린 상황도 놓치지
+        않는다. 표식이 없는 호출(명시 요청·상황 알림)은 보류가 없다.
 
         조작이 활성(executor+policy)이면, 정책이 AUTO(비안전 ≤BREATH)로 판정한
         제안은 알림 게이트를 통과(IMMEDIATE)할 때 *즉시 실행*한다. DUSK/EMBER/
@@ -372,12 +377,11 @@ class LiotService:
         """
         await self.proposals.save(proposal)
 
-        comfort_hold = _COMFORT_HOLD.get()
-        if comfort_hold == "phone":
-            # 게이트·nonce 를 거치지 않는다: 어디로도 나가지 않는 제안에 1회용 링크가
+        tick = _COMFORT_TICK.get()
+        if tick and await self._comfort_hold() == "phone":
+            # 게이트·nonce 를 거치기 전의 빠른 보류: 어디로도 나가지 않는 제안에 1회용 링크가
             # 남으면 안 되고, 예산·dedup 도 소모하지 않는다.
-            await self._audit_comfort_held(proposal)
-            return DispatchResult(proposal, "DIGEST", sent=False)
+            return await self._held_result(proposal)
 
         now_dt = self.clock.now_dt()
         self._roll_budget(now_dt)
@@ -393,11 +397,12 @@ class LiotService:
 
         # AUTO: 알림 게이트를 통과했고(=억제/뮤트/거절 아님) 정책이 자동이면 즉시 실행.
         executed = False
-        # 열린 안전 상황이 있으면(comfort_hold) 편의 제안은 자동 실행하지 않는다.
+        # 열린 안전 상황이 있으면 편의 제안은 자동 실행하지 않는다. 이 확인 바로 뒤에
+        # (await 없이) 실행에 들어간다.
         if (
             exec_decision is ExecDecision.AUTO
             and self._executor is not None
-            and comfort_hold is None
+            and (not tick or await self._comfort_hold() is None)
         ):
             executed = await self._try_execute(proposal)
 
@@ -406,6 +411,13 @@ class LiotService:
             # (그래야 transport 가 붙은 뒤 같은 류가 억제되지 않는다).
             await self.proposals.record_notification(sanitized, now=self.clock.now_utc())
             return DispatchResult(proposal, decision, sent=False, executed=executed)
+
+        # 마지막 확인: 게이트·실행을 기다리는 사이 위험 상황이 열렸으면 폰 발송을 보류한다.
+        # 이 확인 바로 뒤 송신까지 await 가 없다. 이미 쓴 nonce·예산은 되돌린다.
+        if tick and await self._comfort_hold() == "phone":
+            self._drop_nonce(proposal.proposal_id)
+            self._budget.used_this_hour = max(0, self._budget.used_this_hour - 1)
+            return await self._held_result(proposal, executed=executed)
 
         # 실제 송신을 *먼저* 시도. 성공해야만 알림 기록 + dedup 갱신한다.
         # 실패 시 dedup 을 오염시키지 않아야 같은 류(특히 안전 EMBER)가 2시간
@@ -418,6 +430,11 @@ class LiotService:
         await self.proposals.record_notification(sanitized, now=self.clock.now_utc())
         self._recent_notified[dedup_key(proposal)] = now_dt
         return DispatchResult(proposal, decision, sent=True, executed=executed)
+
+    async def _held_result(self, proposal: Proposal, *, executed: bool = False) -> DispatchResult:
+        """폰 발송을 보류한 편의 제안의 결과: 감사 행을 남기고 DIGEST 로 돌려준다."""
+        await self._audit_comfort_held(proposal)
+        return DispatchResult(proposal, "DIGEST", sent=False, executed=executed, held=True)
 
     async def _comfort_hold(self) -> ComfortHold | None:
         """열린 안전 상황에 따른 편의 제안 보류 수준(결정 0016).
@@ -1476,16 +1493,18 @@ class LiotService:
         if proposal is None:
             return None
         # 열린 안전 상황 동안의 편의 보류(결정 0016). run_tick 이 편의 제안의 유일한
-        # 입구라 여기서 건다(제안선 후보는 __origin__ 이 없어 출처로는 못 가른다).
-        hold = await self._comfort_hold()
-        if hold != "phone":
-            # 보류분은 선호 셀에 넣지 않는다 — 만료가 비선호로 학습되면 안 된다.
-            self._remember_proposal_cell(proposal)  # 해소 시 신호 반영용 맥락 기억
-        token = _COMFORT_HOLD.set(hold)
+        # 입구라 여기서 출처 표식을 건다(제안선 후보는 __origin__ 이 없어 출처로는 못 가른다).
+        # 보류 여부는 dispatch 가 실행·발송 직전에 정한다(디스패치 중 열린 상황도 잡는다).
+        self._remember_proposal_cell(proposal)  # 해소 시 신호 반영용 맥락 기억
+        token = _COMFORT_TICK.set(True)
         try:
-            return await self.dispatch(proposal)
+            result = await self.dispatch(proposal)
         finally:
-            _COMFORT_HOLD.reset(token)
+            _COMFORT_TICK.reset(token)
+        if result.held:
+            # 보류분은 선호 셀에 넣지 않는다 — 만료가 비선호로 학습되면 안 된다.
+            self._prop_cell.pop(proposal.proposal_id, None)
+        return result
 
     # ------------------------------------------------------------------
     # 개인화 루프(Phase3) — 알림 응답 → 선호 임베딩 갱신(유튜브식)

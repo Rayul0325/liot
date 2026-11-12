@@ -11,20 +11,24 @@ BREATH, 알림 게이트 IMMEDIATE, 정책 AUTO) 라서 '나가고 실행되는'
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from liot.app import LiotApp
 from liot.core.clock import Clock
-from liot.core.contracts import SensorReading
+from liot.core.contracts import CandidateAction, SensorReading
 from liot.db.database import init_db
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l2_context.feature_vector import load_cells
 from liot.layers.l2_context.proactive import ProactiveGenerator
 from liot.layers.l2_context.proactive_rules import load_proactive_ruleset
-from liot.layers.l4_execution.executor import ExecutionPolicy, FakeExecutor
+from liot.layers.l4_execution.executor import ExecutionPolicy, ExecutionResult, FakeExecutor
 from liot.layers.l4_execution.ntfy_transport import FakeNtfyTransport
-from liot.service import LiotService
+from liot.service import _COMFORT_TICK, LiotService
 
 T0 = "2026-06-02T12:00:00+00:00"
 HOME = "singleton"
@@ -33,12 +37,14 @@ TEMP = "sensor.living_temperature"
 CLIMATE = "climate.living_room"
 BEDROOM = "climate.bedroom"  # 명시 요청 대상: 틱 제안과 dedup 키를 나누지 않는다
 GAS = "binary_sensor.kitchen_gas"
+LIGHT = "light.living_room"
 DOOR = "binary_sensor.front_door"
 CATS = {
     MOTION: "motion",
     TEMP: "temperature",
     CLIMATE: "climate",
     BEDROOM: "climate",
+    LIGHT: "light",
     GAS: "gas",
     DOOR: "door",
 }
@@ -52,6 +58,17 @@ rules:
     state: [{entity: sensor.living_temperature, op: lt, value: 18}]
     propose: {target: climate.living_room, capability: climate, action: set_temperature,
               params: {temperature: 2}}
+    ttl_minutes: 15
+"""
+LIGHT_YAML = """
+version: "1.0.0"
+name: comfort
+limits: {cooldown_minutes: 60, max_per_bucket: 5, max_per_day: 10}
+rules:
+  - id: vacant-light-off
+    match: {occupancy: vacant}
+    state: [{entity: light.living_room, op: eq, value: true}]
+    propose: {target: light.living_room, capability: light, action: turn_off}
     ttl_minutes: 15
 """
 HELD = "comfort_held_open_situation"
@@ -68,24 +85,68 @@ def _at(seconds: float) -> str:
     return (datetime.fromisoformat(T0) + timedelta(seconds=seconds)).isoformat()
 
 
-async def _make(tmp_path: Path):
+class _LogExecutor(FakeExecutor):
+    """실행 시점을 사건 기록에 남기는 가짜 실행기."""
+
+    def __init__(self, events: list[tuple[str, str]]) -> None:
+        super().__init__()
+        self._events = events
+
+    async def execute(self, action: CandidateAction) -> ExecutionResult:
+        self._events.append(("execute", action.entity_id))
+        return await super().execute(action)
+
+
+class _LogTransport(FakeNtfyTransport):
+    """송신 시점을 사건 기록에 남기는 가짜 transport."""
+
+    def __init__(self, events: list[tuple[str, str]]) -> None:
+        super().__init__()
+        self._events = events
+
+    def send(self, topic: str, sanitized: dict[str, Any]) -> None:
+        self._events.append(("send", str(sanitized.get("proposal_id", ""))))
+        super().send(topic, sanitized)
+
+
+async def _make(
+    tmp_path: Path,
+    *,
+    events: list[tuple[str, str]] | None = None,
+    rules_yaml: str = COMFORT_YAML,
+    light: bool = False,
+):
+    events = events if events is not None else []
     clock = Clock(fixed=T0)
     db = await init_db(":memory:")
     rules = tmp_path / "comfort.yaml"
-    rules.write_text(COMFORT_YAML, encoding="utf-8")
+    rules.write_text(rules_yaml, encoding="utf-8")
     gen = ProactiveGenerator(
         ruleset=load_proactive_ruleset(rules), categories=CATS, clock=clock
     )
     app = LiotApp(clock=clock, categories=CATS, proactive=gen)
-    executor = FakeExecutor()
-    transport = FakeNtfyTransport()
+    executor = _LogExecutor(events)
+    transport = _LogTransport(events)
     svc = LiotService(
         app, db, clock=clock, transport=transport, topic="liot-test", secret=b"test-secret-key",
         executor=executor, policy=ExecutionPolicy(enabled=True),
     )
-    # 편의 제안의 맥락: 거실 비어 있음 + 15도(관찰은 침묵).
+    # 상황이 열리는 시점(DB 커밋 직후)을 사건 기록에 남긴다.
+    real_open = svc.safety.open_or_get_situation
+
+    async def _logged_open(*args: Any, **kwargs: Any) -> tuple[str, bool]:
+        out = await real_open(*args, **kwargs)
+        events.append(("opened", str(args[1])))  # args = (home, category, entity, floor, at)
+        return out
+
+    svc.safety.open_or_get_situation = _logged_open  # type: ignore[method-assign]
+    # 편의 제안의 맥락: 거실 비어 있음 + (15도 | 조명 켜짐)(관찰은 침묵).
     assert await svc.handle_reading(_reading(MOTION, "off")) is None
-    assert await svc.handle_reading(_reading(TEMP, 15)) is None
+    if light:
+        assert await svc.handle_reading(_reading(LIGHT, "on")) is None
+    else:
+        assert await svc.handle_reading(_reading(TEMP, 15)) is None
+    events.clear()
     return svc, db, executor, transport, clock
 
 
@@ -211,4 +272,103 @@ async def test_explicit_request_during_gas_is_unchanged(tmp_path: Path) -> None:
         assert proposal.proposal_id not in [ref for _, ref in await _audit_rows(svc, HELD)]
     finally:
         await svc.drain_phase2()
+        await db.close()
+
+
+# ── 게이트가 DIGEST 로 분류하는 편의 제안(잔잔 조명)도 위험 상황 동안은 보류로 센다 ──────
+async def test_gas_open_holds_digest_classified_comfort_too(tmp_path: Path) -> None:
+    svc, db, executor, transport, clock = await _make(
+        tmp_path, rules_yaml=LIGHT_YAML, light=True
+    )
+    try:
+        await _open(svc, GAS)
+        res = await svc.run_tick()
+        assert res is not None and res.proposal.action.capability == "light"
+        pid = res.proposal.proposal_id
+        assert res.decision == "DIGEST" and res.held is True
+        assert await _audit_rows(svc, HELD) == [(HELD, pid)]
+        assert pid not in svc._prop_cell  # 만료가 비선호로 학습되지 않는다
+    finally:
+        await svc.drain_phase2()
+        await db.close()
+
+
+# ── 경쟁: 틱 제안이 디스패치되는 도중 상황이 열려도 놓치지 않는다 ─────────────────────
+async def _race_once(
+    tmp_path: Path, entity: str, k: int
+) -> tuple[list[tuple[str, str]], Any, set[str]]:
+    events: list[tuple[str, str]] = []
+    svc, db, executor, transport, clock = await _make(tmp_path, events=events)
+    try:
+        tick = asyncio.create_task(svc.run_tick())
+        for _ in range(k):
+            await asyncio.sleep(0)
+        other = asyncio.create_task(svc.handle_reading(_reading(entity, "on")))
+        tick_res, _ = await asyncio.gather(tick, other)
+        await svc.drain_phase2()
+        return events, tick_res, set(svc._nonce)
+    finally:
+        await db.close()
+
+
+@pytest.mark.parametrize("entity", [GAS, DOOR])
+async def test_situation_opening_during_tick_dispatch_is_not_missed(
+    tmp_path: Path, entity: str
+) -> None:
+    """상황이 열린 *뒤*에 편의 제안이 실행(가스·문)되거나 폰으로 나가서(가스)는 안 된다.
+
+    k = 틱 시작 뒤 상황 신호를 시작하기까지 양보한 횟수. 실제 aiosqlite 양보만으로
+    두 태스크가 겹친다(인위적 지연 없음). 사건 기록의 ``opened`` 는 상황 행이 커밋된 직후다.
+    """
+    category = CATS[entity]
+    held_seen = unheld_seen = 0
+    for k in range(15, 90):
+        events, tick_res, nonces = await _race_once(tmp_path, entity, k)
+        assert tick_res is not None
+        pid = tick_res.proposal.proposal_id
+        if tick_res.held:
+            assert pid not in nonces, f"k={k}: 보류한 제안에 1회용 링크가 남았다"
+        opened_at = events.index(("opened", category))
+        late = events[opened_at + 1 :]
+        assert ("execute", CLIMATE) not in late, f"k={k}: 상황이 열린 뒤 편의 제안이 실행됐다 {events}"
+        if entity == GAS:
+            assert ("send", pid) not in late, f"k={k}: 위험 상황이 열린 뒤 편의 제안이 폰으로 나갔다 {events}"
+        if ("execute", CLIMATE) in events[:opened_at] or ("send", pid) in events[:opened_at]:
+            unheld_seen += 1
+        else:
+            held_seen += 1
+    # 두 경우(상황이 먼저 / 제안이 먼저)가 모두 실제로 일어나야 훑은 구간이 의미가 있다.
+    assert held_seen > 0 and unheld_seen > 0, (held_seen, unheld_seen)
+
+
+# ── 표식은 태스크를 넘지 않는다: 디스패치 중 처리되는 안전 신호는 보류를 받지 않는다 ────────
+async def test_tick_marker_does_not_leak_into_other_tasks(tmp_path: Path) -> None:
+    for k in range(0, 70, 3):
+        events: list[tuple[str, str]] = []
+        svc, db, executor, transport, clock = await _make(tmp_path, events=events)
+        try:
+            await _open(svc, GAS)  # 위험 상황이 열려 있어 틱 제안은 폰 보류 대상이다
+            tick = asyncio.create_task(svc.run_tick())
+            for _ in range(k):
+                await asyncio.sleep(0)
+            door = asyncio.create_task(svc.handle_reading(_reading(DOOR, "on")))
+            tick_res, door_res = await asyncio.gather(tick, door)
+            await svc.drain_phase2()
+            assert tick_res is not None and tick_res.held is True
+            assert door_res is not None and door_res.proposal.situation_id is not None
+            assert door_res.decision == "IMMEDIATE" and door_res.sent is True, f"k={k}"
+            assert door_res.held is False
+            held_refs = [ref for _, ref in await _audit_rows(svc, HELD)]
+            assert door_res.proposal.proposal_id not in held_refs
+        finally:
+            await db.close()
+
+
+async def test_tick_marker_is_reset_after_run_tick(tmp_path: Path) -> None:
+    svc, db, executor, transport, clock = await _make(tmp_path)
+    try:
+        assert _COMFORT_TICK.get() is False
+        assert await svc.run_tick() is not None
+        assert _COMFORT_TICK.get() is False  # 같은 태스크에서도 새지 않는다
+    finally:
         await db.close()

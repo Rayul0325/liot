@@ -14,6 +14,7 @@ from typing import Any
 from liot.app import LiotApp
 from liot.core.clock import Clock
 from liot.core.contracts import SensorReading
+from liot.core.severity import SeverityLevel
 from liot.db.database import init_db
 from liot.layers.l1_sensing.normalizer import normalize
 from liot.layers.l4_execution.ntfy_transport import FakeNtfyTransport
@@ -57,6 +58,9 @@ async def _open_gas(svc: LiotService):
     res = await svc.handle_reading(reading)
     assert res is not None and res.proposal.situation_id is not None
     await svc.drain_phase2()
+    # 보호자 전달의 열쇠는 하한이다: 가스 상황의 하한이 CRITICAL 임을 명시로 고정한다.
+    opened = await svc.safety.list_open_situations(HOME)
+    assert [s.severity_floor for s in opened] == [SeverityLevel.CRITICAL]
     return res
 
 
