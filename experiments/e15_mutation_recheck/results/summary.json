@@ -1061,7 +1061,8 @@
     "n_load_positive": 360,
     "n_mutants": 453,
     "uncovered_driven": false,
-    "verdict": "지지",
+    "verdict": "판정 불가",
+    "verdict_reason_ko": "사전 고정 기계 규칙은 지지였으나 사후 기준으로 판정 불가: 실행 여부가 거의 상수, 단언 부하는 실행 테스트 수와 구별 안 됨, 구간 하한이 씨앗에 불안정",
     "verdict_rule": "지지"
   },
   "c": {

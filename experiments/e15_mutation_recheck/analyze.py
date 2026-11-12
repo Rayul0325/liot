@@ -411,6 +411,11 @@ def part_b(raw_dir: Path) -> dict[str, Any]:
     cov_only_rank = boot_stat(lambda yy, a: auc(a, yy), [y[cov_ix], a_rank[cov_ix]], ck)
     structural = bool(cov_only["ci95"] and cov_only["ci95"][0] <= 0.5 <= cov_only["ci95"][1])
     label = "구조상 결과" if (verdict == "지지" and structural) else verdict
+    # 사후 기준 (validity review E15-B-LABEL): the pre-fixed mechanical rule above gave `verdict_rule`
+    # ('지지'), but the label for the H6.3b question is 판정 불가: 'executed' is 1 for 449/453 mutants
+    # (AUC 0.527), assertion load is indistinguishable from the number of executing tests, and the
+    # interval's lower bound is not stable across bootstrap seeds. The AUC numbers stay descriptive.
+    label = "판정 불가"
 
     # module-level (original form; 기술 결과 only)
     cov = {r["module"]: r for r in read_jsonl(raw_dir / "coverage.jsonl")}
@@ -459,6 +464,8 @@ def part_b(raw_dir: Path) -> dict[str, Any]:
         "uncovered_driven": structural,
         "verdict_rule": verdict,
         "verdict": label,
+        "verdict_reason_ko": "사전 고정 기계 규칙은 지지였으나 사후 기준으로 판정 불가: 실행 여부가 "
+                             "거의 상수, 단언 부하는 실행 테스트 수와 구별 안 됨, 구간 하한이 씨앗에 불안정",
         "module_level_descriptive": module_level,
     }
 
