@@ -76,7 +76,7 @@ _LADDER_FIELDS: Final[frozenset[str]] = frozenset(
 )
 _LADDER_COLUMNS: Final[str] = (
     "situation_id, home_id, stage, next_fire_at, notified_guardian_ids, acked, acked_by,"
-    " acked_at, guidance_119_sent, cancelled, closed, updated_at"
+    " acked_at, guidance_119_sent, cancelled, closed, updated_at, anchor_at"
 )
 _GUARDIAN_COLUMNS: Final[str] = "guardian_id, home_id, alias, topic, created_at, active"
 _SITUATION_COLUMNS: Final[str] = (
@@ -171,6 +171,9 @@ class Ladder:
     cancelled: bool
     closed: bool
     updated_at: str
+    # 사다리 시각의 기준. None 이면 situations.opened_at(보통). 값이 있으면 그 시각이 기준이다 —
+    # 복구가 오래 묵은 고아 상황의 첫 알림을 지금 보낼 때만 채운다(결정 0017).
+    anchor_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -627,12 +630,21 @@ class SafetyRepo:
             cancelled=bool(row[9]),
             closed=bool(row[10]),
             updated_at=str(row[11]),
+            anchor_at=None if row[12] is None else str(row[12]),
         )
 
     async def create_ladder(
-        self, situation_id: str, stage: int, next_fire_at: str | None
+        self,
+        situation_id: str,
+        stage: int,
+        next_fire_at: str | None,
+        anchor_at: str | None = None,
     ) -> None:
-        """상황 하나에 사다리 하나를 만든다(이미 있으면 ValueError)."""
+        """상황 하나에 사다리 하나를 만든다(이미 있으면 ValueError).
+
+        anchor_at 은 사다리 시각의 기준을 열린 시각이 아닌 다른 시각으로 옮길 때만 준다(None =
+        열린 시각 기준). 만든 뒤에는 바꾸지 않는다(update_ladder 가 받지 않는다).
+        """
         home = await self._home_of_situation(situation_id)
         existing = await self._one(
             "SELECT 1 FROM escalation_ladders WHERE situation_id = ?", (situation_id,)
@@ -641,8 +653,9 @@ class SafetyRepo:
             raise ValueError(f"ladder already exists for situation {situation_id!r}")
         await self._db.execute(
             "INSERT INTO escalation_ladders"
-            " (situation_id, home_id, stage, next_fire_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-            (situation_id, home, int(stage), next_fire_at, self._clock.now_utc()),
+            " (situation_id, home_id, stage, next_fire_at, updated_at, anchor_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (situation_id, home, int(stage), next_fire_at, self._clock.now_utc(), anchor_at),
         )
         await self._db.commit()
 

@@ -55,13 +55,14 @@ async def _migrate_to_v2(db: aiosqlite.Connection) -> None:
         await db.commit()
 
 
-def test_latest_version_is_three() -> None:
-    assert LATEST_VERSION == 3
+def test_latest_version_is_four() -> None:
+    # v4(결정 0017)가 escalation_ladders.anchor_at 을 더했다 — 의도된 고정값 수정.
+    assert LATEST_VERSION == 4
 
 
 async def test_empty_to_latest_creates_tables_and_columns(tmp_path) -> None:
     async with aiosqlite.connect(tmp_path / "e.db") as db:
-        assert await run_migrations(db) == 3
+        assert await run_migrations(db) == 4
         assert set(_NEW_TABLES) <= await _tables(db)
         assert {
             "severity",
@@ -91,11 +92,11 @@ async def test_v2_to_v3_twice_is_idempotent_and_keeps_old_rows_null(tmp_path) ->
         )
         await db.commit()
 
-        assert await run_migrations(db) == 3
+        assert await run_migrations(db) == 4
         # 같은 마이그레이션 함수를 한 번 더 직접 돌려도 오류 없음(멱등).
         await migrations._add_safety_persistence(db)
         await db.commit()
-        assert await run_migrations(db) == 3
+        assert await run_migrations(db) == 4
 
         cur = await db.execute("SELECT COUNT(*) FROM schema_version WHERE version = 3")
         row = await cur.fetchone()
@@ -127,4 +128,4 @@ async def test_versions_are_monotonic(tmp_path) -> None:
         cur = await db.execute("SELECT version FROM schema_version ORDER BY rowid")
         rows = [int(r[0]) for r in await cur.fetchall()]
         await cur.close()
-        assert rows == sorted(rows) == [1, 2, 3]
+        assert rows == sorted(rows) == [1, 2, 3, 4]
