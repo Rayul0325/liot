@@ -104,6 +104,8 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["numpy"]
 follow_imports = "skip"
+# CI 는 [experiments] 를 설치하지 않는다(워크플로 수정 권한 없음) — 없으면 Any 로 본다.
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # 테스트에는 '모든 함수에 주석' 요구만 뺀다. 픽스처·테스트 함수 수백 개에

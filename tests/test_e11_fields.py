@@ -72,6 +72,7 @@ def test_checks_flag_number_tag_length_and_added_entity() -> None:
 
 
 def test_field_information_counts_pairs_and_default_cases() -> None:
+    pytest.importorskip("numpy")  # analyze 는 [experiments] 의존성이 필요하다(CI 는 미설치)
     from experiments.e11_wording_fields import analyze
 
     null = {"sensor_kinds": [], "rate": "unknown", "concurrent": "0", "duration": "unknown"}

@@ -8,7 +8,9 @@ from typing import Any
 
 import pytest
 
-from experiments.e12_floor_anchor import analyze, judges
+pytest.importorskip("numpy")  # 실험 분석은 [experiments] 의존성이 있어야 돈다(CI 는 미설치)
+
+from experiments.e12_floor_anchor import analyze, judges  # noqa: E402
 from liot.core.risk import RiskTier
 from liot.layers.l3_judgment.jev_backend import JevBackend
 
