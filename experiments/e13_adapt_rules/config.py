@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from experiments.e13_adapt_rules.rules import RuleSet
 from experiments.e6_personalization import config as e6
+from experiments.e13_adapt_rules.rules import RuleSet
 from liot.day_sim import StochasticResident
 
 DAYS = 60

@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 
 from experiments.common.io import read_jsonl
-from experiments.e6_personalization.analyze import _accept_rate, _arr, _series, _window_mean
+from experiments.e6_personalization.analyze import _arr, _series, _window_mean
 
 BOOT = 2000
 BOOT_SEED = 20261112

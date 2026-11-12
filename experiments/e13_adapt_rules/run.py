@@ -21,8 +21,8 @@ from pathlib import Path
 from typing import Any
 
 from experiments.common import io
-from experiments.e13_adapt_rules import analyze, config, rules
 from experiments.e6_personalization import derive as e6_derive
+from experiments.e13_adapt_rules import analyze, config, rules
 
 EXP_DIR = Path(__file__).resolve().parent
 RAW = EXP_DIR / "raw" / "runs.jsonl"
