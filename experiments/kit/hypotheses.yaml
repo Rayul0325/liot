@@ -81,7 +81,10 @@ hypotheses:
   - {id: "C4.10 (b)", q: Q1, cycle: 4, exp: e14_guardian_latency, name: "후속 올림 푸시 묶기", verdict: "기술 결과", raw: "기술 결과 — 첫 알림 지연 불변은 구조상 결과. K=1 에서 ≤1.05 불충족", claims: [E14-06]}
   - {id: "C4.10 (c) 틱", q: Q6, cycle: 4, exp: e14_guardian_latency, name: "사다리 틱 1초", verdict: "구조상 결과", raw: "구조상 결과 — 위상 4종 모두 오차 1초 이상 0/162", claims: [E14-07]}
   - {id: "C4.10 (c) 순차", q: Q6, cycle: 4, exp: e14_guardian_latency, name: "순차 호출 대기 30·60초 곡선", verdict: "기술 결과", raw: "기술 결과 — 방관 해석에 따라 갈림(응답 모델 가정)", claims: [E14-07]}
-  - {id: "C4.11", q: Q6, cycle: 4, exp: e15_mutation_recheck, name: "빈틈 시험 뒤 뮤테이션 재측정", verdict: "대기", raw: "e15 진행 중 — (a)는 정의상 오르는 구조상 결과", claims: [E15-00]}
+  - {id: "C4.11 (a) 헤드라인", q: Q6, cycle: 4, exp: e15_mutation_recheck, name: "15곳 시험 뒤 핵심 점수", verdict: "구조상 결과", raw: "구조상 결과 — 핵심 80.0 → 83.7%, 15곳 15/15 잡힘. 예측(+5%p·notifier +10%p)엔 못 미침", claims: [E15-01]}
+  - {id: "C4.11 (a) 부수 처치", q: Q6, cycle: 4, exp: e15_mutation_recheck, name: "15곳 밖 변이의 점수", verdict: "반증", raw: "반증 — A +0.46%p [0.0, 1.18] (n=436), B +0.90%p [0.0, 2.27]; 상한 2%p 미만 읽기에선 B 단독 판정 불가. 더 잡힌 것 하나는 U5", claims: [E15-02]}
+  - {id: "C4.11 (b)", q: Q6, cycle: 4, exp: e15_mutation_recheck, name: "잡힘은 단언 밀도와 더 관련되나", verdict: "판정 불가", raw: "판정 불가(사후 기준) — 사전 기계 규칙은 지지였으나 verdict_reason_ko 의 이유로 내림. AUC 값은 기술 값", claims: [E15-03]}
+  - {id: "C4.11 (c)", q: Q6, cycle: 4, exp: e15_mutation_recheck, name: "Gemini 2차 분류", verdict: "기술 결과", raw: "기술 결과 — κ 0.456, 일치 66.0%", claims: [E15-04]}
   - {id: "C4.12 (a)", q: Q3, cycle: 4, exp: e16_scoring_harm, name: "곱셈에 하한을 붙이면", verdict: "기술 결과", raw: "기술 결과 — 하한 위반 0 은 구조상 결과. 안전 칸에만 하한을 두면 단조 위반 64.7%", claims: [E16-01]}
   - {id: "C4.12 (b)", q: Q3, cycle: 4, exp: e16_scoring_harm, name: "취약 배수 5 이상", verdict: "반증", raw: "반증(동점 손실 중앙값 42 > 32) — 가스 위험 아래 0 은 구조상 결과. 곱셈 최선은 14 로 표보다 잘게 나눔", claims: [E16-02]}
   - {id: "C4.13 (a)", q: Q2, cycle: 4, exp: e16_scoring_harm, name: "피해를 심각도로 가중하면", verdict: "구조상 결과", raw: "구조상 결과(순환, ρ 0.899) — 열세는 줄지 않음(1.05배, 참고)", claims: [E16-03]}

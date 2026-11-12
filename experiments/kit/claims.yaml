@@ -77,6 +77,8 @@ limits:
     C4.12 의 하한 모양 둘과 무작위 척도는 우리가 정했고 표는 비교 기준점이지 정답이 아니다. C4.13 은 E3 시뮬레이터의 가정 범위 안의 결과다. (b)의 이점은 생성기 노브와 E3 거주자 모델에 의존하고 피로·지연 0 은 부담 효과 0 의 한 구현이다. 사후 기준(R2, 같은 상한 비교군, H2.1 사후 재판정)은 등록 판정이 아니다.
   L-E16-CODER: >-
     독립 코더 둘은 같은 계열 모델이고 견본이 12개뿐이며 지속 칸의 κ 가 0.27 로 낮다. 코더가 E3 결과를 보지 않았다는 것은 프롬프트와 도구 사용 0회로만 뒷받침된다. 순환 점검은 견본별 평균 단계가 세 값으로 뭉치는 구조라 순서 상관이 크게 나오기 쉽고, 켄달 τ-b 로 재면 0.789 로 0.8 아래다(등록 통계량은 스피어만이라 판정은 구조상 결과로 둔다). 열세가 줄지 않았다는 방향도 LIOT 에 대한 증거로 쓰지 않는다.
+  L-E15: >-
+    '처치'는 15곳 시험이 아니라 테스트 파일 9개 추가와 대상 코드 2곳 변경이다(A 의 더 잡힘 2개 중 하나는 U5 시험이 잡음). 두 부수 처치 측정 모두 변화가 2건뿐이라 구간 하한이 0.0 이고, 구간은 줄로 묶은 부트스트랩이며 변이가 줄에 뭉쳐 있어 낙관적이다. B 표본은 시간 때문에 293개에서 223개로 줄였고 risk 는 0개라 risk·guardrail·severity 를 거의 대표하지 못한다. 문자열 변이(134/223)는 값이 어디서도 안 쓰일 수 있어 '덜 잡힘'이 곧 안전 빈틈은 아니다. (b) 의 단언 수는 정적 계수이고 줄 부하는 테스트 개수와 겹치며, 통계량(AUC 차이) 선택은 빌더의 읽기다(스피어만이면 0 포함). (c) Gemini 는 함수 조각만 보고 변이당 1회 판정했고 1개는 송신 게이트가 막아 미송신이다. 측정은 높은 부하(load1 평균 50)의 한 기계에서 했다.
   L-PENDING: >-
     이 실험은 아직 끝나지 않아 숫자가 없다. 보고서에는 '진행 중'이라고만 쓰고 추정 숫자를 넣지 않는다.
 
@@ -92,7 +94,7 @@ inconsistencies:
   - id: INC-3
     where: e3_policy · e8 · e14 · e16
     text: >-
-      RESULTS.md 가 정확히 .x5 인 백분율을 일관되게 반올림하지 않는다: 88.25%를 '88.2', 79.75%를 '79.7', 30.25%를 '30.2'(E3), 56.25%를 '56.2'(E8·E14), 78.75%를 '78.7'(E16) 로 쓰지만 71.25%는 '71.3', 13.25%는 '13.3' 으로 쓴다. 의미는 같고 마지막 자리 반올림만 다르다. kit 은 이 값들을 소수 둘째 자리(E14 는 56.3)로 적었다.
+      RESULTS.md 가 정확히 .x5 인 백분율을 일관되게 반올림하지 않는다: 88.25%를 '88.2', 79.75%를 '79.7', 30.25%를 '30.2'(E3), 56.25%를 '56.2'(E8·E14, 같은 값을 E15 RESULTS 는 '56.3%'), 78.75%를 '78.7'(E16) 로 쓰지만 71.25%는 '71.3', 13.25%는 '13.3' 으로 쓴다. 의미는 같고 마지막 자리 반올림만 다르다. kit 은 이 값들을 소수 둘째 자리(E14 는 56.3)로 적었다.
   - id: INC-4
     where: RESEARCH_LOG.md ↔ HYPOTHESES.md
     text: >-
@@ -1320,12 +1322,90 @@ claims:
       - {label: "H2.1 사후 재판정 — liot_real 이 유의하게 더 해로운 세트(m=10%, 지수)", path: [c413, c413a, h2_1_matched_posthoc, "exp|m0.1", "vs_flat_explicit_same_ceiling(사후, matched)", share_policy_sig_higher], expected: 78.75, round: 2, scale: 100, fmt: "{:.2f}", unit: "%", md: "78.7%"}
       - {label: "H2.1 사후 재판정 반증 조건 충족 여부(m=10%)", path: [c413, c413a, h2_1_matched_posthoc, "exp|m0.1", "vs_flat_explicit_same_ceiling(사후, matched)", "h2_1_falsifier_met_(policy_sig_higher_share_gt_0.5)"], expected: true}
       - {label: "같은 값 — m=0(충족하지 않음)", path: [c413, c413a, h2_1_matched_posthoc, "exp|m0.0", "vs_flat_explicit_same_ceiling(사후, matched)", share_policy_sig_higher], expected: 1.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "1.0%"}
-  - id: E15-00
+  - id: E15-01
     group: IV.Q6
-    kind: pending
-    pending_exp: e15_mutation_recheck
-    hyp: "C4.11 (사이클 4)"
-    verdict: "대기"
+    exp: e15_mutation_recheck
+    hyp: "C4.11 (a) 헤드라인 (사이클 4)"
+    verdict: "구조상 결과 — 15곳을 겨냥한 시험이라 점수는 정의상 오름"
     text: >-
-      빈틈 시험 15곳을 더한 뒤의 뮤테이션 재측정(핵심 점수 5%p 이상 상승·notifier 10%p 이상, 단언 밀도와의 순위 상관, 경계 사례 독립 분류)은 아직 끝나지 않았다. 등록상 (a)는 정의상 오르는 구조상 결과이고 실제 시험은 15곳 밖 변이의 점수와 새 씨앗의 새 변이 표본이다. 숫자 자리는 비워 둔다.
-    limit: L-PENDING
+      E8 이 찾은 안전 빈틈 15곳을 겨냥한 시험을 더한 뒤 같은 연산자·같은 10개 모듈의 핵심 점수는 80.0% 에서 83.7% 로 올랐고(+3.66%p) 15곳은 15/15 모두 잡혔다. 이 상승은 알려진 생존 변이를 겨냥해 시험을 쓴 결과라 정의상 오르는 구조상 결과이며 LIOT 의 증거로 쓰지 않는다. 등록 예측(핵심 +5%p 이상, notifier +10%p 이상)에는 둘 다 못 미친다(notifier 56.3% → 58.3%, 변이 1개). 이 '처치'는 15곳 시험 7개뿐 아니라 U1·U4·U5 시험 2개까지 합친 테스트 파일 9개와 대상 코드 2곳 변경이다.
+    limit: L-E15
+    items:
+      - {label: "E8 때 핵심 점수", path: [a, headline_structural, core_old], expected: 80.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "80.0%"}
+      - {label: "지금 핵심 점수", path: [a, headline_structural, core_new], expected: 83.7, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "83.7%"}
+      - {label: "핵심 점수 변화", path: [a, headline_structural, delta_pp], expected: 3.66, round: 2, fmt: "{:+.2f}", unit: "%p", md: "3.66"}
+      - {label: "15곳 중 지금 잡힌 변이", path: [a, gap15, killed_now], expected: 15, round: 0, fmt: "{:,.0f}", unit: "/15 개", md: "15/15"}
+      - {label: "notifier 핵심 점수(E8 때)", path: [a, per_module, "liot/layers/l4_execution/notifier.py", core_old], expected: 56.25, round: 2, scale: 100, fmt: "{:.1f}", unit: "%", md: "56.3%"}
+      - {label: "notifier 핵심 점수(지금)", path: [a, per_module, "liot/layers/l4_execution/notifier.py", core_new], expected: 58.33, round: 2, scale: 100, fmt: "{:.1f}", unit: "%", md: "58.3%"}
+      - {label: "notifier 예측(+10%p) 충족", path: [a, notifier_prediction_met], expected: false}
+  - id: E15-02
+    group: IV.Q6
+    exp: e15_mutation_recheck
+    hyp: "C4.11 (a) 부수 처치 (사이클 4)"
+    verdict: "반증 — 15곳 밖 변이는 거의 더 잡히지 않음 (B 단독은 '상한 2%p 미만' 읽기에서 판정 불가)"
+    text: >-
+      15곳 밖의 변이가 얼마나 더 잡히는지가 이 실험의 실제 시험이다. (A) E8 의 같은 핵심 변이 중 15곳을 뺀 436개는 점수가 +0.46%p [0.0, 1.18] 오른다(더 잡힘 2·덜 잡힘 0). (B) E8 에 없던 연산자로 새 씨앗에서 뽑은 223개 표본은 +0.90%p [0.0, 2.27] 오른다(더 잡힘 2·덜 잡힘 0). 등록 문턱(2%p 미만이면 반증)을 구간 상한이 5%p 아래라는 읽기로 적용하면 둘 다 반증이다. 규칙을 '상한 2%p 미만'으로 더 엄격히 읽으면 B 단독은 상한 2.27 이라 판정 불가이고 종합 반증은 A 에 의존한다. 더 잡힌 2개(A) 중 하나는 U5 시험(`test_first_alert_retry.py`)이 잡은 것이라 빈틈 시험의 부수 효과가 아니다. notifier 의 15곳 밖 변화는 0.0%p 이다. 15곳을 포함하면 +3.56%p 로 올라가는데(더 잡힘 16) 그것이 위 구조상 결과다.
+    limit: L-E15
+    items:
+      - {label: "A: 15곳 밖 변이 수", path: [a, collateral, A_excl_15_ids, n], expected: 436, round: 0, fmt: "{:,.0f}", unit: " 개", md: "436"}
+      - {label: "A: 점수 변화", path: [a, collateral, A_excl_15_ids, delta_pp], expected: 0.46, round: 2, fmt: "{:+.2f}", unit: "%p", md: "0.46"}
+      - {label: "A: 95% 구간 하한", path: [a, collateral, A_excl_15_ids, delta_ci95_pp, 0], expected: 0.0, round: 1, fmt: "{:.1f}", unit: "%p", md: "0.0"}
+      - {label: "A: 95% 구간 상한", path: [a, collateral, A_excl_15_ids, delta_ci95_pp, 1], expected: 1.18, round: 2, fmt: "{:.2f}", unit: "%p", md: "1.18"}
+      - {label: "A: 더 잡힘", path: [a, collateral, A_excl_15_ids, gained], expected: 2, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: "A: 덜 잡힘", path: [a, collateral, A_excl_15_ids, lost], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: "B: 표본 수", path: [a, fresh, paired, n], expected: 223, round: 0, fmt: "{:,.0f}", unit: " 개", md: "223"}
+      - {label: "B: 점수 변화", path: [a, fresh, paired, delta_pp], expected: 0.90, round: 2, fmt: "{:+.2f}", unit: "%p", md: "0.90"}
+      - {label: "B: 95% 구간 하한", path: [a, fresh, paired, delta_ci95_pp, 0], expected: 0.0, round: 1, fmt: "{:.1f}", unit: "%p", md: "0.0"}
+      - {label: "B: 95% 구간 상한(2%p 를 넘음 — 엄격한 읽기에서 판정 불가)", path: [a, fresh, paired, delta_ci95_pp, 1], expected: 2.27, round: 2, fmt: "{:.2f}", unit: "%p", md: "2.27"}
+      - {label: "A 판정", path: [a, verdict_measure_A], expected: 반증}
+      - {label: "B 판정", path: [a, verdict_measure_B], expected: 반증}
+      - {label: "종합 판정", path: [a, verdict], expected: 반증}
+      - {label: "notifier 15곳 밖 변화", path: [a, collateral, A_notifier_excl_15_ids, delta_pp], expected: 0.0, round: 1, fmt: "{:+.1f}", unit: "%p", md: "0.0"}
+      - {label: "더 잡힌 변이 중 U5 시험이 잡은 것", path: [a, collateral, A_excl_15_ids, changed_mutants, {killed_by_file: tests/test_first_alert_retry.py}, direction], expected: gained}
+      - {label: "(참고) 15곳 포함 변화 — 구조상 결과", path: [a, collateral, A_all_matched_core_incl_gaps, delta_pp], expected: 3.56, round: 2, fmt: "{:+.2f}", unit: "%p", md: "3.56"}
+      - {label: "(참고) 15곳 포함 더 잡힘", path: [a, collateral, A_all_matched_core_incl_gaps, gained], expected: 16, round: 0, fmt: "{:,.0f}", unit: " 개"}
+  - id: E15-03
+    group: IV.Q6
+    exp: e15_mutation_recheck
+    hyp: "C4.11 (b) (사이클 4, H6.3b)"
+    verdict: "판정 불가 (사후 기준 — 사전 고정 기계 규칙은 지지였음). AUC 값은 기술 값"
+    text: >-
+      잡힘이 줄 커버리지보다 단언 밀도와 더 강하게 관련되는가(H6.3b)는 판정 불가로 둔다. 사전 고정한 기계 규칙(차이 구간이 0 밖이면 지지)은 지지를 냈지만 결과를 본 뒤 라벨로 쓰지 않기로 했다(사후 기준). 이유는 summary 의 verdict_reason_ko 와 RESULTS 5절 5번에 있다: 비교 변수인 줄 실행 여부가 453개 중 449개에서 1 이라 AUC 가 0.527 로 거의 상수이고, 단언 부하는 '그 줄을 실행하는 테스트 개수'와 구별되지 않으며(0.626 대 0.627), 차이의 구간 하한이 0.0009 로 0 에 붙어 부트스트랩 씨앗 20개 중 6개에서 0 을 포함하고, 스피어만으로 구한 같은 차이는 0 을 포함한다. 아래 AUC 값은 판정이 아니라 기술 값이다. 변이 단위 통계량(AUC 차이) 선택은 빌더의 읽기다. 모듈 10개 순위(원래 형태)는 기술 결과로만 보고한다.
+    limit: L-E15
+    items:
+      - {label: "AUC(줄 실행 여부) — 기술 값", path: [b, auc_executed], expected: 0.527, round: 3, fmt: "{:.3f}", md: "0.527"}
+      - {label: "AUC(단언 부하) — 기술 값", path: [b, auc_assertion_load], expected: 0.642, round: 3, fmt: "{:.3f}", md: "0.642"}
+      - {label: "차이 AUC(부하) − AUC(실행) — 기술 값", path: [b, diff_auc, point], expected: 0.115, round: 3, fmt: "{:+.3f}", md: "0.115"}
+      - {label: "같은 차이의 95% 구간 하한", path: [b, diff_auc, ci95, 0], expected: 0.0009, round: 4, fmt: "{:.4f}", md: "0.0009"}
+      - {label: "같은 차이의 95% 구간 상한", path: [b, diff_auc, ci95, 1], expected: 0.217, round: 3, fmt: "{:.3f}", md: "0.217"}
+      - {label: "구간이 0 을 제외한 씨앗(20개 중)", path: [b, diff_auc_robustness, interval_excludes_0_in], expected: 14, round: 0, fmt: "{:,.0f}", unit: "/20 개", md: "14/20"}
+      - {label: "스피어만으로 같은 차이", path: [b, diff_spearman, point], expected: -0.031, round: 3, fmt: "{:+.3f}", md: "-0.031"}
+      - {label: "스피어만 구간 하한", path: [b, diff_spearman, ci95, 0], expected: -0.218, round: 3, fmt: "{:+.3f}", md: "-0.218"}
+      - {label: "스피어만 구간 상한(0 을 포함)", path: [b, diff_spearman, ci95, 1], expected: 0.151, round: 3, fmt: "{:+.3f}", md: "0.151"}
+      - {label: "실행된 변이 수", path: [b, n_executed], expected: 449, round: 0, fmt: "{:,.0f}", unit: "/453 개", md: "449"}
+      - {label: "통제: 실행된 변이만 AUC(단언 부하)", path: [b, covered_only, auc_assertion_load, point], expected: 0.626, round: 3, fmt: "{:.3f}", md: "0.626"}
+      - {label: "통제: 실행된 변이만 AUC(그 줄을 실행하는 테스트 개수)", path: [b, covered_only, auc_n_tests, point], expected: 0.627, round: 3, fmt: "{:.3f}", md: "0.627"}
+      - {label: "모듈 10개 순위 — 단언 밀도 스피어만(기술 결과)", path: [b, module_level_descriptive, rho_density], expected: -0.22, round: 2, fmt: "{:+.2f}", md: "-0.22"}
+      - {label: "모듈 10개 순위 — 커버리지 스피어만(기술 결과)", path: [b, module_level_descriptive, rho_coverage], expected: 0.24, round: 2, fmt: "{:+.2f}", md: "0.24"}
+      - {label: "판정(사후 기준)", path: [b, verdict], expected: 판정 불가}
+      - {label: "사전 고정 기계 규칙의 결과", path: [b, verdict_rule], expected: 지지}
+  - id: E15-04
+    group: IV.Q6
+    exp: e15_mutation_recheck
+    hyp: "C4.11 (c) (사이클 4)"
+    verdict: "기술 결과"
+    text: >-
+      E8 이 분류한 생존 변이 95개를 Gemini 가 독립 분류한 결과(함수 조각만 보고 변이당 1회, 94개 판정·1개는 송신 게이트가 막아 미송신). 세 범주 일치율 66.0%, Cohen κ 0.456 [0.313, 0.591], Gwet AC1 0.511 이다. Gemini 는 안전 빈틈으로 25.5% 를 보아 E8 의 16.0% 보다 자주 빈틈으로 보며, E8 의 안전 빈틈 15개 중 11개를 빈틈으로 보고 0개를 동치로 봤다. notifier 에서는 5/22 로 가장 낮게 일치한다(함수 조각만으로는 죽은 상수인지 알 수 없다). 어느 분류자가 맞는지는 이 실험이 정하지 않는다.
+    limit: L-E15
+    items:
+      - {label: "판정된 변이", path: [c, n_valid], expected: 94, round: 0, fmt: "{:,.0f}", unit: "/95 개", md: "94/95"}
+      - {label: "세 범주 일치율", path: [c, three_class, agreement], expected: 66.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "66.0%"}
+      - {label: "Cohen κ", path: [c, three_class, kappa], expected: 0.456, round: 3, fmt: "{:.3f}", md: "0.456"}
+      - {label: "κ 95% 구간 하한", path: [c, kappa_ci95, 0], expected: 0.313, round: 3, fmt: "{:.3f}", md: "0.313"}
+      - {label: "κ 95% 구간 상한", path: [c, kappa_ci95, 1], expected: 0.591, round: 3, fmt: "{:.3f}", md: "0.591"}
+      - {label: "Gwet AC1", path: [c, three_class, gwet_ac1], expected: 0.511, round: 3, fmt: "{:.3f}", md: "0.511"}
+      - {label: "E8 의 안전 빈틈 비율", path: [c, prevalence_e8_gap], expected: 16.0, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "15.96%"}
+      - {label: "Gemini 의 안전 빈틈 비율", path: [c, prevalence_gemini_gap], expected: 25.5, round: 1, scale: 100, fmt: "{:.1f}", unit: "%", md: "25.53%"}
+      - {label: "E8 빈틈 → Gemini 빈틈", path: [c, confusion, "safety_gap|safety_gap"], expected: 11, round: 0, fmt: "{:,.0f}", unit: "/15 개"}
+      - {label: "E8 빈틈 → Gemini 동치", path: [c, confusion, "safety_gap|equivalent"], expected: 0, round: 0, fmt: "{:,.0f}", unit: " 개"}
+      - {label: "notifier 일치(분자)", path: [c, agreement_by_module, "liot/layers/l4_execution/notifier.py", 0], expected: 5, round: 0, fmt: "{:,.0f}", unit: "/22 개"}

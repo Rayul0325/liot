@@ -719,10 +719,31 @@ def _panel_c4_e16(ax: Any) -> None:
 
 
 def _panel_c4_e15(ax: Any) -> None:
-    if load_summary("e15_mutation_recheck") is None:
+    summary = load_summary("e15_mutation_recheck")
+    if summary is None:
         _pending_panel(ax, "Q6 뮤테이션 재측정 (E15)", "대기\n(e15 결과 도착 후\n다시 만들면 채워짐)")
         return
-    _pending_panel(ax, "Q6 뮤테이션 재측정 (E15)", "결과 도착\nfigures.py 에\n패널을 추가")
+    a = summary["a"]
+    rows = [
+        ("15곳 포함(구조상)", a["collateral"]["A_all_matched_core_incl_gaps"], NEUTRAL),
+        ("A: 15곳 밖 436개", a["collateral"]["A_excl_15_ids"], LIOT_WORSE),
+        ("B: 새 연산자 223개", a["fresh"]["paired"], LIOT_WORSE),
+    ]
+    ypos = np.arange(len(rows))[::-1]
+    for y, (_label, d, color) in zip(ypos, rows, strict=True):
+        lo, hi = d["delta_ci95_pp"]
+        ax.hlines(y, lo, hi, color=color, linewidth=2)
+        ax.scatter([d["delta_pp"]], [y], s=26, color=color, zorder=3)
+        ax.text(hi + 0.15, y + 0.28, f"{d['delta_pp']:+.2f}", va="center", fontsize=7, fontweight="bold", color=color)
+    for x, text in ((2.0, "반증선 2"), (5.0, "지지선 5")):
+        ax.axvline(x, color="#999999", linewidth=0.8, linestyle=":")
+        ax.text(x + 0.08, len(rows) - 0.45, text, fontsize=6, color="#666666", va="center")
+    ax.set_yticks(ypos, [r[0] for r in rows])
+    ax.set_ylim(-0.6, len(rows) - 0.2)
+    ax.set_xlim(-0.3, 6.4)
+    ax.set_xlabel("핵심 점수 변화 (%p, 95% 구간)")
+    ax.set_title("Q6 15곳 밖은 거의 안 늘었다", loc="left", fontweight="bold")
+    ax.grid(axis="y", visible=False)
 
 
 def make_overview_cycle4() -> Path:
