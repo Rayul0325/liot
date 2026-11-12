@@ -1405,6 +1405,7 @@ async def test_daemon_with_no_ha_at_startup_retries_keeps_ladder_alive_and_close
 
     monkeypatch.setattr(LiotService, "ladder_tick", counting_tick)
     monkeypatch.setattr(LiotService, "run", fast_ladder_run)
+    before_term = signal.getsignal(signal.SIGTERM)
     task = asyncio.create_task(serve._amain())
     try:
         await _until(
@@ -1413,6 +1414,8 @@ async def test_daemon_with_no_ha_at_startup_retries_keeps_ladder_alive_and_close
         assert not task.done(), "HA 가 없어도 프로세스는 끝나지 않고 재시도해야 한다"
         n = ticks["n"]
         await _until(lambda: ticks["n"] >= n + 3, timeout=5)  # 사다리 루프는 재시도 중에도 돈다
+        # 처리기가 없으면 SIGTERM 이 시험 프로세스를 죽인다 — 보내기 전에 설치됐는지 확인한다.
+        assert signal.getsignal(signal.SIGTERM) != before_term
         os.kill(os.getpid(), signal.SIGTERM)
         assert await asyncio.wait_for(task, timeout=5) == 0
         await _assert_closed(dbs[0])
