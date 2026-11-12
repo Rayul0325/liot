@@ -23,6 +23,7 @@ Not this module's scope: proposal persistence and feedback state transitions (`l
 - `set_trait` / `set_lives_alone` accept only real `bool` values (an int such as a birth year is rejected).
 - `delete_resident` deletes traits then the resident with `PRAGMA secure_delete = ON`, restores the previous setting, and runs `wal_checkpoint(TRUNCATE)`. Consent events keep the anonymous `by_resident_id`.
 - `consent_events` rejects UPDATE and DELETE (triggers). Valid consent = latest event for (home, guardian) is `grant` and the guardian is active. Grant and revoke require `by_resident_id` to be a resident of that home (`PermissionError`); granting to an inactive guardian is a `ValueError`; revoking is always allowed.
+- `list_open_situations(home_id)` returns the home's open episodes (oldest first); the service uses it at `start()` to recover situations that have no ladder.
 - `open_or_get_situation` returns `(id, opened_new)`; when an episode is already open it raises `severity_floor` with `MAX(...)` and never lowers it.
 - `Guardian.topic` is `repr=False`; topics are generated with `secrets.token_urlsafe(32)` and returned only by `add_guardian`.
 - `record_forward`: `guidance_119` rows have `guardian_id = NULL`; `forward` / `resolved` require a guardian of that home.

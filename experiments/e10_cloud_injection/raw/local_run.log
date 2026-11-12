@@ -1,0 +1,76 @@
+=== jevk5-4b-q4 10:47:39 load1=42.30 37.62 32.83
+jevk5-4b-q4: server ready in 12.1s, 576 items
+jevk5-4b-q4: 50/576 load1=39.8
+jevk5-4b-q4: 100/576 load1=47.9
+jevk5-4b-q4: 150/576 load1=50.0
+jevk5-4b-q4: 200/576 load1=50.0
+jevk5-4b-q4: 250/576 load1=52.4
+jevk5-4b-q4: 300/576 load1=52.0
+jevk5-4b-q4: 350/576 load1=49.0
+jevk5-4b-q4: 400/576 load1=56.7
+jevk5-4b-q4: 450/576 load1=58.1
+jevk5-4b-q4: 500/576 load1=56.5
+jevk5-4b-q4: 550/576 load1=56.3
+jevk5-4b-q4: wrote 576 rows
+=== jevk5-4b-q4 done rc=0 10:53:10
+=== jevk5-4b-q8 10:53:10 load1=56.62 48.79 39.49
+jevk5-4b-q8: server ready in 2.0s, 576 items
+jevk5-4b-q8: 50/576 load1=52.4
+jevk5-4b-q8: 100/576 load1=50.7
+jevk5-4b-q8: 150/576 load1=48.4
+jevk5-4b-q8: 200/576 load1=48.2
+jevk5-4b-q8: 250/576 load1=43.6
+jevk5-4b-q8: 300/576 load1=47.8
+jevk5-4b-q8: 350/576 load1=51.1
+jevk5-4b-q8: 400/576 load1=51.2
+jevk5-4b-q8: 450/576 load1=49.7
+jevk5-4b-q8: 500/576 load1=49.8
+jevk5-4b-q8: 550/576 load1=48.8
+jevk5-4b-q8: wrote 576 rows
+=== jevk5-4b-q8 done rc=0 10:57:23
+=== apus-openjev-4b-q4 10:57:23 load1=50.55 48.67 41.74
+apus-openjev-4b-q4: server ready in 1.0s, 576 items
+apus-openjev-4b-q4: 50/576 load1=51.1
+apus-openjev-4b-q4: 100/576 load1=49.2
+apus-openjev-4b-q4: 150/576 load1=49.9
+apus-openjev-4b-q4: 200/576 load1=49.6
+apus-openjev-4b-q4: 250/576 load1=48.7
+apus-openjev-4b-q4: 300/576 load1=47.3
+apus-openjev-4b-q4: 350/576 load1=45.1
+apus-openjev-4b-q4: 400/576 load1=43.2
+apus-openjev-4b-q4: 450/576 load1=46.1
+apus-openjev-4b-q4: 500/576 load1=47.4
+apus-openjev-4b-q4: 550/576 load1=44.7
+apus-openjev-4b-q4: wrote 576 rows
+=== apus-openjev-4b-q4 done rc=0 10:59:52
+=== jevk5-9b-q8 10:59:52 load1=46.62 47.62 42.43
+jevk5-9b-q8: server ready in 2.0s, 576 items
+jevk5-9b-q8: 50/576 load1=48.3
+jevk5-9b-q8: 100/576 load1=48.2
+jevk5-9b-q8: 150/576 load1=47.8
+jevk5-9b-q8: 200/576 load1=45.8
+jevk5-9b-q8: 250/576 load1=48.7
+jevk5-9b-q8: 300/576 load1=46.7
+jevk5-9b-q8: 350/576 load1=50.5
+jevk5-9b-q8: 400/576 load1=53.2
+jevk5-9b-q8: 450/576 load1=48.6
+jevk5-9b-q8: 500/576 load1=43.6
+jevk5-9b-q8: 550/576 load1=58.2
+jevk5-9b-q8: wrote 576 rows
+=== jevk5-9b-q8 done rc=0 11:05:09
+=== jev-9b-q6 11:05:09 load1=53.57 49.91 44.98
+jev-9b-q6: server ready in 2.0s, 576 items
+jev-9b-q6: 50/576 load1=50.6
+jev-9b-q6: 100/576 load1=51.2
+jev-9b-q6: 150/576 load1=50.2
+jev-9b-q6: 200/576 load1=49.0
+jev-9b-q6: 250/576 load1=52.4
+jev-9b-q6: 300/576 load1=50.9
+jev-9b-q6: 350/576 load1=50.8
+jev-9b-q6: 400/576 load1=53.7
+jev-9b-q6: 450/576 load1=58.9
+jev-9b-q6: 500/576 load1=58.8
+jev-9b-q6: 550/576 load1=48.4
+jev-9b-q6: wrote 576 rows
+=== jev-9b-q6 done rc=0 11:09:33
+ALL DONE 11:09:33

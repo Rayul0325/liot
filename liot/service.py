@@ -45,12 +45,13 @@ import logging
 import math
 import secrets
 import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from liot.app import LiotApp, SafetySignal, StagedAlert
 from liot.core.clock import Clock
-from liot.core.contracts import CandidateAction, Judgment, Proposal
+from liot.core.contracts import CandidateAction, Judgment, Proposal, SensorReading
 from liot.core.invariants import EgressViolation
 from liot.core.risk import RiskTier
 from liot.core.scoped_repo import ScopedRepo
@@ -94,7 +95,6 @@ from liot.layers.l4_execution.proposal_service import ProposalService
 if TYPE_CHECKING:  # pragma: no cover
     import aiosqlite
 
-    from liot.core.contracts import SensorReading
     from liot.layers.l1_sensing.ha_bridge import HABridge
 
 __all__ = [
@@ -257,6 +257,11 @@ class LiotService:
         # UNMONITORABLE_RETRY 안에는 다시 시도하지 않는다. 정상·이상 값으로는 지우지 않는다
         # (깜빡임 폭주 방지가 목적이라) — 성공하면 지운다.
         self._unmonitorable_failed_at: dict[str, datetime] = {}
+        # 지금 이 프로세스가 열거나 복구하는 중인 상황 id. 열린 상황에 사다리도 알림도 아직
+        # 없다는 사실은 '열던 중'일 때도 참이라, 복구(_recover_situation)가 이 집합에 든 상황은
+        # 건드리지 않는다 — 같은 상황의 첫 알림이 두 번 나가거나 제안이 둘 생기지 않게.
+        # 메모리 상태다: 프로세스가 죽으면 비워지고, 그때 DB 에 남은 고아 상황이 복구 대상이다.
+        self._opening: set[str] = set()
 
     # ------------------------------------------------------------------
     # 시작
@@ -264,8 +269,10 @@ class LiotService:
     async def start(self) -> None:
         """시작 시 1회 작업. 진입점(handle_reading·run_tick·run)이 먼저 부른다.
 
-        열린 에스컬레이션 사다리를 DB(list_open_ladders)에서 다시 무장한다 — 재시작이
-        진행 중인 재알림·보호자 전달·119 안내를 지우지 않게(_rearm_ladders).
+        사다리 없이 열린 상황(첫 알림 전후에 프로세스가 죽은 흔적)을 먼저 복구하고
+        (_recover_open_situations), 이어서 열린 에스컬레이션 사다리를 DB
+        (list_open_ladders)에서 다시 무장한다 — 재시작이 진행 중인 재알림·보호자 전달·
+        119 안내를 지우지 않게(_rearm_ladders).
 
         파급도 표가 로드에 실패해 fail-closed(모든 안전 카테고리 CRITICAL)로 돌고
         있으면, 그 사실을 audit_log 에 **한 번** 남기고 경고 로그를 낸다 — 조용히
@@ -274,6 +281,7 @@ class LiotService:
         if self._started:
             return
         self._started = True
+        await self._recover_open_situations()
         await self._rearm_ladders()
         table = self.app.severity_table
         if not table.load_failed:
@@ -572,29 +580,146 @@ class LiotService:
             self.app.observe_reading(
                 reading, reason="열린 상황 이어감 — 새 알림 제안 없음(재알림은 사다리 몫)"
             )
+            # 이어가는 상황이 사다리도 첫 알림도 없는 채 남아 있으면(여는 도중 프로세스가
+            # 죽은 고아) 이 신호를 삼키지 않고 여기서 복구한다. 정상 상황은 사다리가 있어
+            # 조회 한 번으로 돌아온다.
+            await self._recover_situation(sid, reading)
             return None
 
-        # 1단계: 표 우선 상황 알림을 만들어 **즉시** 보낸다(모델 호출 없음).
-        # 여기서 실패하면 방금 연 상황을 닫는다 — 알림 없이 열린 상황이 남으면 다음
-        # 이상 신호가 '이어 가기'로 묻혀 그 상황 전체가 조용해진다.
+        # 이 상황을 여는 중이라는 표식 — 첫 알림이 나가고 사다리가 서기 전까지 복구가
+        # 끼어들지 못하게 한다(같은 상황의 두 번째 신호가 이 틈에 고아로 오인되면 안 된다).
+        self._opening.add(sid)
         try:
-            staged = await self.app.process_situation_reading(
-                reading, situation_id=sid, severity=sev
-            )
-            if staged is None:
+            # 1단계: 표 우선 상황 알림을 만들어 **즉시** 보낸다(모델 호출 없음).
+            # 여기서 실패하면 방금 연 상황을 닫는다 — 알림 없이 열린 상황이 남으면 다음
+            # 이상 신호가 '이어 가기'로 묻혀 그 상황 전체가 조용해진다. (예외가 아니라 프로세스가
+            # 통째로 죽으면 이 닫기는 돌지 못한다 — 그 고아는 시작 때 _recover_open_situations 가
+            # 맡는다.)
+            try:
+                staged = await self.app.process_situation_reading(
+                    reading, situation_id=sid, severity=sev
+                )
+                if staged is None:
+                    await self.safety.close_situation(sid, self.clock.now_utc())
+                    return None
+                first = await self.dispatch(staged.proposal)
+            except BaseException:
                 await self.safety.close_situation(sid, self.clock.now_utc())
-                return None
-            first = await self.dispatch(staged.proposal)
-        except BaseException:
-            await self.safety.close_situation(sid, self.clock.now_utc())
-            raise
-        await self.safety.save_judgment(staged.judgment)
-        await self._on_situation_opened(sid, staged.proposal)
+                raise
+            await self.safety.save_judgment(staged.judgment)
+            await self._on_situation_opened(sid, staged.proposal)
+        finally:
+            self._opening.discard(sid)
         # 2단계: 결정 모델(별도 스레드·제한시간)을 백그라운드로 돌린다. 기다리지 않는다 —
         # 기다리면 스트림의 다음 신호(예: 가스 직후 연기)가 이 상황의 모델 판정이
         # 끝날 때까지 묶여, 두 번째 안전 알림이 늦게 나간다(spec §6.2 '즉시').
         self._spawn_phase2(staged)
         return first
+
+    # ------------------------------------------------------------------
+    # 고아 상황 복구 — 상황 행은 커밋됐는데 첫 알림 또는 사다리가 서기 전에 프로세스가 죽은 경우
+    # ------------------------------------------------------------------
+    async def _recover_open_situations(self) -> int:
+        """시작 시: 이 집의 열린 상황 중 사다리가 없는 것을 복구한다. 복구한 수를 돌려준다.
+
+        사다리가 있는 상황은 _rearm_ladders 몫이다(U5 의 첫 알림 재시도 포함). 한 상황의
+        복구 실패가 다른 상황·기동을 막지 않는다(로그만 남긴다).
+        """
+        recovered = 0
+        for situation in await self.safety.list_open_situations(self.home_id):
+            try:
+                if await self._recover_situation(situation.situation_id, None):
+                    recovered += 1
+            except Exception as exc:  # noqa: BLE001 — 한 상황이 기동을 막지 않는다
+                logger.error("open-situation recovery failed: %s", type(exc).__name__, exc_info=exc)
+        if recovered:
+            logger.warning("recovered %d open situation(s) that had no escalation ladder", recovered)
+        return recovered
+
+    async def _recover_situation(self, situation_id: str, reading: SensorReading | None) -> bool:
+        """사다리 없이 열린 상황 하나를 복구한다. 손댔으면 True.
+
+        시작 때는 reading=None, 열린 상황에 이상 신호가 이어질 때는 그 신호가 들어온다.
+        세 갈래(알림 기록은 송신 성공 뒤에만 쓴다 — `situation_notified`):
+          (a) 알림 기록 없음 + 제안은 저장됨 → U5 의 재송신 경로(_first_alert_unsent 가 사용자가
+              정한 침묵 — 헌장 OFF·음소거·최근 거절 — 을 걸러 준다)로 첫 알림을 보낸다.
+          (b) 알림 기록 없음 + 제안도 없음(저장 전에 죽음) → 상황 행(분류·엔티티·하한)에서
+              첫 알림을 다시 만들어 보낸다(_rebuild_first_alert). 닫기만 하면 HA 는 시작 때
+              현재 상태를 다시 보내지 않으므로(ha_bridge.stream 은 state_changed 구독뿐) 센서가
+              이상인 채 조용하면 다음 신호가 영영 오지 않는다.
+          (c) 이미 알림이 나갔는데 사다리만 없음(알림 직후·사다리 생성 전에 죽음) → 첫 알림은
+              다시 보내지 않고 사다리만 세운다. 시각은 상황이 열린 때 기준 그대로다.
+        마지막은 모두 _arm_ladder 다: 송신이 실패했으면 그 안에서 30초 재시도가 잡힌다.
+        """
+        if situation_id in self._opening:
+            return False  # 이 프로세스가 지금 여는 중이거나 이미 복구 중 — 고아가 아니다
+        # 표식은 첫 await 전에 세운다 — 조회 사이에 끼어든 두 번째 복구가 같은 상황을 또 잡지 않게.
+        self._opening.add(situation_id)
+        try:
+            if await self.safety.get_ladder(situation_id) is not None:
+                return False
+            info = await escalation.load_situation(self._db, situation_id)
+            # 목록을 읽은 뒤 정상 신호로 닫혔을 수 있다(닫힌 상황에 낡은 경보 금지). 집 조건은
+            # load_situation 에 없어(상황 id 조회) 여기서 다시 비교한다.
+            if info is None or info.closed_at is not None or info.home_id != self.home_id:
+                return False
+            # 알림이 기록된 제안은 반드시 제안 행이 있으므로 'pid 없음' = 알림 기록 없음이다. 제안이
+            # 있으면 _first_alert_unsent 가 알림 기록·게이트(사용자가 정한 침묵)를 함께 본다.
+            pid = await escalation.latest_alert_proposal_id(self._db, self.home_id, situation_id)
+            if pid is None:
+                await self._rebuild_first_alert(info, reading)
+            else:
+                unsent = await self._first_alert_unsent(info)
+                if unsent is not None:
+                    await self._resend_first_alert(unsent)
+            await self._arm_ladder(situation_id)
+        finally:
+            self._opening.discard(situation_id)
+        return True
+
+    async def _rebuild_first_alert(
+        self, info: escalation.SituationInfo, reading: SensorReading | None
+    ) -> None:
+        """저장된 제안이 없는 열린 상황의 첫 알림을 상황 행에서 다시 만들어 보낸다.
+
+        읽기값은 DB 에 없다(센서 읽기는 영속하지 않는다). 시작 때는 '이상, 값 모름'을 뜻하는
+        불리언 True 를 쓴다 — 모든 이상 규칙(불리언·수치 초과)에서 이상이고, 지어낸 수치가
+        아니다. 알림 내용은 분류·집 별칭·시각·파급도뿐이라(egress) 값이 나가지 않는다. 이어지는
+        실제 신호가 있으면(reading) 그 값을 쓰고 2단계 결정 모델도 돌린다. 합성 읽기로는
+        돌리지 않는다 — 모델 입력에 없던 값을 넣지 않는다(모델은 하한을 올리기만 하므로 빼도
+        하한은 그대로다).
+        파급도 하한은 저장된 값과 지금 표·거주자 값 중 높은 쪽이다(하한은 오르기만 한다).
+        발화 게이트는 dispatch 가 그대로 건다 — 헌장 OFF·음소거·최근 거절이면 보내지 않고
+        제안만 pending 으로 남긴다.
+        """
+        vulnerable = await self.safety.has_vulnerable_resident(self.home_id)
+        sev = self.app.severity_table.compute(info.category, vulnerable_resident=vulnerable)
+        if sev is None:  # pragma: no cover - 안전 카테고리면 표가 항상 값을 낸다(방어)
+            sev = SeverityResult(
+                floor=SeverityLevel.CRITICAL, sources=("table",), damage=None, time_to_harm=None
+            )
+        if info.severity_floor > sev.floor:
+            sources = sev.sources if "resident" in sev.sources else (*sev.sources, "resident")
+            sev = replace(sev, floor=info.severity_floor, sources=sources)
+        real = reading is not None
+        source_reading = reading or SensorReading(
+            entity_id=info.entity_id,
+            source="recovery",
+            raw_value=True,
+            norm_value=True,
+            ts_utc=self.clock.now_utc(),
+            home_id=self.home_id,
+        )
+        staged = await self.app.process_situation_reading(
+            source_reading, situation_id=info.situation_id, severity=sev
+        )
+        if staged is None:  # pragma: no cover - 안전 카테고리면 항상 제안이 나온다(방어)
+            logger.error("orphan situation could not be rebuilt into a first alert")
+            return
+        await self.dispatch(staged.proposal)
+        await self.safety.save_judgment(staged.judgment)
+        if real:
+            self._spawn_phase2(staged)
 
     def _spawn_phase2(self, staged: StagedAlert) -> None:
         """2단계 판정을 추적되는 백그라운드 태스크로 띄운다."""

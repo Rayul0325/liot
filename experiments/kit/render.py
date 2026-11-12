@@ -57,14 +57,20 @@ def _item_value(item: Item) -> str:
     return fmt_item(actual, item)
 
 
+def _source_file(exp: str) -> str:
+    if exp.startswith("kit:"):
+        return f"experiments/kit/data/{exp[4:]}.json (kit 이 현재 코드에서 다시 잰 값 — 실험 summary.json 아님)"
+    return f"{exp}/results/summary.json"
+
+
 def _path_text(item: Item) -> str:
     if item.fn:
-        return f"`{item.exp}/results/summary.json` 의 `{' > '.join(map(str, item.path))}` 칸들에서 계산(파생값)"
+        return f"`{_source_file(item.exp)}` 의 `{' > '.join(map(str, item.path))}` 칸들에서 계산(파생값)"
     parts = []
     for key in item.path:
         parts.append(",".join(f"{k}={v}" for k, v in key.items()) if isinstance(key, dict) else str(key))
     suffix = f" ({item.agg})" if item.agg else ""
-    return f"`{item.exp}/results/summary.json` → `{' > '.join(parts)}`{suffix}"
+    return f"`{_source_file(item.exp)}` → `{' > '.join(parts)}`{suffix}"
 
 
 def _claim_block(claim: Claim, limits: dict[str, str]) -> str:
@@ -96,11 +102,12 @@ def _verdict_table() -> str:
     spec = yaml.safe_load((KIT_DIR / "hypotheses.yaml").read_text(encoding="utf-8"))
     out = []
     for qid, qinfo in spec["questions"].items():
-        out += [f"**{qinfo['short']}**", "", "| 가설 | 이름 | 최종 판정 | 최근 문구 | 근거 청구 |", "|---|---|---|---|---|"]
+        out += [f"**{qinfo['short']}**", "", "| 가설 | 사이클 | 이름 | 최종 판정 | 최근 문구 | 근거 청구 |", "|---|---|---|---|---|---|"]
         for row in (r for r in rows if r["q"] == qid):
             verdict = row["shown"] if not row["arrived"] else "결과 도착(판정 입력 필요)"
             claims = ", ".join(row["claims"])
-            out.append(f"| {row['id']} | {row['name']} | **{verdict}** | {row['raw']} | {claims} |")
+            cycle = "4 (탐색)" if row["cycle"] == 4 else str(row["cycle"])
+            out.append(f"| {row['id']} | {cycle} | {row['name']} | **{verdict}** | {row['raw']} | {claims} |")
         out.append("")
     return "\n".join(out)
 
@@ -134,6 +141,8 @@ def render() -> str:
     claims = load_claims()
     by_id = {c.id: c for c in claims}
     rows, _ = figures.effective_verdicts()
+    # cycle 4 is exploratory: its per-hypothesis verdicts are quoted one by one, never counted
+    counted = [r for r in rows if r["cycle"] != 4]
 
     def sub(match: re.Match[str]) -> str:
         body = match.group(1).strip()
@@ -144,8 +153,8 @@ def render() -> str:
         if body.startswith("v:count:"):
             key = body.split(":", 2)[2]
             if key == "total_decided":
-                return str(sum(1 for r in rows if r["shown"] != "대기"))
-            return str(sum(1 for r in rows if r["shown"] == key))
+                return str(sum(1 for r in counted if r["shown"] != "대기"))
+            return str(sum(1 for r in counted if r["shown"] == key))
         if body.startswith("v:"):
             _, claim_id, idx = body.split(":")
             return _item_value(by_id[claim_id].items[int(idx)])

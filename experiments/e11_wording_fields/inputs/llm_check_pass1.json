@@ -1,0 +1,146 @@
+{
+ "r01": {
+  "v1": {"facts_present": [true, true, true, true, true], "added": ["handle shaken roughly/violently"], "tone": 4, "note": "Adds 'roughly' and 'emergency' framing to the handle shaking."},
+  "v2": {"facts_present": [true, true, true, true, true], "added": [], "tone": 2, "note": ""}
+ },
+ "r02": {
+  "v1": {"facts_present": [true, true, true, true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true, true, true, false], "added": ["person is engrossed in the movie"], "tone": 2, "note": "Door 'open' strengthened to 'wide open'."}
+ },
+ "r03": {
+  "v1": {"facts_present": [true, true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true, true], "added": ["anomaly described as ominous/unusual (심상치 않은)", "emergency alarm sounding"], "tone": 4, "note": "Adds ominous evaluation and emergency framing."}
+ },
+ "r04": {
+  "v1": {"facts_present": [true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true], "added": ["preparation is proceeding urgently/tensely"], "tone": 3, "note": "Adds urgency to ordinary cooking prep."}
+ },
+ "r05": {
+  "v1": {"facts_present": [true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true], "added": [], "tone": 2, "note": ""}
+ },
+ "r06": {
+  "v1": {"facts_present": [true, true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true, true], "added": ["battery level evaluated as 'only' 15%", "emergency alarm framing"], "tone": 3, "note": "Evaluative 'only' and 'emergency' added to a low-battery notice."}
+ },
+ "r07": {
+  "v1": {"facts_present": [true, true, true, true], "added": ["house described as empty (빈집)"], "tone": 2, "note": "Floor described as completely 'empty' beyond tidy/no obstacles."},
+  "v2": {"facts_present": [true, true, true, true], "added": [], "tone": 1, "note": ""}
+ },
+ "r08": {
+  "v1": {"facts_present": [true, true, true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true, true, true], "added": ["reading evaluated as lethal (살인적인)"], "tone": 4, "note": "Adds 'lethal' evaluation to the 57 degree reading."}
+ },
+ "r09": {
+  "v1": {"facts_present": [true, true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true, true], "added": [], "tone": 2, "note": ""}
+ },
+ "r10": {
+  "v1": {"facts_present": [true, true, true, true], "added": [], "tone": 1, "note": "Identical to the original."},
+  "v2": {"facts_present": [true, true, true, true], "added": ["iron placement described as eerie (섬뜩하게)"], "tone": 4, "note": "Adds eerie evaluation."}
+ },
+ "r11": {
+  "v1": {"facts_present": [true, true, true], "added": ["motion detected eerily (섬뜩하게)"], "tone": 4, "note": "Adds eerie evaluation and 'dead of night' framing."},
+  "v2": {"facts_present": [true, true, true], "added": [], "tone": 1, "note": ""}
+ },
+ "r12": {
+  "v1": {"facts_present": [true, true, true, true, true], "added": ["oven heating continuously without pause", "described as high heat (고열)"], "tone": 3, "note": "Adds 'without pause' and 'high heat' framing."},
+  "v2": {"facts_present": [true, true, true, true, true], "added": [], "tone": 1, "note": ""}
+ },
+ "r13": {
+  "v1": {"facts_present": [true, true, true, true, true], "added": ["rise is uncontrollable (걷잡을 수 없이)"], "tone": 4, "note": "Adds 'uncontrollably'."},
+  "v2": {"facts_present": [true, true, false, true, true], "added": [], "tone": 1, "note": "'Rose sharply' weakened to plain '상승' (rise); sharpness lost."}
+ },
+ "r14": {
+  "v1": {"facts_present": [true, true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true, true], "added": ["traces described as terrible/awful (끔찍하게)"], "tone": 3, "note": "Adds an evaluative 'terrible'."}
+ },
+ "r15": {
+  "v1": {"facts_present": [true, true, true, true, true], "added": ["movement described as eerie (섬뜩한)", "movement is 'burrowing/intruding' into the living room"], "tone": 5, "note": "Adds eerie and intrusion framing; 'no unlock record' became '전무' (nil), equivalent."},
+  "v2": {"facts_present": [true, true, true, true, false], "added": [], "tone": 2, "note": "'Unfamiliar movement' changed to 'unidentified movement'; also 'to the living room' became 'toward the living room'."}
+ },
+ "r16": {
+  "v1": {"facts_present": [true, true, true], "added": ["packaging remains precariously/dangerously (위태롭게)"], "tone": 3, "note": "Adds danger evaluation."},
+  "v2": {"facts_present": [true, true, true], "added": [], "tone": 1, "note": ""}
+ },
+ "r17": {
+  "v1": {"facts_present": [true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true], "added": ["motion detection persists eerily (섬뜩하리만큼)"], "tone": 3, "note": "Adds eerie evaluation."}
+ },
+ "r18": {
+  "v1": {"facts_present": [true, true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true, false], "added": ["sultry/stifling heat felt (후끈한 열기)", "windows blocked/sealed"], "tone": 3, "note": "'Windows closed' strengthened to 'tightly shut and blocked'; adds heat sensation."}
+ },
+ "r19": {
+  "v1": {"facts_present": [true, true, true, true, true, true], "added": [], "tone": 2, "note": ""},
+  "v2": {"facts_present": [true, true, true, true, false, false], "added": ["oven heating without rest"], "tone": 5, "note": "'Smoke coming out' became 'gushing out' and 'rising' became 'uncontrollably rising'."}
+ },
+ "r20": {
+  "v1": {"facts_present": [true, true, true, false], "added": ["house described as empty (빈집)"], "tone": 2, "note": "'All windows open' strengthened to 'wide open'."},
+  "v2": {"facts_present": [true, true, true, true], "added": [], "tone": 1, "note": ""}
+ },
+ "r21": {
+  "v1": {"facts_present": [true, true, true, true, true], "added": ["alarm sound described as emergency alarm bursting out (비상 경보음이 터져 나옴)"], "tone": 4, "note": "Adds emergency and bursting framing to a single alarm."},
+  "v2": {"facts_present": [true, true, true, true, true], "added": [], "tone": 1, "note": ""}
+ },
+ "r22": {
+  "v1": {"facts_present": [true, true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true, true], "added": ["people are engrossed in the movie"], "tone": 2, "note": ""}
+ },
+ "r23": {
+  "v1": {"facts_present": [true, true, false, true], "added": ["alarm sounding without stopping (emergency)", "candle blazing (타오르고)"], "tone": 4, "note": "'Continues to rise' became 'keeps surging (치솟음)', stronger degree; adds emergency framing."},
+  "v2": {"facts_present": [true, true, true, true], "added": [], "tone": 1, "note": ""}
+ },
+ "r24": {
+  "v1": {"facts_present": [true, true, true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true, false, true], "added": ["burning smell is acrid (매캐한)", "emergency alarm sounding"], "tone": 5, "note": "'Continues to rise' became 'soaring (치솟고)'; adds acrid smell attribute."}
+ },
+ "r25": {
+  "v1": {"facts_present": [true, true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true, true], "added": [], "tone": 1, "note": ""}
+ },
+ "r26": {
+  "v1": {"facts_present": [true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true], "added": ["indoor air feels eerily cold (으스스한 냉기)"], "tone": 3, "note": "Adds a sensory cold attribute."}
+ },
+ "r27": {
+  "v1": {"facts_present": [true, true, true, true], "added": ["flooding is uncontrollable (걷잡을 수 없이)", "water rise is threatening"], "tone": 5, "note": "Adds uncontrollable and threatening framing."},
+  "v2": {"facts_present": [true, false, true, true], "added": [], "tone": 1, "note": "'Flow surging (급증)' weakened to plain 'increase (증가)'."}
+ },
+ "r28": {
+  "v1": {"facts_present": [true, true, true, true, false], "added": ["motion described as mysterious/suspicious (의문의)"], "tone": 4, "note": "Door 'open' strengthened to 'wide open'; adds mysterious qualifier to the motion."},
+  "v2": {"facts_present": [true, true, true, true, true], "added": [], "tone": 1, "note": ""}
+ },
+ "r29": {
+  "v1": {"facts_present": [true, true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true, true], "added": ["water spreading threateningly (위협적으로)", "emergency alarm framing"], "tone": 4, "note": "Adds threat evaluation."}
+ },
+ "r30": {
+  "v1": {"facts_present": [true, true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true, true], "added": ["drops leak ominously (불길하게)", "emergency alarm framing"], "tone": 4, "note": "Adds ominous evaluation to a minor leak."}
+ },
+ "r31": {
+  "v1": {"facts_present": [true, true, true], "added": ["towel draped precariously (아슬아슬하게)"], "tone": 3, "note": "Adds precariousness evaluation."},
+  "v2": {"facts_present": [true, true, true], "added": [], "tone": 1, "note": ""}
+ },
+ "r32": {
+  "v1": {"facts_present": [true, true, true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true, true, true], "added": ["door opening detected eerily (섬뜩하게)"], "tone": 4, "note": "Adds eerie evaluation despite a normal return."}
+ },
+ "r33": {
+  "v1": {"facts_present": [true, true, true], "added": ["air described as bone-dry (바싹 메마른)"], "tone": 2, "note": "Adds dryness evaluation."},
+  "v2": {"facts_present": [true, true, true], "added": [], "tone": 1, "note": ""}
+ },
+ "r34": {
+  "v1": {"facts_present": [true, true, true, true, true], "added": ["alarm described as emergency alarm bursting out (비상 경보가 터짐)"], "tone": 3, "note": "Adds emergency and bursting framing to a single alarm."},
+  "v2": {"facts_present": [true, true, true, true, true], "added": [], "tone": 1, "note": ""}
+ },
+ "r35": {
+  "v1": {"facts_present": [true, true, false, true], "added": [], "tone": 1, "note": "'Flood alarm (침수 경보)' reduced to plain 'alarm', dropping the flood qualifier."},
+  "v2": {"facts_present": [true, true, true, true], "added": ["emergency alarm framing", "water pooled copiously (흥건히)"], "tone": 3, "note": "Adds emergency and copious-water framing."}
+ },
+ "r36": {
+  "v1": {"facts_present": [true, true, true, true, true], "added": [], "tone": 1, "note": ""},
+  "v2": {"facts_present": [true, true, true, true, true], "added": [], "tone": 2, "note": ""}
+ }
+}

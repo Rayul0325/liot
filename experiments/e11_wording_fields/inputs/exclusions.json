@@ -1,0 +1,147 @@
+{
+ "pass1_failures": {
+  "neutral": {
+   "sit-high_temp/danger": [
+    "llm_fact_missing: 'Rose sharply' weakened to plain '상승' (rise); sharpness lost."
+   ],
+   "sit-door/danger": [
+    "llm_fact_missing: 'Unfamiliar movement' changed to 'unidentified movement'; also 'to the living room' became 'toward the living room'."
+   ],
+   "sit-smoke/calm": [
+    "script: numbers [] vs ['1']"
+   ],
+   "sit-water_main/danger": [
+    "llm_fact_missing: 'Flow surging (급증)' weakened to plain 'increase (증가)'."
+   ],
+   "sit-gas/calm": [
+    "script: numbers [] vs ['1']"
+   ],
+   "washer-leak/danger": [
+    "llm_fact_missing: 'Flood alarm (침수 경보)' reduced to plain 'alarm', dropping the flood qualifier."
+   ]
+  },
+  "alarming": {
+   "sit-lock/danger": [
+    "llm_added: handle shaken roughly/violently"
+   ],
+   "media-sleep/danger": [
+    "llm_fact_missing: Door 'open' strengthened to 'wide open'.",
+    "llm_added: person is engrossed in the movie"
+   ],
+   "sit-water_main/calm": [
+    "llm_added: anomaly described as ominous/unusual (심상치 않은); emergency alarm sounding"
+   ],
+   "oven-unattended/calm": [
+    "llm_added: preparation is proceeding urgently/tensely",
+    "script: length 39/21"
+   ],
+   "cover-cat/calm": [
+    "script: length 35/22"
+   ],
+   "sit-lock/calm": [
+    "llm_added: battery level evaluated as 'only' 15%; emergency alarm framing"
+   ],
+   "vacuum-mess/calm": [
+    "llm_added: house described as empty (빈집)",
+    "script: length 50/31"
+   ],
+   "sit-high_temp/calm": [
+    "llm_added: reading evaluated as lethal (살인적인)"
+   ],
+   "iron-cloth/danger": [
+    "llm_added: iron placement described as eerie (섬뜩하게)"
+   ],
+   "light-baby/calm": [
+    "llm_added: motion detected eerily (섬뜩하게)",
+    "script: length 38/25"
+   ],
+   "sit-oven/calm": [
+    "llm_added: oven heating continuously without pause; described as high heat (고열)"
+   ],
+   "sit-high_temp/danger": [
+    "llm_added: rise is uncontrollable (걷잡을 수 없이)"
+   ],
+   "vacuum-mess/danger": [
+    "llm_added: traces described as terrible/awful (끔찍하게)"
+   ],
+   "sit-door/danger": [
+    "llm_added: movement described as eerie (섬뜩한); movement is 'burrowing/intruding' into the living room"
+   ],
+   "oven-unattended/danger": [
+    "llm_added: packaging remains precariously/dangerously (위태롭게)"
+   ],
+   "cover-cat/danger": [
+    "llm_added: motion detection persists eerily (섬뜩하리만큼)"
+   ],
+   "aircon-window/calm": [
+    "llm_fact_missing: 'Windows closed' strengthened to 'tightly shut and blocked'; adds heat sensation.",
+    "llm_added: sultry/stifling heat felt (후끈한 열기); windows blocked/sealed",
+    "script: length 54/32"
+   ],
+   "sit-oven/danger": [
+    "llm_fact_missing: 'Smoke coming out' became 'gushing out' and 'rising' became 'uncontrollably rising'.",
+    "llm_added: oven heating without rest"
+   ],
+   "aircon-window/danger": [
+    "llm_fact_missing: 'All windows open' strengthened to 'wide open'.",
+    "llm_added: house described as empty (빈집)"
+   ],
+   "sit-smoke/calm": [
+    "llm_added: alarm sound described as emergency alarm bursting out (비상 경보음이 터져 나옴)"
+   ],
+   "media-sleep/calm": [
+    "llm_added: people are engrossed in the movie"
+   ],
+   "sit-gas/danger": [
+    "llm_fact_missing: 'Continues to rise' became 'keeps surging (치솟음)', stronger degree; adds emergency framing.",
+    "llm_added: alarm sounding without stopping (emergency); candle blazing (타오르고)"
+   ],
+   "sit-smoke/danger": [
+    "llm_fact_missing: 'Continues to rise' became 'soaring (치솟고)'; adds acrid smell attribute.",
+    "llm_added: burning smell is acrid (매캐한); emergency alarm sounding"
+   ],
+   "heater-cover/calm": [
+    "llm_added: indoor air feels eerily cold (으스스한 냉기)"
+   ],
+   "sit-water_main/danger": [
+    "llm_added: flooding is uncontrollable (걷잡을 수 없이); water rise is threatening"
+   ],
+   "light-baby/danger": [
+    "llm_fact_missing: Door 'open' strengthened to 'wide open'; adds mysterious qualifier to the motion.",
+    "llm_added: motion described as mysterious/suspicious (의문의)"
+   ],
+   "sit-leak/danger": [
+    "llm_added: water spreading threateningly (위협적으로); emergency alarm framing"
+   ],
+   "sit-leak/calm": [
+    "llm_added: drops leak ominously (불길하게); emergency alarm framing",
+    "script: entities_added 불길"
+   ],
+   "heater-cover/danger": [
+    "llm_added: towel draped precariously (아슬아슬하게)"
+   ],
+   "sit-door/calm": [
+    "llm_added: door opening detected eerily (섬뜩하게)"
+   ],
+   "humid-empty/calm": [
+    "llm_added: air described as bone-dry (바싹 메마른)",
+    "script: length 44/26"
+   ],
+   "sit-gas/calm": [
+    "llm_added: alarm described as emergency alarm bursting out (비상 경보가 터짐)"
+   ],
+   "washer-leak/danger": [
+    "llm_added: emergency alarm framing; water pooled copiously (흥건히)"
+   ]
+  }
+ },
+ "final_excluded": {
+  "neutral": {
+   "sit-leak/calm": [
+    "llm_fact_missing: Says drops are present at the hose rather than coming from it, weakening the source relation."
+   ]
+  },
+  "alarming": {}
+ },
+ "cases_per_arm": 18
+}

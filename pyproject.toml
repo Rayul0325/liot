@@ -95,7 +95,7 @@ warn_unused_configs = true
 follow_imports_for_stubs = true
 
 [[tool.mypy.overrides]]
-module = ["aiosqlite.*", "yaml.*", "websockets.*"]
+module = ["aiosqlite.*", "yaml.*", "websockets.*", "scipy.*"]
 ignore_missing_imports = true
 
 # numpy 2.5 의 스텁은 파이썬 3.12 문법(type 문)이라 python_version 3.11 의 mypy 가 구문 오류로

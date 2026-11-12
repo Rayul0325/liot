@@ -1,0 +1,822 @@
+{
+  "anchoring": {
+    "gemini": {
+      "by_direction": {
+        "down": {
+          "answer_equals_shown_floor": {
+            "clusters": 3,
+            "den": 50,
+            "hi": 1.0,
+            "lo": 0.928571,
+            "num": 49,
+            "rate": 0.98
+          },
+          "moved_any": {
+            "clusters": 3,
+            "den": 50,
+            "hi": 1.0,
+            "lo": 0.928571,
+            "num": 49,
+            "rate": 0.98
+          },
+          "moved_in_direction": {
+            "clusters": 3,
+            "den": 50,
+            "hi": 1.0,
+            "lo": 0.928571,
+            "num": 49,
+            "rate": 0.98
+          },
+          "moved_with": {
+            "clusters": 3,
+            "den": 50,
+            "hi": 1.0,
+            "lo": 0.928571,
+            "num": 49,
+            "rate": 0.98
+          },
+          "moved_with_step_wilson": {
+            "den": 50,
+            "hi": 0.996461,
+            "lo": 0.895046,
+            "num": 49,
+            "rate": 0.98
+          },
+          "steps": 50,
+          "vs_given_floor": {
+            "above": 1,
+            "at": 49,
+            "below": 0
+          }
+        },
+        "up": {
+          "answer_equals_shown_floor": {
+            "clusters": 3,
+            "den": 77,
+            "hi": 1.0,
+            "lo": 1.0,
+            "num": 77,
+            "rate": 1.0
+          },
+          "moved_any": {
+            "clusters": 3,
+            "den": 77,
+            "hi": 1.0,
+            "lo": 1.0,
+            "num": 77,
+            "rate": 1.0
+          },
+          "moved_in_direction": {
+            "clusters": 3,
+            "den": 77,
+            "hi": 1.0,
+            "lo": 1.0,
+            "num": 77,
+            "rate": 1.0
+          },
+          "moved_with": {
+            "clusters": 3,
+            "den": 77,
+            "hi": 1.0,
+            "lo": 1.0,
+            "num": 77,
+            "rate": 1.0
+          },
+          "moved_with_step_wilson": {
+            "den": 77,
+            "hi": 1.0,
+            "lo": 0.952482,
+            "num": 77,
+            "rate": 1.0
+          },
+          "steps": 77,
+          "vs_given_floor": {
+            "above": 0,
+            "at": 77,
+            "below": 0
+          }
+        }
+      },
+      "pooled_moved_any": {
+        "clusters": 5,
+        "den": 127,
+        "hi": 1.0,
+        "lo": 0.96875,
+        "num": 126,
+        "rate": 0.992126
+      },
+      "pooled_moved_with": {
+        "clusters": 5,
+        "den": 127,
+        "hi": 1.0,
+        "lo": 0.969697,
+        "num": 126,
+        "rate": 0.992126
+      }
+    },
+    "haiku": {
+      "by_direction": {
+        "down": {
+          "answer_equals_shown_floor": {
+            "clusters": 3,
+            "den": 50,
+            "hi": 1.0,
+            "lo": 0.0,
+            "num": 20,
+            "rate": 0.4
+          },
+          "moved_any": {
+            "clusters": 3,
+            "den": 50,
+            "hi": 0.1,
+            "lo": 0.0,
+            "num": 2,
+            "rate": 0.04
+          },
+          "moved_in_direction": {
+            "clusters": 3,
+            "den": 50,
+            "hi": 0.1,
+            "lo": 0.0,
+            "num": 2,
+            "rate": 0.04
+          },
+          "moved_with": {
+            "clusters": 3,
+            "den": 50,
+            "hi": 0.1,
+            "lo": 0.0,
+            "num": 2,
+            "rate": 0.04
+          },
+          "moved_with_step_wilson": {
+            "den": 50,
+            "hi": 0.134601,
+            "lo": 0.011039,
+            "num": 2,
+            "rate": 0.04
+          },
+          "steps": 50,
+          "vs_given_floor": {
+            "above": 30,
+            "at": 20,
+            "below": 0
+          }
+        },
+        "up": {
+          "answer_equals_shown_floor": {
+            "clusters": 3,
+            "den": 77,
+            "hi": 1.0,
+            "lo": 0.0,
+            "num": 30,
+            "rate": 0.38961
+          },
+          "moved_any": {
+            "clusters": 3,
+            "den": 77,
+            "hi": 1.0,
+            "lo": 0.0,
+            "num": 32,
+            "rate": 0.415584
+          },
+          "moved_in_direction": {
+            "clusters": 3,
+            "den": 77,
+            "hi": 1.0,
+            "lo": 0.0,
+            "num": 30,
+            "rate": 0.38961
+          },
+          "moved_with": {
+            "clusters": 3,
+            "den": 77,
+            "hi": 1.0,
+            "lo": 0.0,
+            "num": 30,
+            "rate": 0.38961
+          },
+          "moved_with_step_wilson": {
+            "den": 77,
+            "hi": 0.501289,
+            "lo": 0.288423,
+            "num": 30,
+            "rate": 0.38961
+          },
+          "steps": 77,
+          "vs_given_floor": {
+            "above": 0,
+            "at": 30,
+            "below": 47
+          }
+        }
+      },
+      "pooled_moved_any": {
+        "clusters": 5,
+        "den": 127,
+        "hi": 0.687023,
+        "lo": 0.0,
+        "num": 34,
+        "rate": 0.267717
+      },
+      "pooled_moved_with": {
+        "clusters": 5,
+        "den": 127,
+        "hi": 0.676692,
+        "lo": 0.0,
+        "num": 32,
+        "rate": 0.251969
+      }
+    },
+    "jev": {
+      "by_direction": {
+        "down": {
+          "answer_equals_shown_floor": {
+            "clusters": 3,
+            "den": 50,
+            "hi": 1.0,
+            "lo": 0.0,
+            "num": 20,
+            "rate": 0.4
+          },
+          "moved_any": {
+            "clusters": 3,
+            "den": 50,
+            "hi": 0.95,
+            "lo": 0.0,
+            "num": 19,
+            "rate": 0.38
+          },
+          "moved_in_direction": {
+            "clusters": 3,
+            "den": 50,
+            "hi": 0.95,
+            "lo": 0.0,
+            "num": 19,
+            "rate": 0.38
+          },
+          "moved_with": {
+            "clusters": 3,
+            "den": 50,
+            "hi": 0.95,
+            "lo": 0.0,
+            "num": 19,
+            "rate": 0.38
+          },
+          "moved_with_step_wilson": {
+            "den": 50,
+            "hi": 0.518496,
+            "lo": 0.258628,
+            "num": 19,
+            "rate": 0.38
+          },
+          "steps": 50,
+          "vs_given_floor": {
+            "above": 30,
+            "at": 20,
+            "below": 0
+          }
+        },
+        "up": {
+          "answer_equals_shown_floor": {
+            "clusters": 3,
+            "den": 77,
+            "hi": 1.0,
+            "lo": 0.0,
+            "num": 57,
+            "rate": 0.74026
+          },
+          "moved_any": {
+            "clusters": 3,
+            "den": 77,
+            "hi": 1.0,
+            "lo": 0.95,
+            "num": 76,
+            "rate": 0.987013
+          },
+          "moved_in_direction": {
+            "clusters": 3,
+            "den": 77,
+            "hi": 1.0,
+            "lo": 0.0,
+            "num": 57,
+            "rate": 0.74026
+          },
+          "moved_with": {
+            "clusters": 3,
+            "den": 77,
+            "hi": 1.0,
+            "lo": 0.0,
+            "num": 57,
+            "rate": 0.74026
+          },
+          "moved_with_step_wilson": {
+            "den": 77,
+            "hi": 0.825108,
+            "lo": 0.632578,
+            "num": 57,
+            "rate": 0.74026
+          },
+          "steps": 77,
+          "vs_given_floor": {
+            "above": 0,
+            "at": 57,
+            "below": 20
+          }
+        }
+      },
+      "pooled_moved_any": {
+        "clusters": 5,
+        "den": 127,
+        "hi": 0.987013,
+        "lo": 0.310345,
+        "num": 95,
+        "rate": 0.748031
+      },
+      "pooled_moved_with": {
+        "clusters": 5,
+        "den": 127,
+        "hi": 0.890625,
+        "lo": 0.19,
+        "num": 76,
+        "rate": 0.598425
+      }
+    }
+  },
+  "anchoring_definition": "moved_with = answer under the swapped floor equals the shown floor AND differs from the answer under the true floor; moved_any = answer changed at all; per direction (up = floor one tier higher shown, down = one tier lower); bootstrap clustered by scene type (action|category)",
+  "answers_by_scene_and_shown_floor": {
+    "gemini": {
+      "alert|gas | true=ember shown=dusk": {
+        "dusk": 13,
+        "ember": 1
+      },
+      "alert|gas | true=ember shown=ember": {
+        "ember": 14
+      },
+      "alert|leak | true=ember shown=dusk": {
+        "dusk": 16
+      },
+      "alert|leak | true=ember shown=ember": {
+        "ember": 16
+      },
+      "set_brightness|light | true=ambient shown=ambient": {
+        "ambient": 27
+      },
+      "set_brightness|light | true=ambient shown=breath": {
+        "breath": 27
+      },
+      "set_speed|climate | true=breath shown=ambient": {
+        "ambient": 20
+      },
+      "set_speed|climate | true=breath shown=breath": {
+        "breath": 20
+      },
+      "set_speed|climate | true=breath shown=dusk": {
+        "dusk": 20
+      },
+      "ventilate|info | true=ambient shown=ambient": {
+        "ambient": 30
+      },
+      "ventilate|info | true=ambient shown=breath": {
+        "breath": 30
+      }
+    },
+    "haiku": {
+      "alert|gas | true=ember shown=dusk": {
+        "ember": 14
+      },
+      "alert|gas | true=ember shown=ember": {
+        "ember": 14
+      },
+      "alert|leak | true=ember shown=dusk": {
+        "ember": 16
+      },
+      "alert|leak | true=ember shown=ember": {
+        "ember": 16
+      },
+      "set_brightness|light | true=ambient shown=ambient": {
+        "ambient": 27
+      },
+      "set_brightness|light | true=ambient shown=breath": {
+        "ambient": 27
+      },
+      "set_speed|climate | true=breath shown=ambient": {
+        "ambient": 20
+      },
+      "set_speed|climate | true=breath shown=breath": {
+        "ambient": 18,
+        "breath": 2
+      },
+      "set_speed|climate | true=breath shown=dusk": {
+        "ambient": 20
+      },
+      "ventilate|info | true=ambient shown=ambient": {
+        "ambient": 30
+      },
+      "ventilate|info | true=ambient shown=breath": {
+        "breath": 30
+      }
+    },
+    "jev": {
+      "alert|gas | true=ember shown=dusk": {
+        "ember": 14
+      },
+      "alert|gas | true=ember shown=ember": {
+        "ember": 14
+      },
+      "alert|leak | true=ember shown=dusk": {
+        "ember": 16
+      },
+      "alert|leak | true=ember shown=ember": {
+        "ember": 16
+      },
+      "set_brightness|light | true=ambient shown=ambient": {
+        "ambient": 27
+      },
+      "set_brightness|light | true=ambient shown=breath": {
+        "breath": 27
+      },
+      "set_speed|climate | true=breath shown=ambient": {
+        "ambient": 20
+      },
+      "set_speed|climate | true=breath shown=breath": {
+        "ambient": 1,
+        "breath": 19
+      },
+      "set_speed|climate | true=breath shown=dusk": {
+        "ambient": 20
+      },
+      "ventilate|info | true=ambient shown=ambient": {
+        "ambient": 30
+      },
+      "ventilate|info | true=ambient shown=breath": {
+        "breath": 30
+      }
+    }
+  },
+  "capture": {
+    "calls": 542,
+    "days_per_run": 3,
+    "days_total": 30,
+    "first_alert_ms_max": 7.097,
+    "first_alerts": 30,
+    "first_alerts_immediate": 30,
+    "judged_steps": 107,
+    "kit_status": [
+      {
+        "model": "jev:jev-latest",
+        "part": "judge",
+        "state": "cloud"
+      },
+      {
+        "model": "anthropic:claude-haiku-5-5",
+        "part": "reason",
+        "state": "cloud"
+      },
+      {
+        "model": "anthropic:claude-haiku-5-5",
+        "part": "resident",
+        "state": "cloud"
+      },
+      {
+        "model": "gpt-6-luna",
+        "part": "luna",
+        "state": "cloud"
+      },
+      {
+        "model": "memgineering:liot-demo",
+        "part": "memory",
+        "state": "cloud"
+      }
+    ],
+    "luna_requests_logged": 0,
+    "runs": 10,
+    "seeds": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "tripped_runs": [],
+    "unknown_price_calls": 0,
+    "usd": 0.010688
+  },
+  "capture_jev_vs_floor": {
+    "above": 0,
+    "at_floor": 107,
+    "below": 0,
+    "judged": 107
+  },
+  "departure_true_floor": {
+    "gemini": {
+      "above": 0,
+      "answer_counts": {
+        "ambient": 57,
+        "breath": 20,
+        "ember": 30
+      },
+      "answered": 107,
+      "at_floor": 107,
+      "below": 0,
+      "downward_capable_steps": 50,
+      "downward_rate": {
+        "clusters": 3,
+        "den": 50,
+        "hi": 0.0,
+        "lo": 0.0,
+        "num": 0,
+        "rate": 0.0
+      },
+      "upward_capable_steps": 77,
+      "upward_rate": {
+        "clusters": 3,
+        "den": 77,
+        "hi": 0.0,
+        "lo": 0.0,
+        "num": 0,
+        "rate": 0.0
+      },
+      "upward_rate_step_wilson": {
+        "den": 77,
+        "hi": 0.047518,
+        "lo": -0.0,
+        "num": 0,
+        "rate": 0.0
+      }
+    },
+    "haiku": {
+      "above": 0,
+      "answer_counts": {
+        "ambient": 75,
+        "breath": 2,
+        "ember": 30
+      },
+      "answered": 107,
+      "at_floor": 89,
+      "below": 18,
+      "downward_capable_steps": 50,
+      "downward_rate": {
+        "clusters": 3,
+        "den": 50,
+        "hi": 0.9,
+        "lo": 0.0,
+        "num": 18,
+        "rate": 0.36
+      },
+      "upward_capable_steps": 77,
+      "upward_rate": {
+        "clusters": 3,
+        "den": 77,
+        "hi": 0.0,
+        "lo": 0.0,
+        "num": 0,
+        "rate": 0.0
+      },
+      "upward_rate_step_wilson": {
+        "den": 77,
+        "hi": 0.047518,
+        "lo": -0.0,
+        "num": 0,
+        "rate": 0.0
+      }
+    },
+    "jev": {
+      "above": 0,
+      "answer_counts": {
+        "ambient": 58,
+        "breath": 19,
+        "ember": 30
+      },
+      "answered": 107,
+      "at_floor": 106,
+      "below": 1,
+      "downward_capable_steps": 50,
+      "downward_rate": {
+        "clusters": 3,
+        "den": 50,
+        "hi": 0.05,
+        "lo": 0.0,
+        "num": 1,
+        "rate": 0.02
+      },
+      "upward_capable_steps": 77,
+      "upward_rate": {
+        "clusters": 3,
+        "den": 77,
+        "hi": 0.0,
+        "lo": 0.0,
+        "num": 0,
+        "rate": 0.0
+      },
+      "upward_rate_step_wilson": {
+        "den": 77,
+        "hi": 0.047518,
+        "lo": -0.0,
+        "num": 0,
+        "rate": 0.0
+      }
+    }
+  },
+  "evidence_checks": {
+    "egress_unchanged": 107,
+    "roundtrip_unchanged": 107,
+    "steps": 107,
+    "tier_word_outside_floor_field": 0
+  },
+  "jev_capture_vs_rerun_true_floor": {
+    "n": 107,
+    "same": 106
+  },
+  "judge_cost": {
+    "by_kind": {
+      "gemini": 0.237619,
+      "haiku": 0.028623,
+      "jev": 0.009992
+    },
+    "calls": 1404,
+    "stop_reasons": [
+      {
+        "gemini": "complete",
+        "haiku": "complete",
+        "jev": "complete"
+      }
+    ],
+    "tripped": [
+      null
+    ],
+    "unknown_price_calls": 0,
+    "usd": 0.276234
+  },
+  "pair_agreement_true_floor": {
+    "haiku|gemini": {
+      "agree_all_steps": {
+        "clusters": 5,
+        "den": 107,
+        "hi": 1.0,
+        "lo": 0.475728,
+        "num": 89,
+        "rate": 0.831776
+      },
+      "agree_where_one_departs": {
+        "clusters": 1,
+        "den": 18,
+        "hi": 0.0,
+        "lo": 0.0,
+        "num": 0,
+        "rate": 0.0
+      },
+      "both_answered": 107,
+      "jev_departures_from_true_floor": null,
+      "label": "기술 결과",
+      "steps_where_one_departs": 18,
+      "why": null
+    },
+    "jev|gemini": {
+      "agree_all_steps": {
+        "clusters": 5,
+        "den": 107,
+        "hi": 1.0,
+        "lo": 0.970297,
+        "num": 106,
+        "rate": 0.990654
+      },
+      "agree_where_one_departs": {
+        "clusters": 1,
+        "den": 1,
+        "hi": 0.0,
+        "lo": 0.0,
+        "num": 0,
+        "rate": 0.0
+      },
+      "both_answered": 107,
+      "jev_departures_from_true_floor": 1,
+      "label": "구조상 결과",
+      "steps_where_one_departs": 1,
+      "why": "Jev left the floor in almost no step, so agreement with Jev mostly equals 'the other judge stayed at the floor'"
+    },
+    "jev|haiku": {
+      "agree_all_steps": {
+        "clusters": 5,
+        "den": 107,
+        "hi": 1.0,
+        "lo": 0.49505,
+        "num": 90,
+        "rate": 0.841121
+      },
+      "agree_where_one_departs": {
+        "clusters": 1,
+        "den": 18,
+        "hi": 0.055556,
+        "lo": 0.055556,
+        "num": 1,
+        "rate": 0.055556
+      },
+      "both_answered": 107,
+      "jev_departures_from_true_floor": 1,
+      "label": "구조상 결과",
+      "steps_where_one_departs": 18,
+      "why": "Jev left the floor in almost no step, so agreement with Jev mostly equals 'the other judge stayed at the floor'"
+    }
+  },
+  "repeat_flip_true_floor": {
+    "gemini": {
+      "clusters": 5,
+      "den": 107,
+      "hi": 0.0,
+      "lo": 0.0,
+      "num": 0,
+      "rate": 0.0
+    },
+    "haiku": {
+      "clusters": 5,
+      "den": 107,
+      "hi": 0.029703,
+      "lo": 0.0,
+      "num": 1,
+      "rate": 0.009346
+    },
+    "jev": {
+      "clusters": 5,
+      "den": 107,
+      "hi": 0.029703,
+      "lo": 0.0,
+      "num": 1,
+      "rate": 0.009346
+    }
+  },
+  "requests_rep0": {
+    "gemini|down": {
+      "failed": 0,
+      "requests": 50
+    },
+    "gemini|true": {
+      "failed": 0,
+      "requests": 107
+    },
+    "gemini|up": {
+      "failed": 0,
+      "requests": 77
+    },
+    "haiku|down": {
+      "failed": 0,
+      "requests": 50
+    },
+    "haiku|true": {
+      "failed": 0,
+      "requests": 107
+    },
+    "haiku|up": {
+      "failed": 0,
+      "requests": 77
+    },
+    "jev|down": {
+      "failed": 0,
+      "requests": 50
+    },
+    "jev|true": {
+      "failed": 0,
+      "requests": 107
+    },
+    "jev|up": {
+      "failed": 0,
+      "requests": 77
+    }
+  },
+  "steps": {
+    "can_depart_downward": 50,
+    "can_depart_upward": 77,
+    "floor_counts": {
+      "ambient": 57,
+      "breath": 20,
+      "ember": 30
+    },
+    "scene_types": {
+      "alert|gas": 14,
+      "alert|leak": 16,
+      "set_brightness|light": 27,
+      "set_speed|climate": 20,
+      "ventilate|info": 30
+    },
+    "scene_types_by_floor": {
+      "ambient": {
+        "set_brightness|light": 27,
+        "ventilate|info": 30
+      },
+      "breath": {
+        "set_speed|climate": 20
+      },
+      "ember": {
+        "alert|gas": 14,
+        "alert|leak": 16
+      }
+    },
+    "total": 107
+  },
+  "usd_total_estimated": 0.286922
+}

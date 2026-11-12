@@ -20,3 +20,18 @@ events:
   - {time: "03:30", cycle: 3, lane: R, text: E5 C3.1 반증, mark: 분류 코드}
   - {time: "03:50", cycle: 2, lane: R, text: E8 뮤테이션 7/10 모듈 90% 미만, mark: H6.3 지지}
   - {time: "04:15", cycle: 2, lane: V, text: E8 빈틈 15곳 테스트 보강 PASS·병합, mark: 로더 중복 키 거부}
+cycle4:
+  - {time: "10:33", sha: "78c1a5d", cycle: 4, lane: H, text: "사이클 4 가설 사전 등록 C4.1~13"}
+  - {time: "10:40", sha: "a73414c", cycle: 4, lane: V, text: "지표 적대 검토 반영(7 FAIL 고침)", mark: "C4.10a 빼기·C4.12b 고침"}
+  - {time: "10:47", sha: "c96392f", cycle: 4, lane: V, text: "E15 측정 코드·판정 규칙 결과 전 고정"}
+  - {time: "11:09", sha: "f84910d", cycle: 4, lane: V, text: "E16 C4.13(b) 등록 판정을 반증(R1)으로 정정", mark: "R2 는 사후"}
+  - {time: "11:18", sha: "b1e5277", cycle: 4, lane: R, text: "E16 병합 — C4.12b 반증·C4.13a 순환"}
+  - {time: "11:29", sha: "e9e1d77", cycle: 4, lane: R, text: "E12 병합 — C4.5 하한 따라 쓰기"}
+  - {time: "11:30", sha: "9ddc862", cycle: 4, lane: R, text: "E14 C4.9(c) 중간 절단 위반 698/2,000", mark: "반증"}
+  - {time: "11:34", sha: "1643087", cycle: 4, lane: V, text: "U6 재검토 PASS·병합", mark: "두 창 닫음"}
+  - {time: "11:37", sha: "4195aa0", cycle: 4, lane: V, text: "E11 사후 변경 기록 4건"}
+  - {time: "11:38", sha: "6f0e962", cycle: 4, lane: R, text: "E10 병합 — C4.1 지지", mark: "원인 미분리"}
+  - {time: "11:45", sha: "0e43654", cycle: 4, lane: R, text: "E14 병합 — C4.9(a)(b)·C4.10"}
+  - {time: "11:52", sha: "0d17b49", cycle: 4, lane: R, text: "E11 병합 — C4.2 판정 불가·C4.3 반증"}
+  - {time: "12:23", sha: "0ccd22c", cycle: 4, lane: R, text: "E13 병합 — C4.6 판정 불가·C4.7(1) 반증"}
+  - {time: "12:43", sha: "325e941", cycle: 4, lane: R, text: "E15 병합 — C4.11(a) 반증·(b) 판정 불가", mark: "(b) 사후로 내림"}

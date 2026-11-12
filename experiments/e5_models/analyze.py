@@ -242,7 +242,9 @@ def _boot_agreement(mat: np.ndarray, ncat: int, name: str) -> dict[str, list[flo
         s = _agreement_stats(mat[idx], ncat)
         ac.append(s["gwet_ac1"])
         ra.append(s["raw_agreement"])
-    f = lambda v: [float(np.nanpercentile(v, 2.5)), float(np.nanpercentile(v, 97.5))]  # noqa: E731
+    def f(v: list[float]) -> list[float]:
+        return [float(np.nanpercentile(v, 2.5)), float(np.nanpercentile(v, 97.5))]
+
     return {"gwet_ac1_ci95": f(ac), "raw_agreement_ci95": f(ra)}
 
 
@@ -585,9 +587,9 @@ def _rule_block(
         }
     miss = [m["add5_answer_level"]["miss_rate"] for m in models.values() if m["add5_answer_level"]]
     over = [m["add5_answer_level"]["over_raise_rate"] for m in models.values() if m["add5_answer_level"]]
-    rule_ans = None if add5 is None else add5["answer_level"]
+    rule_ans: dict[str, Any] | None = None if add5 is None else add5["answer_level"]
     matches = None
-    if rule_ans is not None and miss:
+    if add5 is not None and rule_ans is not None and miss:
         matches = bool(
             rule_ans["miss_rate"] <= float(np.median(miss)) + 1e-9
             and rule_ans["over_raise_rate"] <= float(np.median(over)) + 1.0 / max(1, add5["pairs"]) + 1e-9
@@ -693,7 +695,7 @@ def summarize(raw_dir: Path) -> dict[str, Any]:
         out["add5_miss_vs_table"][j] = {}
         for c in CONTEXTS:
             if (j, c) in table:
-                r = _add5(table[(j, c)], 0, f"add5-{j}-{c}")
-                if r is not None:
-                    out["add5_miss_vs_table"][j][c] = r
+                r5 = _add5(table[(j, c)], 0, f"add5-{j}-{c}")
+                if r5 is not None:
+                    out["add5_miss_vs_table"][j][c] = r5
     return out

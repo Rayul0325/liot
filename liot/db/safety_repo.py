@@ -555,6 +555,15 @@ class SafetyRepo:
         )
         return None if row is None else self._row_to_situation(row)
 
+    async def list_open_situations(self, home_id: str) -> list[Situation]:
+        """그 집의 열린 상황 전부(시작 시 복구용). 오래된 것부터."""
+        rows = await self._all(
+            f"SELECT {_SITUATION_COLUMNS} FROM situations"
+            " WHERE home_id = ? AND closed_at IS NULL ORDER BY opened_at, situation_id",
+            (_require_text(home_id, "home_id"),),
+        )
+        return [self._row_to_situation(r) for r in rows]
+
     async def open_or_get_situation(
         self,
         home_id: str,

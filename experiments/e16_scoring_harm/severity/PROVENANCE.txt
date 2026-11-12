@@ -1,0 +1,5 @@
+Severity coders for C4.13(a) (registered form, HYPOTHESES.md commit a73414c).
+coderA = subagent on the `opus` alias, coderB = subagent on the `sonnet` alias; each got only prompt_coderX.md
+(own shuffled order, neutral ids; action + harmful circumstances; no LIOT tiers, no E3 outcomes).
+Both reported tool_uses = 0. Outputs are verbatim in output_coderX.json. idmap_coderX.json maps ids to the
+E3 generator template index (kept out of the prompts). Dispatched before any e16 E3 full run.
