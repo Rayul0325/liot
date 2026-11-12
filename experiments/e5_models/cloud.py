@@ -129,7 +129,7 @@ class JevMeteredTransport:
         self.meter.check()
         t0 = time.perf_counter()
         try:
-            data = self.inner.post(payload, timeout_s=timeout_s)
+            data: dict[str, Any] = self.inner.post(payload, timeout_s=timeout_s)
         except Exception as exc:
             _save_raw(self.tag, "jev", time.perf_counter() - t0, None, type(exc).__name__ + ": " + str(exc)[:80])
             raise
@@ -148,7 +148,7 @@ class CheapMeteredTransport:
         self.meter.check()
         t0 = time.perf_counter()
         try:
-            data = self.inner.post(request, timeout_s=timeout_s)
+            data: dict[str, Any] = self.inner.post(request, timeout_s=timeout_s)
         except Exception as exc:
             _save_raw(self.tag, "post", time.perf_counter() - t0, None, type(exc).__name__ + ": " + str(exc)[:80])
             raise
