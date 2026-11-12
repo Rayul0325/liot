@@ -163,11 +163,12 @@ def service_class(rules: RuleSet) -> type[LiotService]:
 @contextlib.contextmanager
 def installed(rules: RuleSet) -> Iterator[None]:
     """Swap ``liot.day_sim.LiotService`` for the rule subclass while a DaySim runs."""
-    import liot.day_sim as ds
+    import importlib
 
+    ds: Any = importlib.import_module("liot.day_sim")
     orig = ds.LiotService
-    ds.LiotService = service_class(rules)  # type: ignore[misc]
+    ds.LiotService = service_class(rules)
     try:
         yield
     finally:
-        ds.LiotService = orig  # type: ignore[misc]
+        ds.LiotService = orig
