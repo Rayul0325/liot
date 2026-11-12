@@ -76,8 +76,11 @@ def test_a_rule_can_only_remove_keys() -> None:
 
 
 def test_installed_swaps_and_restores_the_service_name() -> None:
-    import liot.day_sim as ds
+    import importlib
+
     from liot.service import LiotService
+
+    ds: Any = importlib.import_module("liot.day_sim")
 
     assert ds.LiotService is LiotService
     with installed(RuleSet()):
