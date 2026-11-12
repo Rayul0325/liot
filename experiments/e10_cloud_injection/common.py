@@ -42,7 +42,7 @@ INTERFACE = {
     "jev-api": "score-probability (Jev API, both questions in one POST)",
     "haiku": "generative-json (Claude Haiku, text answer, no probabilities)",
     "gemini": "generative-json (Gemini, text answer, no probabilities)",
-    **{m: "letter-probability (llama-server first token, deterministic)" for m in LOCAL_MODELS},
+    **dict.fromkeys(LOCAL_MODELS, "letter-probability (llama-server first token, deterministic)"),
 }
 TIERS = ("ambient", "breath", "dusk", "ember")
 SEVERITIES = ("record", "notice", "warning", "critical")

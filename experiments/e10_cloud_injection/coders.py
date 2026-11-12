@@ -100,7 +100,14 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--budget", type=float, default=BUDGET_USD)
     args = ap.parse_args()
-    from liot.cheap_llm import CheapLLMError, HTTPCheapTransport, build_request, load_cheap_config, parse_reply, reply_truncated
+    from liot.cheap_llm import (
+        CheapLLMError,
+        HTTPCheapTransport,
+        build_request,
+        load_cheap_config,
+        parse_reply,
+        reply_truncated,
+    )
     from liot.core.egress_gate import Destination, emit_external
     from liot.core.invariants import EgressViolation
     from liot.secrets_env import load_secrets

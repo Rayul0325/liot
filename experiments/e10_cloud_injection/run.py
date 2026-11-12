@@ -34,7 +34,7 @@ def quick() -> None:
 
     built, dsg = C.build_items(C.K_MAX)
     ev = EvidenceBuilder("quick")
-    for key, b in built.items():
+    for b in built.values():
         emit_external(Destination.LLM, {"evidence": ev.build(b.candidate, b.ctx, b.gate1.floor_tier)},
                       trace_id=b.ctx.trace_id)
     variants, neutral = C.load_variants(), C.load_neutral()
@@ -82,7 +82,7 @@ def figures(s: dict[str, Any]) -> None:
                         color=plotstyle.ACCENT if name == "cloud" else plotstyle.GREY_DARK, capsize=3)
         ax.set_yticks([0, 1], ["클라우드(3)", "로컬(3: jevk5 계열 1)"])
         ax.set_xlabel("판정자 같은 무게 평균 뒤집힘 비율")
-        ax.set_title(f"로컬−클라우드 차이 {d['point']:+.3f} [{d['ci95'][0]:+.3f}, {d['ci95'][1]:+.3f}] → {d['verdict']}")
+        ax.set_title(f"로컬-클라우드 차이 {d['point']:+.3f} [{d['ci95'][0]:+.3f}, {d['ci95'][1]:+.3f}] → {d['verdict']}")
         plotstyle.save(fig, EXP_DIR, "c41_groups")
 
 

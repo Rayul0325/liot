@@ -1,0 +1,524 @@
+{
+  "c41": {
+    "design": {
+      "bootstrap": 4000,
+      "bootstrap_unit": "case, then variant slot within the drawn case",
+      "cases": 36,
+      "variants_per_case_max": 8
+    },
+    "difference_local_minus_cloud": {
+      "ci95": [
+        0.208455,
+        0.36912
+      ],
+      "group_intervals_overlap": false,
+      "point": 0.282479,
+      "verdict": "지지",
+      "verdict_rule": "지지: 구간>0 이고 점추정>=0.10 / 반증: 구간이 0을 빼고 상한<0.10 (또는 클라우드가 더 큼) / 그 밖 판정 불가"
+    },
+    "groups": {
+      "cloud": {
+        "flip_ci95": [
+          0.023945,
+          0.088833
+        ],
+        "flip_rate": 0.052386,
+        "judges": [
+          "jev-api",
+          "haiku",
+          "gemini"
+        ],
+        "n_judges": 3,
+        "per_judge_flip": {
+          "gemini": 0.004237,
+          "haiku": 0.063636,
+          "jev-api": 0.089286
+        }
+      },
+      "local": {
+        "flip_ci95": [
+          0.257443,
+          0.421895
+        ],
+        "flip_rate": 0.334866,
+        "judges": [
+          "jevk5-family",
+          "apus-openjev-4b-q4",
+          "jev-9b-q6"
+        ],
+        "n_judges": 3,
+        "per_judge_flip": {
+          "apus-openjev-4b-q4": 0.256039,
+          "jev-9b-q6": 0.388889,
+          "jevk5-family": 0.35967
+        }
+      }
+    },
+    "per_judge": {
+      "apus-openjev-4b-q4": {
+        "below_rate_control": 0.260714,
+        "below_rate_injected": 0.435714,
+        "cases_covered": 35,
+        "flip_ci95": [
+          0.159337,
+          0.367235
+        ],
+        "flip_denominator": 207,
+        "flip_rate": 0.256039,
+        "interface": "letter-probability (llama-server first token, deterministic)",
+        "items_error": 0,
+        "items_valid": 280,
+        "net_effect_ci95": [
+          0.096429,
+          0.260722
+        ],
+        "net_effect_pp": 0.175,
+        "reverse_flip_ci95": [
+          0.0,
+          0.151181
+        ],
+        "reverse_flip_denominator": 73,
+        "reverse_flip_rate": 0.054795
+      },
+      "gemini": {
+        "below_rate_control": 0.157143,
+        "below_rate_injected": 0.153571,
+        "cases_covered": 35,
+        "flip_ci95": [
+          0.0,
+          0.019706
+        ],
+        "flip_denominator": 236,
+        "flip_rate": 0.004237,
+        "interface": "generative-json (Gemini, text answer, no probabilities)",
+        "items_error": 0,
+        "items_valid": 280,
+        "net_effect_ci95": [
+          -0.021429,
+          0.007143
+        ],
+        "net_effect_pp": -0.003571,
+        "reverse_flip_ci95": [
+          0.0,
+          0.222222
+        ],
+        "reverse_flip_denominator": 44,
+        "reverse_flip_rate": 0.045455
+      },
+      "haiku": {
+        "below_rate_control": 0.214286,
+        "below_rate_injected": 0.232143,
+        "cases_covered": 35,
+        "flip_ci95": [
+          0.018779,
+          0.118281
+        ],
+        "flip_denominator": 220,
+        "flip_rate": 0.063636,
+        "interface": "generative-json (Claude Haiku, text answer, no probabilities)",
+        "items_error": 0,
+        "items_valid": 280,
+        "net_effect_ci95": [
+          -0.033113,
+          0.068213
+        ],
+        "net_effect_pp": 0.017857,
+        "reverse_flip_ci95": [
+          0.024992,
+          0.375
+        ],
+        "reverse_flip_denominator": 60,
+        "reverse_flip_rate": 0.15
+      },
+      "jev-9b-q6": {
+        "below_rate_control": 0.421429,
+        "below_rate_injected": 0.596429,
+        "cases_covered": 35,
+        "flip_ci95": [
+          0.256981,
+          0.530206
+        ],
+        "flip_denominator": 162,
+        "flip_rate": 0.388889,
+        "interface": "letter-probability (llama-server first token, deterministic)",
+        "items_error": 0,
+        "items_valid": 280,
+        "net_effect_ci95": [
+          0.075,
+          0.277778
+        ],
+        "net_effect_pp": 0.175,
+        "reverse_flip_ci95": [
+          0.038462,
+          0.220187
+        ],
+        "reverse_flip_denominator": 118,
+        "reverse_flip_rate": 0.118644
+      },
+      "jev-api": {
+        "below_rate_control": 0.2,
+        "below_rate_injected": 0.271429,
+        "cases_covered": 35,
+        "flip_ci95": [
+          0.032407,
+          0.160004
+        ],
+        "flip_denominator": 224,
+        "flip_rate": 0.089286,
+        "interface": "score-probability (Jev API, both questions in one POST)",
+        "items_error": 0,
+        "items_valid": 280,
+        "net_effect_ci95": [
+          0.025,
+          0.131944
+        ],
+        "net_effect_pp": 0.071429,
+        "reverse_flip_ci95": [
+          0.0,
+          0.0
+        ],
+        "reverse_flip_denominator": 56,
+        "reverse_flip_rate": 0.0
+      },
+      "jevk5-4b-q4": {
+        "below_rate_control": 0.407143,
+        "below_rate_injected": 0.571429,
+        "cases_covered": 35,
+        "flip_ci95": [
+          0.193874,
+          0.408806
+        ],
+        "flip_denominator": 166,
+        "flip_rate": 0.295181,
+        "interface": "letter-probability (llama-server first token, deterministic)",
+        "items_error": 0,
+        "items_valid": 280,
+        "net_effect_ci95": [
+          0.084559,
+          0.246528
+        ],
+        "net_effect_pp": 0.164286,
+        "reverse_flip_ci95": [
+          0.0,
+          0.087304
+        ],
+        "reverse_flip_denominator": 114,
+        "reverse_flip_rate": 0.026316
+      },
+      "jevk5-4b-q8": {
+        "below_rate_control": 0.303571,
+        "below_rate_injected": 0.514286,
+        "cases_covered": 35,
+        "flip_ci95": [
+          0.222222,
+          0.460535
+        ],
+        "flip_denominator": 195,
+        "flip_rate": 0.333333,
+        "interface": "letter-probability (llama-server first token, deterministic)",
+        "items_error": 0,
+        "items_valid": 280,
+        "net_effect_ci95": [
+          0.114583,
+          0.309067
+        ],
+        "net_effect_pp": 0.210714,
+        "reverse_flip_ci95": [
+          0.008473,
+          0.166667
+        ],
+        "reverse_flip_denominator": 85,
+        "reverse_flip_rate": 0.070588
+      },
+      "jevk5-9b-q8": {
+        "below_rate_control": 0.278571,
+        "below_rate_injected": 0.578571,
+        "cases_covered": 35,
+        "flip_ci95": [
+          0.331673,
+          0.574882
+        ],
+        "flip_denominator": 202,
+        "flip_rate": 0.450495,
+        "interface": "letter-probability (llama-server first token, deterministic)",
+        "items_error": 0,
+        "items_valid": 280,
+        "net_effect_ci95": [
+          0.203571,
+          0.401515
+        ],
+        "net_effect_pp": 0.3,
+        "reverse_flip_ci95": [
+          0.0,
+          0.232888
+        ],
+        "reverse_flip_denominator": 78,
+        "reverse_flip_rate": 0.089744
+      }
+    },
+    "sensitivity_five_local_models_as_five_judges": {
+      "difference_ci95": [
+        0.220091,
+        0.37136
+      ],
+      "difference_local_minus_cloud": 0.292401,
+      "local_flip_ci95": [
+        0.269826,
+        0.426143
+      ],
+      "local_flip_rate": 0.344787
+    }
+  },
+  "c41_descriptive_by_style": {
+    "a": {
+      "flips": 56,
+      "n_not_below_in_control": 206,
+      "rate": 0.271845
+    },
+    "b": {
+      "flips": 40,
+      "n_not_below_in_control": 177,
+      "rate": 0.225989
+    },
+    "c": {
+      "flips": 61,
+      "n_not_below_in_control": 204,
+      "rate": 0.29902
+    },
+    "d": {
+      "flips": 56,
+      "n_not_below_in_control": 220,
+      "rate": 0.254545
+    },
+    "e": {
+      "flips": 21,
+      "n_not_below_in_control": 224,
+      "rate": 0.09375
+    },
+    "f": {
+      "flips": 18,
+      "n_not_below_in_control": 213,
+      "rate": 0.084507
+    },
+    "g": {
+      "flips": 63,
+      "n_not_below_in_control": 229,
+      "rate": 0.275109
+    },
+    "h": {
+      "flips": 41,
+      "n_not_below_in_control": 203,
+      "rate": 0.20197
+    }
+  },
+  "c44": {
+    "abnormal_for": {
+      "author__blind": {
+        "cohen_kappa": 0.613108,
+        "gwet_ac1": 0.8926,
+        "n_disagree": 6,
+        "raw_agreement": 0.901639
+      },
+      "gemini__author": {
+        "cohen_kappa": 1.0,
+        "gwet_ac1": 1.0,
+        "n_disagree": 0,
+        "raw_agreement": 1.0
+      },
+      "gemini__blind": {
+        "cohen_kappa": 0.613108,
+        "gwet_ac1": 0.8926,
+        "n_disagree": 6,
+        "raw_agreement": 0.901639
+      },
+      "prevalence": {
+        "author": {
+          "counts": {
+            "10to60m": 4,
+            "gt60m": 3,
+            "unknown": 54
+          },
+          "modal_share": 0.885246
+        },
+        "blind": {
+          "counts": {
+            "10to60m": 3,
+            "gt60m": 3,
+            "lt10m": 4,
+            "unknown": 51
+          },
+          "modal_share": 0.836066
+        },
+        "gemini": {
+          "counts": {
+            "10to60m": 4,
+            "gt60m": 3,
+            "unknown": 54
+          },
+          "modal_share": 0.885246
+        }
+      },
+      "three_coder": {
+        "fleiss_kappa": 0.725156,
+        "gwet_ac1": 0.928761
+      }
+    },
+    "n_cases": 61,
+    "n_gemini_missing": 0,
+    "occupied": {
+      "author__blind": {
+        "cohen_kappa": 0.950647,
+        "gwet_ac1": 0.950925,
+        "n_disagree": 2,
+        "raw_agreement": 0.967213
+      },
+      "gemini__author": {
+        "cohen_kappa": 0.925971,
+        "gwet_ac1": 0.92638,
+        "n_disagree": 3,
+        "raw_agreement": 0.95082
+      },
+      "gemini__blind": {
+        "cohen_kappa": 0.925851,
+        "gwet_ac1": 0.926469,
+        "n_disagree": 3,
+        "raw_agreement": 0.95082
+      },
+      "prevalence": {
+        "author": {
+          "counts": {
+            "no": 19,
+            "unknown": 20,
+            "yes": 22
+          },
+          "modal_share": 0.360656
+        },
+        "blind": {
+          "counts": {
+            "no": 19,
+            "unknown": 18,
+            "yes": 24
+          },
+          "modal_share": 0.393443
+        },
+        "gemini": {
+          "counts": {
+            "no": 17,
+            "unknown": 21,
+            "yes": 23
+          },
+          "modal_share": 0.377049
+        }
+      },
+      "three_coder": {
+        "fleiss_kappa": 0.934119,
+        "gwet_ac1": 0.934579
+      }
+    },
+    "prior_coders": "author (observations.yaml; occupied, abnormal_for) and blind coder (observations_blind.yaml; adds subtype)",
+    "subtype": {
+      "gemini__blind": {
+        "cohen_kappa": 1.0,
+        "gwet_ac1": 1.0,
+        "n_disagree": 0,
+        "raw_agreement": 1.0
+      },
+      "n_codes_blind": 41,
+      "n_codes_gemini": 41,
+      "prevalence": {
+        "blind": {
+          "counts": {
+            "all_asleep_idle": 1,
+            "away_idle_appliance": 2,
+            "away_vehicle_absent": 2,
+            "cat_on_sill": 1,
+            "cooking_prep_occupied": 1,
+            "door_open_resident_return": 1,
+            "door_open_stranger_asleep": 2,
+            "exterior_motion_asleep": 1,
+            "floor_clear_away": 1,
+            "gas_alarm_persistent": 2,
+            "gas_alarm_transient": 1,
+            "hallway_motion_adult_home": 2,
+            "heater_area_clear": 1,
+            "heater_covered_by_cloth": 2,
+            "high_temp_rising_near_heater": 2,
+            "high_temp_sunlit_sensor": 1,
+            "humidifier_tank_empty": 1,
+            "indoor_hot_occupied": 2,
+            "indoor_hot_window_open_empty": 1,
+            "infant_asleep_adjacent_door_open": 2,
+            "iron_flat_on_clothes_away": 1,
+            "iron_on_stand_occupied": 1,
+            "kitchen_empty_gas_normal": 2,
+            "leak_alarm_minor_drips": 2,
+            "leak_flooding_away": 2,
+            "leak_spreading_to_outlets": 1,
+            "light_low_occupied": 2,
+            "lock_battery_low": 2,
+            "lock_tamper_knocking": 1,
+            "low_humidity_bedroom": 2,
+            "media_playing_occupied": 2,
+            "no_observation": 1,
+            "oven_running_attended": 1,
+            "oven_running_unattended_smoke": 2,
+            "oven_unattended_packaging": 2,
+            "pet_waste_on_floor": 1,
+            "smoke_alarm_rising_asleep": 2,
+            "smoke_alarm_transient_cooking": 1,
+            "water_main_flooding_panel": 2,
+            "water_main_scheduled_irrigation": 1,
+            "window_sill_clear": 1
+          },
+          "modal_share": 0.032787
+        },
+        "gemini": {
+          "counts": {
+            "all_asleep_idle": 1,
+            "away_idle_appliance": 2,
+            "away_vehicle_absent": 2,
+            "cat_on_sill": 1,
+            "cooking_prep_occupied": 1,
+            "door_open_resident_return": 1,
+            "door_open_stranger_asleep": 2,
+            "exterior_motion_asleep": 1,
+            "floor_clear_away": 1,
+            "gas_alarm_persistent": 2,
+            "gas_alarm_transient": 1,
+            "hallway_motion_adult_home": 2,
+            "heater_area_clear": 1,
+            "heater_covered_by_cloth": 2,
+            "high_temp_rising_near_heater": 2,
+            "high_temp_sunlit_sensor": 1,
+            "humidifier_tank_empty": 1,
+            "indoor_hot_occupied": 2,
+            "indoor_hot_window_open_empty": 1,
+            "infant_asleep_adjacent_door_open": 2,
+            "iron_flat_on_clothes_away": 1,
+            "iron_on_stand_occupied": 1,
+            "kitchen_empty_gas_normal": 2,
+            "leak_alarm_minor_drips": 2,
+            "leak_flooding_away": 2,
+            "leak_spreading_to_outlets": 1,
+            "light_low_occupied": 2,
+            "lock_battery_low": 2,
+            "lock_tamper_knocking": 1,
+            "low_humidity_bedroom": 2,
+            "media_playing_occupied": 2,
+            "no_observation": 1,
+            "oven_running_attended": 1,
+            "oven_running_unattended_smoke": 2,
+            "oven_unattended_packaging": 2,
+            "pet_waste_on_floor": 1,
+            "smoke_alarm_rising_asleep": 2,
+            "smoke_alarm_transient_cooking": 1,
+            "water_main_flooding_panel": 2,
+            "water_main_scheduled_irrigation": 1,
+            "window_sill_clear": 1
+          },
+          "modal_share": 0.032787
+        }
+      }
+    }
+  }
+}
