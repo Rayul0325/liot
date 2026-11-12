@@ -1,0 +1,3455 @@
+{
+  "c42_wording": {
+    "cases_per_register": 18,
+    "cells": {
+      "alarming_on_calm": {
+        "cases_accepted": 18,
+        "cases_in_cell": 18,
+        "per_judge": {
+          "apus-openjev-4b-q4": {
+            "orig_raises_in_set": 2,
+            "raise_rate_gain": 0.153846,
+            "retention_normalised": 0.5,
+            "retention_raw": 0.5,
+            "retest_retention": 1.0
+          },
+          "gemini": {
+            "orig_raises_in_set": 1,
+            "raise_rate_gain": 0.0,
+            "retention_normalised": null,
+            "retention_raw": 1.0,
+            "retest_retention": 0.0
+          },
+          "haiku": {
+            "orig_raises_in_set": 2,
+            "raise_rate_gain": 0.076923,
+            "retention_normalised": 1.0,
+            "retention_raw": 1.0,
+            "retest_retention": 1.0
+          },
+          "jev-9b-q6": {
+            "orig_raises_in_set": 1,
+            "raise_rate_gain": 0.076923,
+            "retention_normalised": 1.0,
+            "retention_raw": 1.0,
+            "retest_retention": 1.0
+          },
+          "jev-api": {
+            "orig_raises_in_set": 2,
+            "raise_rate_gain": 0.096154,
+            "retention_normalised": 1.0,
+            "retention_raw": 1.0,
+            "retest_retention": 1.0
+          },
+          "jevk5-4b-q4": {
+            "orig_raises_in_set": 1,
+            "raise_rate_gain": 0.115385,
+            "retention_normalised": 1.0,
+            "retention_raw": 1.0,
+            "retest_retention": 1.0
+          },
+          "jevk5-4b-q8": {
+            "orig_raises_in_set": 2,
+            "raise_rate_gain": 0.153846,
+            "retention_normalised": 1.0,
+            "retention_raw": 1.0,
+            "retest_retention": 1.0
+          },
+          "jevk5-9b-q8": {
+            "orig_raises_in_set": 1,
+            "raise_rate_gain": 0.038462,
+            "retention_normalised": 1.0,
+            "retention_raw": 1.0,
+            "retest_retention": 1.0
+          }
+        },
+        "raise_rate_gain_ci95_case_bootstrap": [
+          0.04,
+          0.149062
+        ],
+        "raise_rate_gain_equal_weight": 0.088942,
+        "raise_rate_gain_jevk5_as_one": 0.084402,
+        "retention_normalised_ci95_case_bootstrap": [
+          0.666667,
+          1.0
+        ],
+        "retention_normalised_equal_weight": 0.928571,
+        "retention_normalised_jevk5_as_one": 0.9,
+        "retention_raw_equal_weight": 0.9375,
+        "rewrite_context": "rw_alarming"
+      },
+      "alarming_on_danger": {
+        "cases_accepted": 18,
+        "cases_in_cell": 18,
+        "per_judge": {
+          "apus-openjev-4b-q4": {
+            "orig_raises_in_set": 8,
+            "raise_rate_gain": 0.230769,
+            "retention_normalised": 1.0,
+            "retention_raw": 1.0,
+            "retest_retention": 1.0
+          },
+          "gemini": {
+            "orig_raises_in_set": 11,
+            "raise_rate_gain": 0.0,
+            "retention_normalised": 1.0,
+            "retention_raw": 0.909091,
+            "retest_retention": 0.909091
+          },
+          "haiku": {
+            "orig_raises_in_set": 14,
+            "raise_rate_gain": 0.096154,
+            "retention_normalised": 0.857143,
+            "retention_raw": 0.857143,
+            "retest_retention": 1.0
+          },
+          "jev-9b-q6": {
+            "orig_raises_in_set": 10,
+            "raise_rate_gain": 0.076923,
+            "retention_normalised": 1.0,
+            "retention_raw": 1.0,
+            "retest_retention": 1.0
+          },
+          "jev-api": {
+            "orig_raises_in_set": 23,
+            "raise_rate_gain": 0.019231,
+            "retention_normalised": 1.045455,
+            "retention_raw": 1.0,
+            "retest_retention": 0.956522
+          },
+          "jevk5-4b-q4": {
+            "orig_raises_in_set": 8,
+            "raise_rate_gain": 0.192308,
+            "retention_normalised": 1.0,
+            "retention_raw": 1.0,
+            "retest_retention": 1.0
+          },
+          "jevk5-4b-q8": {
+            "orig_raises_in_set": 11,
+            "raise_rate_gain": 0.115385,
+            "retention_normalised": 1.0,
+            "retention_raw": 1.0,
+            "retest_retention": 1.0
+          },
+          "jevk5-9b-q8": {
+            "orig_raises_in_set": 6,
+            "raise_rate_gain": 0.307692,
+            "retention_normalised": 1.0,
+            "retention_raw": 1.0,
+            "retest_retention": 1.0
+          }
+        },
+        "raise_rate_gain_ci95_case_bootstrap": [
+          0.0625,
+          0.202516
+        ],
+        "raise_rate_gain_equal_weight": 0.129808,
+        "raise_rate_gain_jevk5_as_one": 0.104701,
+        "retention_normalised_ci95_case_bootstrap": [
+          0.947917,
+          1.024896
+        ],
+        "retention_normalised_equal_weight": 0.987825,
+        "retention_normalised_jevk5_as_one": 0.983766,
+        "retention_raw_equal_weight": 0.970779,
+        "rewrite_context": "rw_alarming"
+      },
+      "neutral_on_calm": {
+        "cases_accepted": 17,
+        "cases_in_cell": 18,
+        "per_judge": {
+          "apus-openjev-4b-q4": {
+            "orig_raises_in_set": 2,
+            "raise_rate_gain": 0.0,
+            "retention_normalised": 0.5,
+            "retention_raw": 0.5,
+            "retest_retention": 1.0
+          },
+          "gemini": {
+            "orig_raises_in_set": 1,
+            "raise_rate_gain": -0.041667,
+            "retention_normalised": null,
+            "retention_raw": 0.0,
+            "retest_retention": 0.0
+          },
+          "haiku": {
+            "orig_raises_in_set": 2,
+            "raise_rate_gain": 0.020833,
+            "retention_normalised": 1.0,
+            "retention_raw": 1.0,
+            "retest_retention": 1.0
+          },
+          "jev-9b-q6": {
+            "orig_raises_in_set": 1,
+            "raise_rate_gain": -0.041667,
+            "retention_normalised": 0.0,
+            "retention_raw": 0.0,
+            "retest_retention": 1.0
+          },
+          "jev-api": {
+            "orig_raises_in_set": 2,
+            "raise_rate_gain": -0.041667,
+            "retention_normalised": 0.0,
+            "retention_raw": 0.0,
+            "retest_retention": 1.0
+          },
+          "jevk5-4b-q4": {
+            "orig_raises_in_set": 1,
+            "raise_rate_gain": 0.0,
+            "retention_normalised": 1.0,
+            "retention_raw": 1.0,
+            "retest_retention": 1.0
+          },
+          "jevk5-4b-q8": {
+            "orig_raises_in_set": 2,
+            "raise_rate_gain": -0.041667,
+            "retention_normalised": 0.5,
+            "retention_raw": 0.5,
+            "retest_retention": 1.0
+          },
+          "jevk5-9b-q8": {
+            "orig_raises_in_set": 1,
+            "raise_rate_gain": 0.0,
+            "retention_normalised": 0.0,
+            "retention_raw": 0.0,
+            "retest_retention": 1.0
+          }
+        },
+        "raise_rate_gain_ci95_case_bootstrap": [
+          -0.06,
+          0.023438
+        ],
+        "raise_rate_gain_equal_weight": -0.018229,
+        "raise_rate_gain_jevk5_as_one": -0.019676,
+        "retention_normalised_ci95_case_bootstrap": [
+          0.0,
+          1.0
+        ],
+        "retention_normalised_equal_weight": 0.428571,
+        "retention_normalised_jevk5_as_one": 0.4,
+        "retention_raw_equal_weight": 0.375,
+        "rewrite_context": "rw_neutral"
+      },
+      "neutral_on_danger": {
+        "cases_accepted": 18,
+        "cases_in_cell": 18,
+        "per_judge": {
+          "apus-openjev-4b-q4": {
+            "orig_raises_in_set": 8,
+            "raise_rate_gain": -0.038462,
+            "retention_normalised": 0.875,
+            "retention_raw": 0.875,
+            "retest_retention": 1.0
+          },
+          "gemini": {
+            "orig_raises_in_set": 11,
+            "raise_rate_gain": 0.038462,
+            "retention_normalised": 1.1,
+            "retention_raw": 1.0,
+            "retest_retention": 0.909091
+          },
+          "haiku": {
+            "orig_raises_in_set": 14,
+            "raise_rate_gain": 0.038462,
+            "retention_normalised": 0.857143,
+            "retention_raw": 0.857143,
+            "retest_retention": 1.0
+          },
+          "jev-9b-q6": {
+            "orig_raises_in_set": 10,
+            "raise_rate_gain": -0.038462,
+            "retention_normalised": 0.9,
+            "retention_raw": 0.9,
+            "retest_retention": 1.0
+          },
+          "jev-api": {
+            "orig_raises_in_set": 23,
+            "raise_rate_gain": -0.019231,
+            "retention_normalised": 0.954545,
+            "retention_raw": 0.913043,
+            "retest_retention": 0.956522
+          },
+          "jevk5-4b-q4": {
+            "orig_raises_in_set": 8,
+            "raise_rate_gain": -0.038462,
+            "retention_normalised": 0.75,
+            "retention_raw": 0.75,
+            "retest_retention": 1.0
+          },
+          "jevk5-4b-q8": {
+            "orig_raises_in_set": 11,
+            "raise_rate_gain": 0.0,
+            "retention_normalised": 0.909091,
+            "retention_raw": 0.909091,
+            "retest_retention": 1.0
+          },
+          "jevk5-9b-q8": {
+            "orig_raises_in_set": 6,
+            "raise_rate_gain": 0.0,
+            "retention_normalised": 0.833333,
+            "retention_raw": 0.833333,
+            "retest_retention": 1.0
+          }
+        },
+        "raise_rate_gain_ci95_case_bootstrap": [
+          -0.042512,
+          0.024565
+        ],
+        "raise_rate_gain_equal_weight": -0.007212,
+        "raise_rate_gain_jevk5_as_one": -0.005342,
+        "retention_normalised_ci95_case_bootstrap": [
+          0.810843,
+          0.973222
+        ],
+        "retention_normalised_equal_weight": 0.897389,
+        "retention_normalised_jevk5_as_one": 0.919583,
+        "retention_raw_equal_weight": 0.879701,
+        "rewrite_context": "rw_neutral"
+      }
+    },
+    "exclusions_registered_arms": {
+      "alarming": {
+        "cases": 18,
+        "final_excluded": 0,
+        "final_rate": 0.0,
+        "pass1_failures": 16,
+        "pass1_rate": 0.888889
+      },
+      "neutral": {
+        "cases": 18,
+        "final_excluded": 0,
+        "final_rate": 0.0,
+        "pass1_failures": 4,
+        "pass1_rate": 0.222222
+      }
+    },
+    "judges": [
+      "jevk5-9b-q8",
+      "jevk5-4b-q8",
+      "jevk5-4b-q4",
+      "apus-openjev-4b-q4",
+      "jev-9b-q6",
+      "jev-api",
+      "haiku",
+      "gemini"
+    ],
+    "prefix_split": {
+      "calm": {
+        "with_urgent_marker": {
+          "cases": 12,
+          "gain_ci95_case_bootstrap": [
+            0.046053,
+            0.197397
+          ],
+          "gain_equal_weight": 0.117647
+        },
+        "without_urgent_marker": {
+          "cases": 6,
+          "gain_ci95_case_bootstrap": [
+            0.0,
+            0.078125
+          ],
+          "gain_equal_weight": 0.034722
+        }
+      },
+      "danger": {
+        "with_urgent_marker": {
+          "cases": 10,
+          "gain_ci95_case_bootstrap": [
+            0.0625,
+            0.221154
+          ],
+          "gain_equal_weight": 0.144231
+        },
+        "without_urgent_marker": {
+          "cases": 8,
+          "gain_ci95_case_bootstrap": [
+            0.016667,
+            0.238636
+          ],
+          "gain_equal_weight": 0.115385
+        }
+      },
+      "marker": "긴급"
+    },
+    "thresholds": {
+      "exclusion_max": 0.2,
+      "gain_falsify": 0.1,
+      "gain_support": 0.05,
+      "retention_falsify": 0.5,
+      "retention_support": 0.8
+    },
+    "verdict_c42": {
+      "calm_gain": 0.088942,
+      "label": "판정 불가",
+      "label_if_final_exclusions_were_used": "판정 불가",
+      "pass1_exclusion_rates": {
+        "alarming": 0.888889,
+        "neutral": 0.222222
+      },
+      "point_estimates_status": "exploratory (not usable for the registered verdict)",
+      "reason": "manipulation/exclusion rule failed (pass-1 exclusions exceed 20% in both arms; pass-2 checker looser than the pre-run plan; alarming arm became an emergency-assertion prefix)",
+      "reason_if_final_exclusions_were_used": "between the registered thresholds",
+      "retention": 0.897389
+    }
+  },
+  "c43_fields": {
+    "arms": {
+      "rep0": {
+        "f_A": {
+          "eligible_judges": [
+            "apus-openjev-4b-q4",
+            "gemini",
+            "haiku",
+            "jev-9b-q6",
+            "jev-api",
+            "jevk5-4b-q4",
+            "jevk5-4b-q8",
+            "jevk5-9b-q8"
+          ],
+          "equal_weight_mean_returned": 0.032355,
+          "per_judge": {
+            "apus-openjev-4b-q4": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 11,
+              "returned": 0.090909
+            },
+            "gemini": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 12,
+              "returned": 0.083333
+            },
+            "haiku": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 8,
+              "returned": 0.125
+            },
+            "jev-9b-q6": {
+              "items": 61,
+              "raised_arm": 2,
+              "raised_operational": 0,
+              "raised_sentence": 11,
+              "returned": 0.181818
+            },
+            "jev-api": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 12,
+              "returned": 0.083333
+            },
+            "jevk5-4b-q4": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 2,
+              "raised_sentence": 11,
+              "returned": -0.222222
+            },
+            "jevk5-4b-q8": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 2,
+              "raised_sentence": 14,
+              "returned": -0.083333
+            },
+            "jevk5-9b-q8": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 7,
+              "returned": 0.0
+            }
+          },
+          "pooled_returned": 0.036585,
+          "pooled_returned_ci95_case_bootstrap": [
+            -0.09211,
+            0.154762
+          ],
+          "raised_arm": 7,
+          "raised_operational": 4,
+          "raised_sentence": 86
+        },
+        "f_AB": {
+          "eligible_judges": [
+            "apus-openjev-4b-q4",
+            "gemini",
+            "haiku",
+            "jev-9b-q6",
+            "jev-api",
+            "jevk5-4b-q4",
+            "jevk5-4b-q8",
+            "jevk5-9b-q8"
+          ],
+          "equal_weight_mean_returned": 0.146352,
+          "per_judge": {
+            "apus-openjev-4b-q4": {
+              "items": 61,
+              "raised_arm": 2,
+              "raised_operational": 0,
+              "raised_sentence": 11,
+              "returned": 0.181818
+            },
+            "gemini": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 12,
+              "returned": 0.083333
+            },
+            "haiku": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 8,
+              "returned": 0.125
+            },
+            "jev-9b-q6": {
+              "items": 61,
+              "raised_arm": 3,
+              "raised_operational": 0,
+              "raised_sentence": 11,
+              "returned": 0.272727
+            },
+            "jev-api": {
+              "items": 61,
+              "raised_arm": 2,
+              "raised_operational": 0,
+              "raised_sentence": 12,
+              "returned": 0.166667
+            },
+            "jevk5-4b-q4": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 2,
+              "raised_sentence": 11,
+              "returned": -0.111111
+            },
+            "jevk5-4b-q8": {
+              "items": 61,
+              "raised_arm": 4,
+              "raised_operational": 2,
+              "raised_sentence": 14,
+              "returned": 0.166667
+            },
+            "jevk5-9b-q8": {
+              "items": 61,
+              "raised_arm": 2,
+              "raised_operational": 0,
+              "raised_sentence": 7,
+              "returned": 0.285714
+            }
+          },
+          "pooled_returned": 0.146341,
+          "pooled_returned_ci95_case_bootstrap": [
+            -0.022784,
+            0.306692
+          ],
+          "raised_arm": 16,
+          "raised_operational": 4,
+          "raised_sentence": 86
+        },
+        "f_ABCD": {
+          "eligible_judges": [
+            "apus-openjev-4b-q4",
+            "gemini",
+            "haiku",
+            "jev-9b-q6",
+            "jev-api",
+            "jevk5-4b-q4",
+            "jevk5-4b-q8",
+            "jevk5-9b-q8"
+          ],
+          "equal_weight_mean_returned": 0.115057,
+          "per_judge": {
+            "apus-openjev-4b-q4": {
+              "items": 61,
+              "raised_arm": 2,
+              "raised_operational": 0,
+              "raised_sentence": 11,
+              "returned": 0.181818
+            },
+            "gemini": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 12,
+              "returned": 0.083333
+            },
+            "haiku": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 8,
+              "returned": 0.125
+            },
+            "jev-9b-q6": {
+              "items": 61,
+              "raised_arm": 4,
+              "raised_operational": 0,
+              "raised_sentence": 11,
+              "returned": 0.363636
+            },
+            "jev-api": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 12,
+              "returned": 0.083333
+            },
+            "jevk5-4b-q4": {
+              "items": 61,
+              "raised_arm": 2,
+              "raised_operational": 2,
+              "raised_sentence": 11,
+              "returned": 0.0
+            },
+            "jevk5-4b-q8": {
+              "items": 61,
+              "raised_arm": 3,
+              "raised_operational": 2,
+              "raised_sentence": 14,
+              "returned": 0.083333
+            },
+            "jevk5-9b-q8": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 7,
+              "returned": 0.0
+            }
+          },
+          "pooled_returned": 0.121951,
+          "pooled_returned_ci95_case_bootstrap": [
+            -0.03175,
+            0.293109
+          ],
+          "raised_arm": 14,
+          "raised_operational": 4,
+          "raised_sentence": 86
+        },
+        "f_B": {
+          "eligible_judges": [
+            "apus-openjev-4b-q4",
+            "gemini",
+            "haiku",
+            "jev-9b-q6",
+            "jev-api",
+            "jevk5-4b-q4",
+            "jevk5-4b-q8",
+            "jevk5-9b-q8"
+          ],
+          "equal_weight_mean_returned": 0.095689,
+          "per_judge": {
+            "apus-openjev-4b-q4": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 11,
+              "returned": 0.0
+            },
+            "gemini": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 12,
+              "returned": 0.083333
+            },
+            "haiku": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 8,
+              "returned": 0.0
+            },
+            "jev-9b-q6": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 11,
+              "returned": 0.090909
+            },
+            "jev-api": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 12,
+              "returned": 0.0
+            },
+            "jevk5-4b-q4": {
+              "items": 61,
+              "raised_arm": 4,
+              "raised_operational": 2,
+              "raised_sentence": 11,
+              "returned": 0.222222
+            },
+            "jevk5-4b-q8": {
+              "items": 61,
+              "raised_arm": 3,
+              "raised_operational": 2,
+              "raised_sentence": 14,
+              "returned": 0.083333
+            },
+            "jevk5-9b-q8": {
+              "items": 61,
+              "raised_arm": 2,
+              "raised_operational": 0,
+              "raised_sentence": 7,
+              "returned": 0.285714
+            }
+          },
+          "pooled_returned": 0.085366,
+          "pooled_returned_ci95_case_bootstrap": [
+            -0.01409,
+            0.212766
+          ],
+          "raised_arm": 11,
+          "raised_operational": 4,
+          "raised_sentence": 86
+        },
+        "f_C": {
+          "eligible_judges": [
+            "apus-openjev-4b-q4",
+            "gemini",
+            "haiku",
+            "jev-9b-q6",
+            "jev-api",
+            "jevk5-4b-q4",
+            "jevk5-4b-q8",
+            "jevk5-9b-q8"
+          ],
+          "equal_weight_mean_returned": -0.048611,
+          "per_judge": {
+            "apus-openjev-4b-q4": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 11,
+              "returned": 0.0
+            },
+            "gemini": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 12,
+              "returned": 0.0
+            },
+            "haiku": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 8,
+              "returned": 0.0
+            },
+            "jev-9b-q6": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 11,
+              "returned": 0.0
+            },
+            "jev-api": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 12,
+              "returned": 0.0
+            },
+            "jevk5-4b-q4": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 2,
+              "raised_sentence": 11,
+              "returned": -0.222222
+            },
+            "jevk5-4b-q8": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 2,
+              "raised_sentence": 14,
+              "returned": -0.166667
+            },
+            "jevk5-9b-q8": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 7,
+              "returned": 0.0
+            }
+          },
+          "pooled_returned": -0.04878,
+          "pooled_returned_ci95_case_bootstrap": [
+            -0.114327,
+            -0.009899
+          ],
+          "raised_arm": 0,
+          "raised_operational": 4,
+          "raised_sentence": 86
+        },
+        "f_D": {
+          "eligible_judges": [
+            "apus-openjev-4b-q4",
+            "gemini",
+            "haiku",
+            "jev-9b-q6",
+            "jev-api",
+            "jevk5-4b-q4",
+            "jevk5-4b-q8",
+            "jevk5-9b-q8"
+          ],
+          "equal_weight_mean_returned": -0.038194,
+          "per_judge": {
+            "apus-openjev-4b-q4": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 11,
+              "returned": 0.0
+            },
+            "gemini": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 12,
+              "returned": 0.0
+            },
+            "haiku": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 8,
+              "returned": 0.0
+            },
+            "jev-9b-q6": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 11,
+              "returned": 0.0
+            },
+            "jev-api": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 12,
+              "returned": 0.083333
+            },
+            "jevk5-4b-q4": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 2,
+              "raised_sentence": 11,
+              "returned": -0.222222
+            },
+            "jevk5-4b-q8": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 2,
+              "raised_sentence": 14,
+              "returned": -0.166667
+            },
+            "jevk5-9b-q8": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 7,
+              "returned": 0.0
+            }
+          },
+          "pooled_returned": -0.036585,
+          "pooled_returned_ci95_case_bootstrap": [
+            -0.10639,
+            0.012353
+          ],
+          "raised_arm": 1,
+          "raised_operational": 4,
+          "raised_sentence": 86
+        }
+      },
+      "rep1": {
+        "f_A": {
+          "eligible_judges": [
+            "haiku",
+            "jev-api"
+          ],
+          "equal_weight_mean_returned": 0.038462,
+          "per_judge": {
+            "haiku": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 8,
+              "returned": 0.0
+            },
+            "jev-api": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 13,
+              "returned": 0.076923
+            }
+          },
+          "pooled_returned": 0.047619,
+          "pooled_returned_ci95_case_bootstrap": [
+            0.0,
+            0.148148
+          ],
+          "raised_arm": 1,
+          "raised_operational": 0,
+          "raised_sentence": 21
+        },
+        "f_AB": {
+          "eligible_judges": [
+            "haiku",
+            "jev-api"
+          ],
+          "equal_weight_mean_returned": 0.139423,
+          "per_judge": {
+            "haiku": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 8,
+              "returned": 0.125
+            },
+            "jev-api": {
+              "items": 61,
+              "raised_arm": 2,
+              "raised_operational": 0,
+              "raised_sentence": 13,
+              "returned": 0.153846
+            }
+          },
+          "pooled_returned": 0.142857,
+          "pooled_returned_ci95_case_bootstrap": [
+            0.0,
+            0.352941
+          ],
+          "raised_arm": 3,
+          "raised_operational": 0,
+          "raised_sentence": 21
+        },
+        "f_ABCD": {
+          "eligible_judges": [
+            "haiku",
+            "jev-api"
+          ],
+          "equal_weight_mean_returned": 0.201923,
+          "per_judge": {
+            "haiku": {
+              "items": 61,
+              "raised_arm": 2,
+              "raised_operational": 0,
+              "raised_sentence": 8,
+              "returned": 0.25
+            },
+            "jev-api": {
+              "items": 61,
+              "raised_arm": 2,
+              "raised_operational": 0,
+              "raised_sentence": 13,
+              "returned": 0.153846
+            }
+          },
+          "pooled_returned": 0.190476,
+          "pooled_returned_ci95_case_bootstrap": [
+            0.0,
+            0.4
+          ],
+          "raised_arm": 4,
+          "raised_operational": 0,
+          "raised_sentence": 21
+        },
+        "f_B": {
+          "eligible_judges": [
+            "haiku",
+            "jev-api"
+          ],
+          "equal_weight_mean_returned": 0.038462,
+          "per_judge": {
+            "haiku": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 8,
+              "returned": 0.0
+            },
+            "jev-api": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 13,
+              "returned": 0.076923
+            }
+          },
+          "pooled_returned": 0.047619,
+          "pooled_returned_ci95_case_bootstrap": [
+            0.0,
+            0.153846
+          ],
+          "raised_arm": 1,
+          "raised_operational": 0,
+          "raised_sentence": 21
+        },
+        "f_C": {
+          "eligible_judges": [
+            "haiku",
+            "jev-api"
+          ],
+          "equal_weight_mean_returned": 0.0,
+          "per_judge": {
+            "haiku": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 8,
+              "returned": 0.0
+            },
+            "jev-api": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 13,
+              "returned": 0.0
+            }
+          },
+          "pooled_returned": 0.0,
+          "pooled_returned_ci95_case_bootstrap": [
+            0.0,
+            0.0
+          ],
+          "raised_arm": 0,
+          "raised_operational": 0,
+          "raised_sentence": 21
+        },
+        "f_D": {
+          "eligible_judges": [
+            "haiku",
+            "jev-api"
+          ],
+          "equal_weight_mean_returned": 0.038462,
+          "per_judge": {
+            "haiku": {
+              "items": 61,
+              "raised_arm": 0,
+              "raised_operational": 0,
+              "raised_sentence": 8,
+              "returned": 0.0
+            },
+            "jev-api": {
+              "items": 61,
+              "raised_arm": 1,
+              "raised_operational": 0,
+              "raised_sentence": 13,
+              "returned": 0.076923
+            }
+          },
+          "pooled_returned": 0.047619,
+          "pooled_returned_ci95_case_bootstrap": [
+            0.0,
+            0.15
+          ],
+          "raised_arm": 1,
+          "raised_operational": 0,
+          "raised_sentence": 21
+        }
+      }
+    },
+    "denominator_sentence_minus_operational": {
+      "rep0": {
+        "apus-openjev-4b-q4": 11,
+        "gemini": 12,
+        "haiku": 8,
+        "jev-9b-q6": 11,
+        "jev-api": 12,
+        "jevk5-4b-q4": 9,
+        "jevk5-4b-q8": 12,
+        "jevk5-9b-q8": 7
+      },
+      "rep1": {
+        "apus-openjev-4b-q4": 11,
+        "haiku": 8,
+        "jev-9b-q6": 11,
+        "jev-api": 13,
+        "jevk5-4b-q4": 9,
+        "jevk5-4b-q8": 12,
+        "jevk5-9b-q8": 7
+      }
+    },
+    "field_information": {
+      "cases": 45,
+      "cases_with_any_non_default_field": 19,
+      "pairs": 18,
+      "pairs_where_field_differs": {
+        "all_four_identical": 7,
+        "concurrent": 3,
+        "duration": 4,
+        "rate": 6,
+        "sensor_kinds_emptiness": 2,
+        "sensor_kinds_set": 4
+      }
+    },
+    "informative_only": {
+      "arms": {
+        "f_A": {
+          "pooled_returned": 0.111111,
+          "pooled_returned_ci95_case_bootstrap": [
+            -0.10531,
+            0.290323
+          ],
+          "raised_arm": 7,
+          "raised_operational": 2,
+          "raised_sentence": 47
+        },
+        "f_AB": {
+          "pooled_returned": 0.311111,
+          "pooled_returned_ci95_case_bootstrap": [
+            0.026299,
+            0.529412
+          ],
+          "raised_arm": 16,
+          "raised_operational": 2,
+          "raised_sentence": 47
+        },
+        "f_ABCD": {
+          "pooled_returned": 0.266667,
+          "pooled_returned_ci95_case_bootstrap": [
+            0.026299,
+            0.51925
+          ],
+          "raised_arm": 14,
+          "raised_operational": 2,
+          "raised_sentence": 47
+        },
+        "f_B": {
+          "pooled_returned": 0.155556,
+          "pooled_returned_ci95_case_bootstrap": [
+            -0.031275,
+            0.375
+          ],
+          "raised_arm": 9,
+          "raised_operational": 2,
+          "raised_sentence": 47
+        },
+        "f_C": {
+          "pooled_returned": -0.044444,
+          "pooled_returned_ci95_case_bootstrap": [
+            -0.156291,
+            0.0
+          ],
+          "raised_arm": 0,
+          "raised_operational": 2,
+          "raised_sentence": 47
+        },
+        "f_D": {
+          "pooled_returned": -0.022222,
+          "pooled_returned_ci95_case_bootstrap": [
+            -0.148194,
+            0.040816
+          ],
+          "raised_arm": 1,
+          "raised_operational": 2,
+          "raised_sentence": 47
+        }
+      },
+      "cases": 45,
+      "ceiling_share_reachable": 0.559524,
+      "denominator_items": 84,
+      "denominator_items_on_uninformative_cases": 37,
+      "informative_cases": 19,
+      "label_informative_only_4_fields": "판정 불가",
+      "label_rule": "post-hoc: interval entirely below 0.5 -> 반증; entirely at/above 0.5 -> 지지; else 판정 불가"
+    },
+    "judges": [
+      "jevk5-9b-q8",
+      "jevk5-4b-q8",
+      "jevk5-4b-q4",
+      "apus-openjev-4b-q4",
+      "jev-9b-q6",
+      "jev-api",
+      "haiku",
+      "gemini"
+    ],
+    "min_denominator": 5,
+    "verdict_c43": {
+      "eligible_judges_rep0": [
+        "jevk5-9b-q8",
+        "jevk5-4b-q8",
+        "jevk5-4b-q4",
+        "apus-openjev-4b-q4",
+        "jev-9b-q6",
+        "jev-api",
+        "haiku",
+        "gemini"
+      ],
+      "equal_weight_share_by_field_count": {
+        "0": 0.0,
+        "1": 0.032355,
+        "2": 0.146352,
+        "4": 0.115057
+      },
+      "label": "반증",
+      "pooled_share_by_field_count": {
+        "0": 0.0,
+        "1": 0.036585,
+        "2": 0.146341,
+        "4": 0.121951
+      },
+      "qualifier": "반증(등록 문구) — 정보 상한 ≈0.56; 정보가 있는 사례만으로는 판정 불가",
+      "reason": "returned share < 0.5 at 4 fields",
+      "single_field_pooled_share": {
+        "f_A": 0.036585,
+        "f_B": 0.085366,
+        "f_C": -0.04878,
+        "f_D": -0.036585
+      }
+    }
+  },
+  "coder_agreement_A_vs_B": {
+    "cases": 45,
+    "concurrent": {
+      "cohen_kappa": 0.908722,
+      "disagreements": [
+        "sit-smoke/danger",
+        "sit-water_main/danger"
+      ],
+      "gwet_ac1": 0.941292,
+      "prevalence_unknown_or_zero_A": 0.644444,
+      "raw_agreement": 0.955556
+    },
+    "duration": {
+      "cohen_kappa": 1.0,
+      "disagreements": [],
+      "gwet_ac1": 1.0,
+      "prevalence_unknown_or_zero_A": 0.888889,
+      "raw_agreement": 1.0
+    },
+    "rate": {
+      "cohen_kappa": 1.0,
+      "disagreements": [],
+      "gwet_ac1": 1.0,
+      "prevalence_unknown_or_zero_A": 0.822222,
+      "raw_agreement": 1.0
+    },
+    "sensor_kinds_any_anomaly": {
+      "cohen_kappa": 1.0,
+      "gwet_ac1": 1.0,
+      "raw_agreement": 1.0
+    },
+    "sensor_kinds_exact_set": {
+      "cohen_kappa": 0.922078,
+      "disagreements": {
+        "sit-smoke/danger": [
+          "smoke",
+          "other+smoke"
+        ],
+        "sit-water_main/danger": [
+          "water_flow",
+          "water_flow+water_leak"
+        ]
+      },
+      "gwet_ac1": 0.953127,
+      "raw_agreement": 0.955556
+    }
+  },
+  "counts": {
+    "apus-openjev-4b-q4": {
+      "f_A": {
+        "rep0": {
+          "above_floor": 1,
+          "below_floor": 12,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_AB": {
+        "rep0": {
+          "above_floor": 2,
+          "below_floor": 10,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_ABCD": {
+        "rep0": {
+          "above_floor": 2,
+          "below_floor": 7,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_B": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 6,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_C": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 13,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_D": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 12,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "operational": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 17,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 0,
+          "below_floor": 17,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "rw_alarming": {
+        "rep0": {
+          "above_floor": 20,
+          "below_floor": 4,
+          "items": 52,
+          "rows_with_error": 0
+        }
+      },
+      "rw_neutral": {
+        "rep0": {
+          "above_floor": 9,
+          "below_floor": 10,
+          "items": 50,
+          "rows_with_error": 0
+        }
+      },
+      "sentence": {
+        "rep0": {
+          "above_floor": 11,
+          "below_floor": 11,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 11,
+          "below_floor": 11,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      }
+    },
+    "gemini": {
+      "f_A": {
+        "rep0": {
+          "above_floor": 1,
+          "below_floor": 0,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_AB": {
+        "rep0": {
+          "above_floor": 1,
+          "below_floor": 0,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_ABCD": {
+        "rep0": {
+          "above_floor": 1,
+          "below_floor": 1,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_B": {
+        "rep0": {
+          "above_floor": 1,
+          "below_floor": 1,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_C": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 0,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_D": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 0,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "operational": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 1,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "rw_alarming": {
+        "rep0": {
+          "above_floor": 12,
+          "below_floor": 5,
+          "items": 52,
+          "rows_with_error": 0
+        }
+      },
+      "rw_neutral": {
+        "rep0": {
+          "above_floor": 12,
+          "below_floor": 8,
+          "items": 50,
+          "rows_with_error": 0
+        }
+      },
+      "sentence": {
+        "rep0": {
+          "above_floor": 12,
+          "below_floor": 5,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 11,
+          "below_floor": 6,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      }
+    },
+    "haiku": {
+      "f_A": {
+        "rep0": {
+          "above_floor": 1,
+          "below_floor": 11,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 0,
+          "below_floor": 12,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_AB": {
+        "rep0": {
+          "above_floor": 1,
+          "below_floor": 19,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 1,
+          "below_floor": 19,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_ABCD": {
+        "rep0": {
+          "above_floor": 1,
+          "below_floor": 18,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 2,
+          "below_floor": 19,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_B": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 23,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 0,
+          "below_floor": 21,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_C": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 24,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 0,
+          "below_floor": 25,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_D": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 22,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 0,
+          "below_floor": 20,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "operational": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 20,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 0,
+          "below_floor": 21,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "rw_alarming": {
+        "rep0": {
+          "above_floor": 13,
+          "below_floor": 7,
+          "items": 52,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 12,
+          "below_floor": 6,
+          "items": 52,
+          "rows_with_error": 0
+        }
+      },
+      "rw_neutral": {
+        "rep0": {
+          "above_floor": 9,
+          "below_floor": 8,
+          "items": 50,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 10,
+          "below_floor": 8,
+          "items": 50,
+          "rows_with_error": 0
+        }
+      },
+      "sentence": {
+        "rep0": {
+          "above_floor": 8,
+          "below_floor": 10,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 8,
+          "below_floor": 11,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      }
+    },
+    "jev-9b-q6": {
+      "f_A": {
+        "rep0": {
+          "above_floor": 2,
+          "below_floor": 8,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_AB": {
+        "rep0": {
+          "above_floor": 3,
+          "below_floor": 7,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_ABCD": {
+        "rep0": {
+          "above_floor": 4,
+          "below_floor": 6,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_B": {
+        "rep0": {
+          "above_floor": 1,
+          "below_floor": 8,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_C": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 9,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_D": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 6,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "operational": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 9,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 0,
+          "below_floor": 9,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "rw_alarming": {
+        "rep0": {
+          "above_floor": 15,
+          "below_floor": 5,
+          "items": 52,
+          "rows_with_error": 0
+        }
+      },
+      "rw_neutral": {
+        "rep0": {
+          "above_floor": 9,
+          "below_floor": 10,
+          "items": 50,
+          "rows_with_error": 0
+        }
+      },
+      "sentence": {
+        "rep0": {
+          "above_floor": 11,
+          "below_floor": 16,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 11,
+          "below_floor": 16,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      }
+    },
+    "jev-api": {
+      "f_A": {
+        "rep0": {
+          "above_floor": 1,
+          "below_floor": 4,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 1,
+          "below_floor": 2,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_AB": {
+        "rep0": {
+          "above_floor": 2,
+          "below_floor": 2,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 2,
+          "below_floor": 2,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_ABCD": {
+        "rep0": {
+          "above_floor": 1,
+          "below_floor": 1,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 2,
+          "below_floor": 2,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_B": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 4,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 1,
+          "below_floor": 5,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_C": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 6,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 0,
+          "below_floor": 5,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_D": {
+        "rep0": {
+          "above_floor": 1,
+          "below_floor": 2,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 1,
+          "below_floor": 2,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "operational": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 6,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 0,
+          "below_floor": 5,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "rw_alarming": {
+        "rep0": {
+          "above_floor": 15,
+          "below_floor": 5,
+          "items": 52,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 16,
+          "below_floor": 5,
+          "items": 52,
+          "rows_with_error": 0
+        }
+      },
+      "rw_neutral": {
+        "rep0": {
+          "above_floor": 11,
+          "below_floor": 5,
+          "items": 50,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 11,
+          "below_floor": 5,
+          "items": 50,
+          "rows_with_error": 0
+        }
+      },
+      "sentence": {
+        "rep0": {
+          "above_floor": 12,
+          "below_floor": 7,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 13,
+          "below_floor": 6,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      }
+    },
+    "jevk5-4b-q4": {
+      "f_A": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 25,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_AB": {
+        "rep0": {
+          "above_floor": 1,
+          "below_floor": 23,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_ABCD": {
+        "rep0": {
+          "above_floor": 2,
+          "below_floor": 29,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_B": {
+        "rep0": {
+          "above_floor": 4,
+          "below_floor": 21,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_C": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 25,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_D": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 26,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "operational": {
+        "rep0": {
+          "above_floor": 2,
+          "below_floor": 23,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 2,
+          "below_floor": 23,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "rw_alarming": {
+        "rep0": {
+          "above_floor": 17,
+          "below_floor": 13,
+          "items": 52,
+          "rows_with_error": 0
+        }
+      },
+      "rw_neutral": {
+        "rep0": {
+          "above_floor": 8,
+          "below_floor": 23,
+          "items": 50,
+          "rows_with_error": 0
+        }
+      },
+      "sentence": {
+        "rep0": {
+          "above_floor": 11,
+          "below_floor": 28,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 11,
+          "below_floor": 28,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      }
+    },
+    "jevk5-4b-q8": {
+      "f_A": {
+        "rep0": {
+          "above_floor": 1,
+          "below_floor": 25,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_AB": {
+        "rep0": {
+          "above_floor": 4,
+          "below_floor": 22,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_ABCD": {
+        "rep0": {
+          "above_floor": 3,
+          "below_floor": 21,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_B": {
+        "rep0": {
+          "above_floor": 3,
+          "below_floor": 22,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_C": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 34,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_D": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 24,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "operational": {
+        "rep0": {
+          "above_floor": 2,
+          "below_floor": 35,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 2,
+          "below_floor": 35,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "rw_alarming": {
+        "rep0": {
+          "above_floor": 20,
+          "below_floor": 8,
+          "items": 52,
+          "rows_with_error": 0
+        }
+      },
+      "rw_neutral": {
+        "rep0": {
+          "above_floor": 12,
+          "below_floor": 17,
+          "items": 50,
+          "rows_with_error": 0
+        }
+      },
+      "sentence": {
+        "rep0": {
+          "above_floor": 14,
+          "below_floor": 22,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 14,
+          "below_floor": 22,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      }
+    },
+    "jevk5-9b-q8": {
+      "f_A": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 27,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_AB": {
+        "rep0": {
+          "above_floor": 2,
+          "below_floor": 13,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_ABCD": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 13,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_B": {
+        "rep0": {
+          "above_floor": 2,
+          "below_floor": 13,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_C": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 25,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "f_D": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 12,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "operational": {
+        "rep0": {
+          "above_floor": 0,
+          "below_floor": 27,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 0,
+          "below_floor": 27,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      },
+      "rw_alarming": {
+        "rep0": {
+          "above_floor": 16,
+          "below_floor": 6,
+          "items": 52,
+          "rows_with_error": 0
+        }
+      },
+      "rw_neutral": {
+        "rep0": {
+          "above_floor": 7,
+          "below_floor": 8,
+          "items": 50,
+          "rows_with_error": 0
+        }
+      },
+      "sentence": {
+        "rep0": {
+          "above_floor": 7,
+          "below_floor": 9,
+          "items": 61,
+          "rows_with_error": 0
+        },
+        "rep1": {
+          "above_floor": 7,
+          "below_floor": 9,
+          "items": 61,
+          "rows_with_error": 0
+        }
+      }
+    }
+  },
+  "design": {
+    "exclusions": {
+      "cases_per_arm": 18,
+      "final_excluded": {
+        "alarming": {},
+        "neutral": {
+          "sit-leak/calm": [
+            "llm_fact_missing: Says drops are present at the hose rather than coming from it, weakening the source relation."
+          ]
+        }
+      },
+      "pass1_failures": {
+        "alarming": {
+          "aircon-window/calm": [
+            "llm_fact_missing: 'Windows closed' strengthened to 'tightly shut and blocked'; adds heat sensation.",
+            "llm_added: sultry/stifling heat felt (후끈한 열기); windows blocked/sealed",
+            "script: length 54/32"
+          ],
+          "aircon-window/danger": [
+            "llm_fact_missing: 'All windows open' strengthened to 'wide open'.",
+            "llm_added: house described as empty (빈집)"
+          ],
+          "cover-cat/calm": [
+            "script: length 35/22"
+          ],
+          "cover-cat/danger": [
+            "llm_added: motion detection persists eerily (섬뜩하리만큼)"
+          ],
+          "heater-cover/calm": [
+            "llm_added: indoor air feels eerily cold (으스스한 냉기)"
+          ],
+          "heater-cover/danger": [
+            "llm_added: towel draped precariously (아슬아슬하게)"
+          ],
+          "humid-empty/calm": [
+            "llm_added: air described as bone-dry (바싹 메마른)",
+            "script: length 44/26"
+          ],
+          "iron-cloth/danger": [
+            "llm_added: iron placement described as eerie (섬뜩하게)"
+          ],
+          "light-baby/calm": [
+            "llm_added: motion detected eerily (섬뜩하게)",
+            "script: length 38/25"
+          ],
+          "light-baby/danger": [
+            "llm_fact_missing: Door 'open' strengthened to 'wide open'; adds mysterious qualifier to the motion.",
+            "llm_added: motion described as mysterious/suspicious (의문의)"
+          ],
+          "media-sleep/calm": [
+            "llm_added: people are engrossed in the movie"
+          ],
+          "media-sleep/danger": [
+            "llm_fact_missing: Door 'open' strengthened to 'wide open'.",
+            "llm_added: person is engrossed in the movie"
+          ],
+          "oven-unattended/calm": [
+            "llm_added: preparation is proceeding urgently/tensely",
+            "script: length 39/21"
+          ],
+          "oven-unattended/danger": [
+            "llm_added: packaging remains precariously/dangerously (위태롭게)"
+          ],
+          "sit-door/calm": [
+            "llm_added: door opening detected eerily (섬뜩하게)"
+          ],
+          "sit-door/danger": [
+            "llm_added: movement described as eerie (섬뜩한); movement is 'burrowing/intruding' into the living room"
+          ],
+          "sit-gas/calm": [
+            "llm_added: alarm described as emergency alarm bursting out (비상 경보가 터짐)"
+          ],
+          "sit-gas/danger": [
+            "llm_fact_missing: 'Continues to rise' became 'keeps surging (치솟음)', stronger degree; adds emergency framing.",
+            "llm_added: alarm sounding without stopping (emergency); candle blazing (타오르고)"
+          ],
+          "sit-high_temp/calm": [
+            "llm_added: reading evaluated as lethal (살인적인)"
+          ],
+          "sit-high_temp/danger": [
+            "llm_added: rise is uncontrollable (걷잡을 수 없이)"
+          ],
+          "sit-leak/calm": [
+            "llm_added: drops leak ominously (불길하게); emergency alarm framing",
+            "script: entities_added 불길"
+          ],
+          "sit-leak/danger": [
+            "llm_added: water spreading threateningly (위협적으로); emergency alarm framing"
+          ],
+          "sit-lock/calm": [
+            "llm_added: battery level evaluated as 'only' 15%; emergency alarm framing"
+          ],
+          "sit-lock/danger": [
+            "llm_added: handle shaken roughly/violently"
+          ],
+          "sit-oven/calm": [
+            "llm_added: oven heating continuously without pause; described as high heat (고열)"
+          ],
+          "sit-oven/danger": [
+            "llm_fact_missing: 'Smoke coming out' became 'gushing out' and 'rising' became 'uncontrollably rising'.",
+            "llm_added: oven heating without rest"
+          ],
+          "sit-smoke/calm": [
+            "llm_added: alarm sound described as emergency alarm bursting out (비상 경보음이 터져 나옴)"
+          ],
+          "sit-smoke/danger": [
+            "llm_fact_missing: 'Continues to rise' became 'soaring (치솟고)'; adds acrid smell attribute.",
+            "llm_added: burning smell is acrid (매캐한); emergency alarm sounding"
+          ],
+          "sit-water_main/calm": [
+            "llm_added: anomaly described as ominous/unusual (심상치 않은); emergency alarm sounding"
+          ],
+          "sit-water_main/danger": [
+            "llm_added: flooding is uncontrollable (걷잡을 수 없이); water rise is threatening"
+          ],
+          "vacuum-mess/calm": [
+            "llm_added: house described as empty (빈집)",
+            "script: length 50/31"
+          ],
+          "vacuum-mess/danger": [
+            "llm_added: traces described as terrible/awful (끔찍하게)"
+          ],
+          "washer-leak/danger": [
+            "llm_added: emergency alarm framing; water pooled copiously (흥건히)"
+          ]
+        },
+        "neutral": {
+          "sit-door/danger": [
+            "llm_fact_missing: 'Unfamiliar movement' changed to 'unidentified movement'; also 'to the living room' became 'toward the living room'."
+          ],
+          "sit-gas/calm": [
+            "script: numbers [] vs ['1']"
+          ],
+          "sit-high_temp/danger": [
+            "llm_fact_missing: 'Rose sharply' weakened to plain '상승' (rise); sharpness lost."
+          ],
+          "sit-smoke/calm": [
+            "script: numbers [] vs ['1']"
+          ],
+          "sit-water_main/danger": [
+            "llm_fact_missing: 'Flow surging (급증)' weakened to plain 'increase (증가)'."
+          ],
+          "washer-leak/danger": [
+            "llm_fact_missing: 'Flood alarm (침수 경보)' reduced to plain 'alarm', dropping the flood qualifier."
+          ]
+        }
+      }
+    },
+    "tone_mean_by_pass": {
+      "pass1": {
+        "alarming": 3.277778,
+        "neutral": 1.083333
+      },
+      "pass2": {
+        "alarming": 3.909091,
+        "neutral": 1.181818
+      }
+    }
+  },
+  "judges": [
+    "jevk5-9b-q8",
+    "jevk5-4b-q8",
+    "jevk5-4b-q4",
+    "apus-openjev-4b-q4",
+    "jev-9b-q6",
+    "jev-api",
+    "haiku",
+    "gemini"
+  ],
+  "note": "Exploratory cycle-4 unit. No model answer or draft label is ground truth; primary metrics are label-free (answer above/below the floor).",
+  "rule_vs_models": {
+    "arms": {
+      "f_A": {
+        "items": 61,
+        "models": {
+          "apus-openjev-4b-q4": {
+            "above_floor": 1,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 22,
+            "below_floor": 12,
+            "items_compared": 61
+          },
+          "gemini": {
+            "above_floor": 1,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 19,
+            "below_floor": 0,
+            "items_compared": 61
+          },
+          "haiku": {
+            "above_floor": 1,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 23,
+            "below_floor": 11,
+            "items_compared": 61
+          },
+          "jev-9b-q6": {
+            "above_floor": 2,
+            "add5": {
+              "miss_ci95": [
+                0.595397,
+                0.983424
+              ],
+              "miss_rate": 0.866667,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 21,
+            "below_floor": 8,
+            "items_compared": 61
+          },
+          "jev-api": {
+            "above_floor": 1,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 22,
+            "below_floor": 4,
+            "items_compared": 61
+          },
+          "jevk5-4b-q4": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 34,
+            "below_floor": 25,
+            "items_compared": 61
+          },
+          "jevk5-4b-q8": {
+            "above_floor": 1,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 33,
+            "below_floor": 25,
+            "items_compared": 61
+          },
+          "jevk5-9b-q8": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 30,
+            "below_floor": 27,
+            "items_compared": 61
+          }
+        },
+        "models_median_above_floor": 1.0,
+        "models_median_miss": 0.933333,
+        "models_median_over_raise": 0.0,
+        "rule_above_floor": 1,
+        "rule_add5": {
+          "miss_ci95": [
+            0.680515,
+            0.998314
+          ],
+          "miss_rate": 0.933333,
+          "over_raise_ci95": [
+            0.0,
+            0.218019
+          ],
+          "over_raise_rate": 0.0
+        },
+        "rule_add5_pairs": 15,
+        "rule_below_floor": 42,
+        "rule_matches_or_beats_models_draft_label_dependent": true
+      },
+      "f_AB": {
+        "items": 61,
+        "models": {
+          "apus-openjev-4b-q4": {
+            "above_floor": 2,
+            "add5": {
+              "miss_ci95": [
+                0.595397,
+                0.983424
+              ],
+              "miss_rate": 0.866667,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 19,
+            "below_floor": 10,
+            "items_compared": 61
+          },
+          "gemini": {
+            "above_floor": 1,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 15,
+            "below_floor": 0,
+            "items_compared": 61
+          },
+          "haiku": {
+            "above_floor": 1,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 19,
+            "below_floor": 19,
+            "items_compared": 61
+          },
+          "jev-9b-q6": {
+            "above_floor": 3,
+            "add5": {
+              "miss_ci95": [
+                0.519109,
+                0.956688
+              ],
+              "miss_rate": 0.8,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 17,
+            "below_floor": 7,
+            "items_compared": 61
+          },
+          "jev-api": {
+            "above_floor": 2,
+            "add5": {
+              "miss_ci95": [
+                0.595397,
+                0.983424
+              ],
+              "miss_rate": 0.866667,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 15,
+            "below_floor": 2,
+            "items_compared": 61
+          },
+          "jevk5-4b-q4": {
+            "above_floor": 1,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 31,
+            "below_floor": 23,
+            "items_compared": 61
+          },
+          "jevk5-4b-q8": {
+            "above_floor": 4,
+            "add5": {
+              "miss_ci95": [
+                0.448997,
+                0.922128
+              ],
+              "miss_rate": 0.733333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 33,
+            "below_floor": 22,
+            "items_compared": 61
+          },
+          "jevk5-9b-q8": {
+            "above_floor": 2,
+            "add5": {
+              "miss_ci95": [
+                0.595397,
+                0.983424
+              ],
+              "miss_rate": 0.866667,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 24,
+            "below_floor": 13,
+            "items_compared": 61
+          }
+        },
+        "models_median_above_floor": 2.0,
+        "models_median_miss": 0.866667,
+        "models_median_over_raise": 0.0,
+        "rule_above_floor": 4,
+        "rule_add5": {
+          "miss_ci95": [
+            0.448997,
+            0.922128
+          ],
+          "miss_rate": 0.733333,
+          "over_raise_ci95": [
+            0.0,
+            0.218019
+          ],
+          "over_raise_rate": 0.0
+        },
+        "rule_add5_pairs": 15,
+        "rule_below_floor": 43,
+        "rule_matches_or_beats_models_draft_label_dependent": true
+      },
+      "f_ABCD": {
+        "items": 61,
+        "models": {
+          "apus-openjev-4b-q4": {
+            "above_floor": 2,
+            "add5": {
+              "miss_ci95": [
+                0.595397,
+                0.983424
+              ],
+              "miss_rate": 0.866667,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 18,
+            "below_floor": 7,
+            "items_compared": 61
+          },
+          "gemini": {
+            "above_floor": 1,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 17,
+            "below_floor": 1,
+            "items_compared": 61
+          },
+          "haiku": {
+            "above_floor": 1,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 19,
+            "below_floor": 18,
+            "items_compared": 61
+          },
+          "jev-9b-q6": {
+            "above_floor": 4,
+            "add5": {
+              "miss_ci95": [
+                0.448997,
+                0.922128
+              ],
+              "miss_rate": 0.733333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 16,
+            "below_floor": 6,
+            "items_compared": 61
+          },
+          "jev-api": {
+            "above_floor": 1,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 16,
+            "below_floor": 1,
+            "items_compared": 61
+          },
+          "jevk5-4b-q4": {
+            "above_floor": 2,
+            "add5": {
+              "miss_ci95": [
+                0.595397,
+                0.983424
+              ],
+              "miss_rate": 0.866667,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 33,
+            "below_floor": 29,
+            "items_compared": 61
+          },
+          "jevk5-4b-q8": {
+            "above_floor": 3,
+            "add5": {
+              "miss_ci95": [
+                0.519109,
+                0.956688
+              ],
+              "miss_rate": 0.8,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 33,
+            "below_floor": 21,
+            "items_compared": 61
+          },
+          "jevk5-9b-q8": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 18,
+            "below_floor": 13,
+            "items_compared": 61
+          }
+        },
+        "models_median_above_floor": 1.5,
+        "models_median_miss": 0.9,
+        "models_median_over_raise": 0.0,
+        "rule_above_floor": 4,
+        "rule_add5": {
+          "miss_ci95": [
+            0.448997,
+            0.922128
+          ],
+          "miss_rate": 0.733333,
+          "over_raise_ci95": [
+            0.0,
+            0.218019
+          ],
+          "over_raise_rate": 0.0
+        },
+        "rule_add5_pairs": 15,
+        "rule_below_floor": 42,
+        "rule_matches_or_beats_models_draft_label_dependent": true
+      },
+      "f_B": {
+        "items": 61,
+        "models": {
+          "apus-openjev-4b-q4": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 11,
+            "below_floor": 6,
+            "items_compared": 61
+          },
+          "gemini": {
+            "above_floor": 1,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 17,
+            "below_floor": 1,
+            "items_compared": 61
+          },
+          "haiku": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 16,
+            "below_floor": 23,
+            "items_compared": 61
+          },
+          "jev-9b-q6": {
+            "above_floor": 1,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 16,
+            "below_floor": 8,
+            "items_compared": 61
+          },
+          "jev-api": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 17,
+            "below_floor": 4,
+            "items_compared": 61
+          },
+          "jevk5-4b-q4": {
+            "above_floor": 4,
+            "add5": {
+              "miss_ci95": [
+                0.519109,
+                0.956688
+              ],
+              "miss_rate": 0.8,
+              "over_raise_ci95": [
+                0.001686,
+                0.319485
+              ],
+              "over_raise_rate": 0.066667
+            },
+            "answer_equal_to_rule": 26,
+            "below_floor": 21,
+            "items_compared": 61
+          },
+          "jevk5-4b-q8": {
+            "above_floor": 3,
+            "add5": {
+              "miss_ci95": [
+                0.519109,
+                0.956688
+              ],
+              "miss_rate": 0.8,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 32,
+            "below_floor": 22,
+            "items_compared": 61
+          },
+          "jevk5-9b-q8": {
+            "above_floor": 2,
+            "add5": {
+              "miss_ci95": [
+                0.595397,
+                0.983424
+              ],
+              "miss_rate": 0.866667,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 18,
+            "below_floor": 13,
+            "items_compared": 61
+          }
+        },
+        "models_median_above_floor": 1.0,
+        "models_median_miss": 0.933333,
+        "models_median_over_raise": 0.0,
+        "rule_above_floor": 4,
+        "rule_add5": {
+          "miss_ci95": [
+            0.448997,
+            0.922128
+          ],
+          "miss_rate": 0.733333,
+          "over_raise_ci95": [
+            0.0,
+            0.218019
+          ],
+          "over_raise_rate": 0.0
+        },
+        "rule_add5_pairs": 15,
+        "rule_below_floor": 40,
+        "rule_matches_or_beats_models_draft_label_dependent": true
+      },
+      "f_C": {
+        "items": 61,
+        "models": {
+          "apus-openjev-4b-q4": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 13,
+            "below_floor": 13,
+            "items_compared": 61
+          },
+          "gemini": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 13,
+            "below_floor": 0,
+            "items_compared": 61
+          },
+          "haiku": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 15,
+            "below_floor": 24,
+            "items_compared": 61
+          },
+          "jev-9b-q6": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 11,
+            "below_floor": 9,
+            "items_compared": 61
+          },
+          "jev-api": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 13,
+            "below_floor": 6,
+            "items_compared": 61
+          },
+          "jevk5-4b-q4": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 23,
+            "below_floor": 25,
+            "items_compared": 61
+          },
+          "jevk5-4b-q8": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 32,
+            "below_floor": 34,
+            "items_compared": 61
+          },
+          "jevk5-9b-q8": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 27,
+            "below_floor": 25,
+            "items_compared": 61
+          }
+        },
+        "models_median_above_floor": 0.0,
+        "models_median_miss": 1.0,
+        "models_median_over_raise": 0.0,
+        "rule_above_floor": 1,
+        "rule_add5": {
+          "miss_ci95": [
+            0.680515,
+            0.998314
+          ],
+          "miss_rate": 0.933333,
+          "over_raise_ci95": [
+            0.0,
+            0.218019
+          ],
+          "over_raise_rate": 0.0
+        },
+        "rule_add5_pairs": 15,
+        "rule_below_floor": 47,
+        "rule_matches_or_beats_models_draft_label_dependent": true
+      },
+      "f_D": {
+        "items": 61,
+        "models": {
+          "apus-openjev-4b-q4": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 11,
+            "below_floor": 12,
+            "items_compared": 61
+          },
+          "gemini": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 13,
+            "below_floor": 0,
+            "items_compared": 61
+          },
+          "haiku": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 14,
+            "below_floor": 22,
+            "items_compared": 61
+          },
+          "jev-9b-q6": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 11,
+            "below_floor": 6,
+            "items_compared": 61
+          },
+          "jev-api": {
+            "above_floor": 1,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 12,
+            "below_floor": 2,
+            "items_compared": 61
+          },
+          "jevk5-4b-q4": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 23,
+            "below_floor": 26,
+            "items_compared": 61
+          },
+          "jevk5-4b-q8": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 24,
+            "below_floor": 24,
+            "items_compared": 61
+          },
+          "jevk5-9b-q8": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 14,
+            "below_floor": 12,
+            "items_compared": 61
+          }
+        },
+        "models_median_above_floor": 0.0,
+        "models_median_miss": 1.0,
+        "models_median_over_raise": 0.0,
+        "rule_above_floor": 1,
+        "rule_add5": {
+          "miss_ci95": [
+            0.680515,
+            0.998314
+          ],
+          "miss_rate": 0.933333,
+          "over_raise_ci95": [
+            0.0,
+            0.218019
+          ],
+          "over_raise_rate": 0.0
+        },
+        "rule_add5_pairs": 15,
+        "rule_below_floor": 47,
+        "rule_matches_or_beats_models_draft_label_dependent": true
+      },
+      "operational": {
+        "items": 61,
+        "models": {
+          "apus-openjev-4b-q4": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 18,
+            "below_floor": 17,
+            "items_compared": 61
+          },
+          "gemini": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 13,
+            "below_floor": 1,
+            "items_compared": 61
+          },
+          "haiku": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 21,
+            "below_floor": 20,
+            "items_compared": 61
+          },
+          "jev-9b-q6": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 10,
+            "below_floor": 9,
+            "items_compared": 61
+          },
+          "jev-api": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 13,
+            "below_floor": 6,
+            "items_compared": 61
+          },
+          "jevk5-4b-q4": {
+            "above_floor": 2,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.001686,
+                0.319485
+              ],
+              "over_raise_rate": 0.066667
+            },
+            "answer_equal_to_rule": 20,
+            "below_floor": 23,
+            "items_compared": 61
+          },
+          "jevk5-4b-q8": {
+            "above_floor": 2,
+            "add5": {
+              "miss_ci95": [
+                0.680515,
+                0.998314
+              ],
+              "miss_rate": 0.933333,
+              "over_raise_ci95": [
+                0.001686,
+                0.319485
+              ],
+              "over_raise_rate": 0.066667
+            },
+            "answer_equal_to_rule": 30,
+            "below_floor": 35,
+            "items_compared": 61
+          },
+          "jevk5-9b-q8": {
+            "above_floor": 0,
+            "add5": {
+              "miss_ci95": [
+                0.781981,
+                1.0
+              ],
+              "miss_rate": 1.0,
+              "over_raise_ci95": [
+                0.0,
+                0.218019
+              ],
+              "over_raise_rate": 0.0
+            },
+            "answer_equal_to_rule": 28,
+            "below_floor": 27,
+            "items_compared": 61
+          }
+        },
+        "models_median_above_floor": 0.0,
+        "models_median_miss": 1.0,
+        "models_median_over_raise": 0.0,
+        "rule_above_floor": 0,
+        "rule_add5": {
+          "miss_ci95": [
+            0.781981,
+            1.0
+          ],
+          "miss_rate": 1.0,
+          "over_raise_ci95": [
+            0.0,
+            0.218019
+          ],
+          "over_raise_rate": 0.0
+        },
+        "rule_add5_pairs": 15,
+        "rule_below_floor": 48,
+        "rule_matches_or_beats_models_draft_label_dependent": true
+      }
+    },
+    "note": "ADD-5 uses author-built pairs and the draft pair design: marked draft-label dependent"
+  }
+}

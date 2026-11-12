@@ -1,0 +1,200 @@
+{
+ "r01": {
+  "case": "sit-lock/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r02": {
+  "case": "media-sleep/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r03": {
+  "case": "sit-water_main/calm",
+  "neutral": [],
+  "alarming": []
+ },
+ "r04": {
+  "case": "oven-unattended/calm",
+  "neutral": [],
+  "alarming": [
+   "length 39/21"
+  ]
+ },
+ "r05": {
+  "case": "cover-cat/calm",
+  "neutral": [],
+  "alarming": [
+   "length 35/22"
+  ]
+ },
+ "r06": {
+  "case": "sit-lock/calm",
+  "neutral": [],
+  "alarming": []
+ },
+ "r07": {
+  "case": "vacuum-mess/calm",
+  "neutral": [],
+  "alarming": [
+   "length 50/31"
+  ]
+ },
+ "r08": {
+  "case": "sit-high_temp/calm",
+  "neutral": [],
+  "alarming": []
+ },
+ "r09": {
+  "case": "iron-cloth/calm",
+  "neutral": [],
+  "alarming": []
+ },
+ "r10": {
+  "case": "iron-cloth/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r11": {
+  "case": "light-baby/calm",
+  "neutral": [],
+  "alarming": [
+   "length 38/25"
+  ]
+ },
+ "r12": {
+  "case": "sit-oven/calm",
+  "neutral": [],
+  "alarming": []
+ },
+ "r13": {
+  "case": "sit-high_temp/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r14": {
+  "case": "vacuum-mess/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r15": {
+  "case": "sit-door/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r16": {
+  "case": "oven-unattended/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r17": {
+  "case": "cover-cat/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r18": {
+  "case": "aircon-window/calm",
+  "neutral": [],
+  "alarming": [
+   "length 54/32"
+  ]
+ },
+ "r19": {
+  "case": "sit-oven/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r20": {
+  "case": "aircon-window/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r21": {
+  "case": "sit-smoke/calm",
+  "neutral": [
+   "numbers [] vs ['1']"
+  ],
+  "alarming": []
+ },
+ "r22": {
+  "case": "media-sleep/calm",
+  "neutral": [],
+  "alarming": []
+ },
+ "r23": {
+  "case": "sit-gas/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r24": {
+  "case": "sit-smoke/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r25": {
+  "case": "washer-leak/calm",
+  "neutral": [],
+  "alarming": []
+ },
+ "r26": {
+  "case": "heater-cover/calm",
+  "neutral": [],
+  "alarming": []
+ },
+ "r27": {
+  "case": "sit-water_main/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r28": {
+  "case": "light-baby/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r29": {
+  "case": "sit-leak/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r30": {
+  "case": "sit-leak/calm",
+  "neutral": [],
+  "alarming": [
+   "entities_added 불길"
+  ]
+ },
+ "r31": {
+  "case": "heater-cover/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r32": {
+  "case": "sit-door/calm",
+  "neutral": [],
+  "alarming": []
+ },
+ "r33": {
+  "case": "humid-empty/calm",
+  "neutral": [],
+  "alarming": [
+   "length 44/26"
+  ]
+ },
+ "r34": {
+  "case": "sit-gas/calm",
+  "neutral": [
+   "numbers [] vs ['1']"
+  ],
+  "alarming": []
+ },
+ "r35": {
+  "case": "washer-leak/danger",
+  "neutral": [],
+  "alarming": []
+ },
+ "r36": {
+  "case": "humid-empty/danger",
+  "neutral": [],
+  "alarming": []
+ }
+}
