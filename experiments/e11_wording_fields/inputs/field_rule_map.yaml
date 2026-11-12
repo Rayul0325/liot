@@ -1,0 +1,89 @@
+version: 1
+
+kind_h:
+  door_contact:
+    h: 1
+    why: "Front door opened is an unconfirmed signal that is often a resident coming home; inconvenience-level unless combined with other alarms."
+  gas:
+    h: 3
+    why: "Gas leak is an explosion and poisoning threat to life right now."
+  humidity:
+    h: 1
+    why: "Abnormal humidity is a comfort or mold-risk anomaly, minor and slow-acting."
+  lock_battery:
+    h: 1
+    why: "Low lock battery is a maintenance alarm."
+  lock_tamper:
+    h: 2
+    why: "Tampered or damaged door lock is a break-in precursor and security-equipment failure, but not yet a confirmed intrusion."
+  motion:
+    h: 1
+    why: "Unfamiliar motion is an unconfirmed signal that may be a pet or family member."
+  smoke:
+    h: 3
+    why: "Smoke indicates fire, an ongoing threat to life."
+  temperature:
+    h: 2
+    why: "Extreme temperature reading is an equipment-failure or damage precursor (heater fault, freezing pipes); life threat only when rising or persistent, handled by deltas."
+  water_flow:
+    h: 2
+    why: "Water main flow anomaly signals a burst pipe or running fixture, property damage precursor."
+  water_leak:
+    h: 2
+    why: "Leak detector alarm is a clear property-damage precursor, not an immediate threat to life."
+  other:
+    h: 1
+    why: "Unknown sensor kind is treated as a minor or unconfirmed anomaly."
+
+base_if_kinds_absent:
+  sensor_reading:
+    h: 2
+    why: "An alarm or abnormal reading arrived but its kind is unknown; assume a clear precursor-level event without evidence of immediate danger."
+  proactive:
+    h: 0
+    why: "A routine convenience suggestion with no alarm carries no hazard."
+
+rate_delta:
+  rising_fast:
+    d: 1
+    why: "Rapidly worsening reading suggests escalation toward a threat."
+  rising:
+    d: 1
+    why: "A worsening reading raises urgency."
+  falling:
+    d: -1
+    why: "An improving reading lowers urgency."
+  steady:
+    d: 0
+    why: "No change in the reading; no adjustment."
+  unknown:
+    d: 0
+    why: "No direction information; no adjustment."
+
+concurrent_delta:
+  "0":
+    d: 0
+    why: "No anomalous sensor; no adjustment."
+  "1":
+    d: 0
+    why: "A single anomaly is already captured by its kind score."
+  "2":
+    d: 1
+    why: "Two simultaneous anomalies corroborate each other and raise the hazard."
+  "3plus":
+    d: 1
+    why: "Three or more simultaneous anomalies strongly corroborate a real event."
+
+duration_delta:
+  lt10m:
+    d: 0
+    why: "Fresh condition; kind score applies as is."
+  10to60m:
+    d: 0
+    why: "Moderate persistence; no adjustment."
+  gt60m:
+    d: 1
+    why: "A long-persisting abnormal condition is unresolved and more dangerous or more damaging."
+  unknown:
+    d: 0
+    why: "No duration information; no adjustment."
