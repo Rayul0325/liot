@@ -303,7 +303,7 @@ PLANE_POLICIES = [
     ("binary_ext", "이진 승인 (외부 목록)", "alt", "^"),
     ("binary_opt", "이진 승인 (사후 최적 목록)", "alt", "v"),
     ("auto_all", "모두 자동", "alt", "X"),
-    ("auto_undo_w15", "자동 + 되돌리기 15분", "alt", "P"),
+    ("auto_undo_w15", "자동+되돌리기 15분", "alt", "P"),
     ("liot_full", "LIOT 4단계(가상)", "liot", "o"),
     ("liot_real", "LIOT 실제(능동 상한)†", "liot_struct", "D"),
 ]
@@ -322,9 +322,9 @@ LABEL_POS: dict[str, tuple[float, float, str]] = {
     # policy -> (x, y, ha) of the label text in data coordinates (arrow to the point)
     "flat_explicit": (13.2, 0.13, "right"),
     "binary_ext": (2.0, 0.93, "left"),
-    "binary_opt": (7.2, 0.19, "right"),
+    "binary_opt": (7.6, 0.13, "center"),
     "auto_all": (0.5, 1.0, "left"),
-    "auto_undo_w15": (0.3, 0.6, "left"),
+    "auto_undo_w15": (0.05, 0.3, "left"),
     "liot_full": (9.9, 0.05, "center"),
     "liot_real": (3.9, 0.04, "left"),
 }
@@ -386,7 +386,18 @@ def f04() -> list[Any]:
             for p in zip(tx, ty, strict=True):
                 pts.append(p)
                 names.append(f"theta{sig}")
-            ax.text(4.3 if sig == "0.0" else 6.0, 0.27 if sig == "0.0" else 0.65, lab, fontsize=6.3, color=ps.G_DARK, ha="left", va="center")
+            lx, ly, ia = (3.7, 0.24, 4) if sig == "0.0" else (8.4, 0.72, 6)
+            ax.annotate(
+                lab,
+                (tx[ia], ty[ia]),
+                xytext=(lx, ly),
+                textcoords="data",
+                fontsize=6.3,
+                color=ps.G_DARK,
+                ha="left",
+                va="center",
+                arrowprops={"arrowstyle": "-", "lw": 0.4, "color": ps.G_LIGHT, "shrinkA": 1, "shrinkB": 2},
+            )
         arr = np.array(pts)
         front = _pareto_mask(arr)
         fp = arr[front]

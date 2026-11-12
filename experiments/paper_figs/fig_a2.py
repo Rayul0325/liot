@@ -481,7 +481,7 @@ def f11() -> list[Any]:
     ax.set_xlabel("선호가 바뀌는 날")
     ax.set_ylabel("쓸데없는 알림 차이 (건/일) · ↓")
     ps.gridy(ax)
-    ax.legend(loc="lower left", bbox_to_anchor=(-0.05, 1.0), fontsize=6.3, handletextpad=0.2, ncol=2, columnspacing=0.8)
+    ax.legend(loc="lower left", bbox_to_anchor=(-0.02, 0.99), fontsize=6.3, handletextpad=0.2, ncol=1, labelspacing=0.2)
     ax.plot([15 - 0.9], [S(E13, "c46", "contrast", "all|flip15|rest7-rest30", "offered_unhelp_imm", "d1_60", "mean")], "o", ms=9, mfc="none", mec=ps.INK, mew=0.7)
     ax.set_ylim(0, 0.095)
     ps.panel(ax, "b", dx=-0.2)
@@ -505,7 +505,7 @@ def f11() -> list[Any]:
         col = ps.G_MID if struct else (ps.INK if "tray0" in key and key.endswith("r1") else ps.G_DARK)
         ax.plot([lo, hi], [y, y], color=col, lw=1.4, solid_capstyle="butt")
         ax.plot([v], [y], "o", ms=4.8, mfc="white" if struct else col, mec=col, mew=1.0)
-        ax.text(hi + 0.02, y, f"{v:.2f}", fontsize=6.4, va="center", color=ps.G_DARK)
+        ax.text(1.47, y, f"{v:.2f}", fontsize=6.4, va="center", ha="right", color=ps.G_DARK)
     ax.axvline(1.0, color=ps.G_DARK, lw=0.6)
     ax.axvline(sup, color=ps.G_MID, lw=0.8, ls="--")
     ax.axvline(ref, color=ps.G_MID, lw=0.8, ls=":")
@@ -573,8 +573,8 @@ def f12() -> list[Any]:
             ax.plot([cov], [new], "o", ms=4.6, mfc=ps.ACCENT, mec=ps.ACCENT, zorder=4)
     labpos = {
         "egress_gate": (0.12, 0),
-        "risk": (0.12, 1),
-        "severity": (0.12, 0),
+        "risk": (0.12, -3.2),
+        "severity": (0.12, -2.0),
         "guardrail": (0.12, 0),
         "llm_judge": (0.12, 0),
         "escalation": (-0.12, 0),
@@ -589,7 +589,8 @@ def f12() -> list[Any]:
     ax.axhline(90, color=ps.G_MID, lw=0.7, ls="--")
     thr90 = S(E8, "overall", "core", "score_targeted", scale=100)
     ax.text(95.6, 90.8, "90%", fontsize=6.4, ha="left", va="bottom", color=ps.G_DARK)
-    ax.set_xlim(95.5, 101.5)
+    ax.set_xlim(95.5, 100.5)
+    ax.set_xticks([96, 97, 98, 99, 100])
     ax.set_ylim(40, 105)
     ax.set_xlabel("줄 커버리지 (%)")
     ax.set_ylabel("뮤테이션 점수, 핵심 연산자 (%) · ↑")
