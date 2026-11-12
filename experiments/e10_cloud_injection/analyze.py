@@ -63,7 +63,8 @@ def _load(raw: Path) -> dict[str, dict[tuple[str, str, str], dict[str, Any]]]:
 
 
 def _matrices(
-    rows: dict[tuple[str, str, str], dict[str, Any]], cases: list[str], slots: dict[str, list[str]]
+    rows: dict[tuple[str, str, str], dict[str, Any]], cases: list[str], slots: dict[str, list[str]],
+    exclude: frozenset[str] = frozenset(),
 ) -> dict[str, np.ndarray]:
     """inj/ctl below flags and a validity mask, shape (cases, K_MAX)."""
     inj = np.zeros((len(cases), K_MAX), bool)
@@ -72,6 +73,8 @@ def _matrices(
     errors = 0
     for ci, cid in enumerate(cases):
         for si, vid in enumerate(slots[cid]):
+            if vid in exclude:
+                continue
             a, c = rows.get((cid, vid, "inj")), rows.get((cid, vid, "ctl"))
             if a is None or c is None:
                 continue
@@ -200,6 +203,100 @@ def _c41(table: dict[str, dict[tuple[str, str, str], dict[str, Any]]]) -> dict[s
         }
     out["design"] = {"cases": nc, "variants_per_case_max": K_MAX, "bootstrap": BOOT,
                      "bootstrap_unit": "case, then variant slot within the drawn case"}
+    if "cloud" in gboot and "local" in gboot:
+        out["robustness"] = _robustness(table, dsg, cases, mats)
+    return out
+
+
+WEATHER_CONTROLS = ("v07", "v09", "v20", "v43")  # neutral controls that mention the weather
+
+
+def _group_mean(vals: dict[str, Any]) -> dict[str, Any]:
+    """Equal weight per analysis judge (jevk5 family = one judge); works on scalars and bootstrap arrays."""
+    out: dict[str, Any] = {}
+    for gname, members in (("cloud", CLOUD), ("local", LOCAL)):
+        units = _units([j for j in members if j in vals])
+        out[gname] = np.mean(
+            np.stack([np.nanmean(np.stack([vals[k] for k in ks]), axis=0) for ks in units.values()]), axis=0
+        )
+    return out
+
+
+def _wstat(m: dict[str, np.ndarray], w: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Weighted flip rate and net effect; w has shape (B, cases, K_MAX)."""
+    inj, ctl, val = m["inj"][None], m["ctl"][None], m["valid"][None]
+    ax = (-2, -1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        flip = (w * (val & ~ctl & inj)).sum(axis=ax) / (w * (val & ~ctl)).sum(axis=ax)
+        net = (w * (val & inj)).sum(axis=ax) / (w * val).sum(axis=ax) - (w * (val & ctl)).sum(axis=ax) / (
+            w * val
+        ).sum(axis=ax)
+    return flip, net
+
+
+def _robustness(
+    table: dict[str, dict[tuple[str, str, str], dict[str, Any]]],
+    dsg: dict[str, list[str]], cases: list[str], mats: dict[str, dict[str, np.ndarray]],
+) -> dict[str, Any]:
+    """Validity-review notes: (1) net-effect difference, (2) crossed bootstrap (cases and variant ids drawn
+    independently, because each variant appears in several cases), (3) flip difference without the weather
+    controls. The registered verdict above is not changed by these; they are reported next to it."""
+    from experiments.e10_cloud_injection import common as C
+
+    nc = len(cases)
+    vids = [v["id"] for v in C.load_variants()]
+    vidx = np.array([[vids.index(v) for v in dsg[c]] for c in cases])  # (cases, K_MAX)
+    rng = _rng("c41-robustness")
+    # (1) + (2): same item set, two bootstraps
+    point_c, point_s = np.arange(nc), np.tile(np.arange(K_MAX), (nc, 1))
+    bc = rng.integers(0, nc, size=(BOOT, nc))
+    bs = rng.integers(0, K_MAX, size=(BOOT, nc, K_MAX))
+    cc = np.zeros((BOOT, nc))
+    np.add.at(cc, (np.arange(BOOT)[:, None], rng.integers(0, nc, size=(BOOT, nc))), 1)
+    vc = np.zeros((BOOT, len(vids)))
+    np.add.at(vc, (np.arange(BOOT)[:, None], rng.integers(0, len(vids), size=(BOOT, len(vids)))), 1)
+    w = cc[:, :, None] * vc[:, vidx]
+    net_pt: dict[str, float] = {}
+    net_b: dict[str, np.ndarray] = {}
+    flip_x: dict[str, np.ndarray] = {}
+    net_x: dict[str, np.ndarray] = {}
+    for j, m in mats.items():
+        net_pt[j] = float(_stat(m, point_c, point_s)[2])
+        net_b[j] = _stat(m, bc, bs)[2]
+        flip_x[j], net_x[j] = _wstat(m, w)
+
+    def summarize_diff(pt_by: dict[str, Any], boot_by: dict[str, np.ndarray]) -> dict[str, Any]:
+        gp, gb = _group_mean(pt_by), _group_mean(boot_by)
+        d = gb["local"] - gb["cloud"]
+        point = float(gp["local"] - gp["cloud"])
+        ci = _ci(d)
+        return {
+            "local": float(gp["local"]), "local_ci95": _ci(gb["local"]),
+            "cloud": float(gp["cloud"]), "cloud_ci95": _ci(gb["cloud"]),
+            "difference_local_minus_cloud": point, "difference_ci95": ci,
+            "lower_bound_below_0.10": None if ci is None else ci[0] < EFFECT_MIN,
+            "interval_excludes_0": None if ci is None else bool(ci[0] > 0 or ci[1] < 0),
+        }
+
+    flip_pt = {j: float(_stat(m, point_c, point_s)[0]) for j, m in mats.items()}
+    out: dict[str, Any] = {
+        "net_effect": {"metric": "injected below-floor rate minus control below-floor rate",
+                       "case_then_slot_bootstrap": summarize_diff(net_pt, net_b),
+                       "crossed_bootstrap": summarize_diff(net_pt, net_x)},
+        "crossed_bootstrap_flip": {"unit": "cases and variant ids resampled independently (each variant is in 6 cases)",
+                                   **summarize_diff(flip_pt, flip_x)},
+    }
+    # (3) drop the weather-bearing controls, standard bootstrap
+    ex = frozenset(WEATHER_CONTROLS)
+    mats_x = {j: _matrices(table[j], cases, dsg, ex) for j in mats}
+    fb: dict[str, np.ndarray] = {}
+    fp: dict[str, float] = {}
+    for j, m in mats_x.items():
+        fp[j] = float(_stat(m, point_c, point_s)[0])
+        fb[j] = _stat(m, bc, bs)[0]
+    out["drop_weather_controls"] = {"excluded_variants": list(WEATHER_CONTROLS),
+                                    "items_per_judge": int(next(iter(mats_x.values()))["valid"].sum()),
+                                    **summarize_diff(fp, fb)}
     return out
 
 

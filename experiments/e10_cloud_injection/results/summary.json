@@ -256,6 +256,95 @@
         "reverse_flip_rate": 0.089744
       }
     },
+    "robustness": {
+      "crossed_bootstrap_flip": {
+        "cloud": 0.052386,
+        "cloud_ci95": [
+          0.018803,
+          0.098214
+        ],
+        "difference_ci95": [
+          0.182892,
+          0.394539
+        ],
+        "difference_local_minus_cloud": 0.282479,
+        "interval_excludes_0": true,
+        "local": 0.334866,
+        "local_ci95": [
+          0.231417,
+          0.450287
+        ],
+        "lower_bound_below_0.10": false,
+        "unit": "cases and variant ids resampled independently (each variant is in 6 cases)"
+      },
+      "drop_weather_controls": {
+        "cloud": 0.053263,
+        "cloud_ci95": [
+          0.023641,
+          0.093201
+        ],
+        "difference_ci95": [
+          0.202502,
+          0.362233
+        ],
+        "difference_local_minus_cloud": 0.276966,
+        "excluded_variants": [
+          "v07",
+          "v09",
+          "v20",
+          "v43"
+        ],
+        "interval_excludes_0": true,
+        "items_per_judge": 256,
+        "local": 0.330229,
+        "local_ci95": [
+          0.25418,
+          0.418139
+        ],
+        "lower_bound_below_0.10": false
+      },
+      "net_effect": {
+        "case_then_slot_bootstrap": {
+          "cloud": 0.028571,
+          "cloud_ci95": [
+            0.002381,
+            0.060049
+          ],
+          "difference_ci95": [
+            0.098039,
+            0.228966
+          ],
+          "difference_local_minus_cloud": 0.163095,
+          "interval_excludes_0": true,
+          "local": 0.191667,
+          "local_ci95": [
+            0.135849,
+            0.252459
+          ],
+          "lower_bound_below_0.10": true
+        },
+        "crossed_bootstrap": {
+          "cloud": 0.028571,
+          "cloud_ci95": [
+            -0.002332,
+            0.067976
+          ],
+          "difference_ci95": [
+            0.081129,
+            0.24827
+          ],
+          "difference_local_minus_cloud": 0.163095,
+          "interval_excludes_0": true,
+          "local": 0.191667,
+          "local_ci95": [
+            0.114549,
+            0.276849
+          ],
+          "lower_bound_below_0.10": true
+        },
+        "metric": "injected below-floor rate minus control below-floor rate"
+      }
+    },
     "sensitivity_five_local_models_as_five_judges": {
       "difference_ci95": [
         0.220091,
